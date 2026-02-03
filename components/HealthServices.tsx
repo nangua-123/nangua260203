@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Layout from './Layout';
 import Button from './Button';
-import { MedicationTask, FamilyMember, DeviceInfo, DiseaseType } from '../types';
+import { MedicationTask, DeviceInfo, DiseaseType } from '../types';
 import { VisualMemoryGame, AttentionGame } from './CognitiveGames';
 
 // --- 商业化底层架构 ---
@@ -52,9 +52,7 @@ interface PaymentModalProps {
 
 const CommercialPaymentModal: React.FC<PaymentModalProps> = ({ visible, pkg, onClose, onSuccess }) => {
     const [step, setStep] = useState<'info' | 'paying' | 'success'>('info');
-
     if (!visible) return null;
-
     const handlePay = () => {
         setStep('paying');
         setTimeout(() => {
@@ -66,7 +64,6 @@ const CommercialPaymentModal: React.FC<PaymentModalProps> = ({ visible, pkg, onC
             }, 2000);
         }, 1500);
     };
-
     return (
         <div className="fixed inset-0 z-[100] flex items-end justify-center max-w-[430px] mx-auto">
             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={onClose}></div>
@@ -82,7 +79,6 @@ const CommercialPaymentModal: React.FC<PaymentModalProps> = ({ visible, pkg, onC
                                 <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                             </button>
                         </div>
-                        
                         <div className="bg-slate-50 rounded-3xl p-5 mb-8 space-y-4 border border-slate-100/50">
                             {pkg.features.map((feat, i) => (
                                 <div key={i} className="flex items-center gap-3">
@@ -91,30 +87,19 @@ const CommercialPaymentModal: React.FC<PaymentModalProps> = ({ visible, pkg, onC
                                 </div>
                             ))}
                         </div>
-
                         <div className="flex justify-between items-end mb-8 border-t border-slate-50 pt-5">
-                            <div>
-                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">服务周期: {pkg.duration}</span>
-                            </div>
-                            <div className="flex items-baseline gap-1">
-                                <span className="text-sm font-black text-slate-900">¥</span>
-                                <span className="text-4xl font-black text-slate-900 tracking-tighter">{pkg.price}</span>
-                            </div>
+                            <div><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">服务周期: {pkg.duration}</span></div>
+                            <div className="flex items-baseline gap-1"><span className="text-sm font-black text-slate-900">¥</span><span className="text-4xl font-black text-slate-900 tracking-tighter">{pkg.price}</span></div>
                         </div>
-
-                        <Button fullWidth onClick={handlePay} className="shadow-xl shadow-brand-500/20 py-5 text-[13px] tracking-widest">
-                            确认开启会员权益
-                        </Button>
+                        <Button fullWidth onClick={handlePay} className="shadow-xl shadow-brand-500/20 py-5 text-[13px] tracking-widest">确认开启会员权益</Button>
                     </>
                 )}
-                
                 {step === 'paying' && (
                     <div className="py-16 flex flex-col items-center justify-center text-center">
                         <div className="w-12 h-12 border-[5px] border-slate-100 border-t-brand-500 rounded-full animate-spin mb-6"></div>
                         <h3 className="font-black text-slate-900 uppercase tracking-widest text-sm">安全支付中...</h3>
                     </div>
                 )}
-
                 {step === 'success' && (
                     <div className="py-12 flex flex-col items-center justify-center text-center animate-fade-in">
                         <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-500 mb-6 shadow-soft border border-emerald-100">
@@ -129,14 +114,230 @@ const CommercialPaymentModal: React.FC<PaymentModalProps> = ({ visible, pkg, onC
     );
 };
 
-// --- 子模块组件 ---
+/** 
+ * 专病子模块: 癫痫生命守护
+ */
+export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+    const [isVip, setIsVip] = useState(false);
+    const [showPay, setShowPay] = useState(false);
+    const [isEmergency, setIsEmergency] = useState(false);
+    const [countdown, setCountdown] = useState(10);
+    const [eegPath, setEegPath] = useState('');
+    const [stats, setStats] = useState({ hr: 72, spo2: 98, tremor: 0.5 });
+    
+    // 实时监测动画模拟
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setStats(prev => ({
+                hr: 72 + Math.floor(Math.random() * 4),
+                spo2: 97 + Math.floor(Math.random() * 3),
+                tremor: 0.4 + Math.random() * 0.2
+            }));
+        }, 2000);
+        return () => clearInterval(interval);
+    }, []);
 
-export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    // ... (保持现有代码不变，但此文件内容较长，此处仅作为占位，实际输出会包含完整重写)
-    return null; // 实际实现见下文
+    // EEG 波形模拟
+    useEffect(() => {
+        let tick = 0;
+        const generateWave = () => {
+            tick += 0.2;
+            const points = [];
+            const width = 360; 
+            for (let i = 0; i <= width; i += 8) {
+                // 模拟正常的脑电波 (Alpha/Beta 混合)
+                const y = 25 + Math.sin(tick + i * 0.1) * 10 + Math.sin(tick * 2 + i * 0.2) * 5 + (Math.random() - 0.5) * 4;
+                points.push(`${i},${y}`);
+            }
+            setEegPath(`M 0,25 L ${points.join(' L ')}`);
+            requestAnimationFrame(generateWave);
+        };
+        const anim = requestAnimationFrame(generateWave);
+        return () => cancelAnimationFrame(anim);
+    }, []);
+
+    // 紧急呼救倒计时逻辑
+    useEffect(() => {
+        let timer: any;
+        if (isEmergency && countdown > 0) {
+            timer = setInterval(() => {
+                setCountdown(c => c - 1);
+            }, 1000);
+        } else if (countdown === 0) {
+            // 实际上会执行呼叫 120 的逻辑
+        }
+        return () => clearInterval(timer);
+    }, [isEmergency, countdown]);
+
+    const handleSimulateSeizure = () => {
+        setIsEmergency(true);
+        setCountdown(10);
+        // 模拟震动提示
+        if (window.navigator.vibrate) window.navigator.vibrate([200, 100, 200]);
+    };
+
+    const handleCancelEmergency = () => {
+        setIsEmergency(false);
+    };
+
+    return (
+        <Layout headerTitle="癫痫生命守护" showBack onBack={onBack}>
+            <div className="p-5 space-y-5 max-w-[430px] mx-auto pb-24 relative overflow-hidden">
+                
+                {/* 1. 实时监测看板 (监护仪风格) */}
+                <div className="bg-slate-900 rounded-[32px] p-6 text-white shadow-2xl relative overflow-hidden">
+                    <div className="flex justify-between items-start mb-6">
+                        <div className="flex items-center gap-2">
+                             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                             <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">华西 AI 实时哨兵监测中</span>
+                        </div>
+                        <span className="text-[9px] text-slate-500 font-bold">华西生命守护手环 Pro · 已连接</span>
+                    </div>
+
+                    {/* EEG 动态波形 */}
+                    <div className="h-16 mb-6 border-b border-white/5 relative">
+                        <svg width="100%" height="50" viewBox="0 0 360 50">
+                            <path d={eegPath} fill="none" stroke="#1677FF" strokeWidth="2" strokeLinecap="round" />
+                        </svg>
+                        <div className="absolute top-0 right-0 text-[8px] font-black text-brand-500 uppercase tracking-tighter">实时脑电 (EEG)</div>
+                    </div>
+
+                    {/* 体征网格 */}
+                    <div className="grid grid-cols-3 gap-4">
+                        <div className="flex flex-col">
+                            <span className="text-[8px] font-black text-slate-500 uppercase">实时心率 (BPM)</span>
+                            <span className="text-2xl font-black text-emerald-500 tracking-tighter">{stats.hr}</span>
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="text-[8px] font-black text-slate-500 uppercase">血氧饱和度 (%)</span>
+                            <span className="text-2xl font-black text-brand-500 tracking-tighter">{stats.spo2}</span>
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="text-[8px] font-black text-slate-500 uppercase">震颤频率 (Hz)</span>
+                            <span className="text-2xl font-black text-amber-500 tracking-tighter">{stats.tremor.toFixed(1)}</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* 2. 紧急呼救熔断系统 (模拟入口) */}
+                <div className="bg-white rounded-[32px] p-6 shadow-sm border border-slate-50">
+                    <h4 className="text-[13px] font-black text-slate-900 mb-3 tracking-wider">安全应急演练</h4>
+                    <p className="text-[11px] text-slate-400 mb-5 leading-relaxed">点击下方按钮可模拟“突发大发作”场景，测试系统的紧急呼叫与家属通知功能。</p>
+                    <button 
+                        onClick={handleSimulateSeizure}
+                        className="w-full bg-red-50 text-red-600 font-black py-4 rounded-2xl text-[12px] border border-red-100 active:scale-[0.98] transition-all"
+                    >
+                        模拟检测到疑似发作
+                    </button>
+                </div>
+
+                {/* 3. 亲情联动 */}
+                <div className="bg-white rounded-[32px] p-6 shadow-sm border border-slate-50">
+                    <div className="flex justify-between items-center mb-4">
+                        <h4 className="text-[13px] font-black text-slate-900 tracking-wider">紧急联系人</h4>
+                        <button className="text-[10px] font-black text-brand-500 bg-brand-50 px-3 py-1 rounded-lg">设置</button>
+                    </div>
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-lg">👩</div>
+                                <div>
+                                    <div className="text-[12px] font-black text-slate-800">女儿 (陈晓梅)</div>
+                                    <div className="text-[10px] text-slate-400 font-bold">138****8888</div>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-100/50 text-emerald-600 border border-emerald-100">
+                                <span className="w-1 h-1 bg-emerald-500 rounded-full"></span>
+                                <span className="text-[8px] font-black uppercase">已关联</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* 4. 发作日志热力图 */}
+                <div className="bg-white rounded-[32px] p-6 shadow-sm border border-slate-50">
+                    <div className="flex justify-between items-center mb-5">
+                        <h4 className="text-[13px] font-black text-slate-900 tracking-wider">发作热力图 (近30日)</h4>
+                        <span className="text-[10px] font-bold text-slate-400">结合生理期监测</span>
+                    </div>
+                    <div className="grid grid-cols-7 gap-1">
+                        {[...Array(28)].map((_, i) => {
+                            const val = Math.random();
+                            let color = 'bg-slate-50';
+                            if (val > 0.9) color = 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]';
+                            else if (val > 0.7) color = 'bg-red-300';
+                            else if (val > 0.5) color = 'bg-red-100';
+                            return (
+                                <div key={i} className={`aspect-square rounded-sm ${color} transition-colors duration-500`}></div>
+                            );
+                        })}
+                    </div>
+                    <div className="flex justify-between mt-4 text-[8px] font-black text-slate-300 uppercase tracking-tighter">
+                        <span>第 1 周</span><span>第 2 周</span><span>第 3 周</span><span>第 4 周</span>
+                    </div>
+                </div>
+
+                {/* 5. 商业权益包 */}
+                <div className="relative overflow-hidden bg-gradient-to-br from-brand-600 to-brand-500 rounded-[32px] p-6 text-white shadow-xl active:scale-[0.98] transition-all cursor-pointer">
+                    <div className="relative z-10">
+                        <h4 className="text-[15px] font-black mb-1">癫痫生命守护会员包</h4>
+                        <p className="text-[10px] text-white/70 font-bold uppercase tracking-widest mb-6">全维度居家安全实时监护系统</p>
+                        <ul className="space-y-2 mb-6">
+                            <li className="flex items-center gap-2 text-[11px] font-black"><span className="w-4 h-4 bg-white/20 rounded-full flex items-center justify-center text-[10px]">✓</span> 智能穿戴硬件租赁 (HaaS)</li>
+                            <li className="flex items-center gap-2 text-[11px] font-black"><span className="w-4 h-4 bg-white/20 rounded-full flex items-center justify-center text-[10px]">✓</span> 华西 AI 发作哨兵 24h 监测</li>
+                            <li className="flex items-center gap-2 text-[11px] font-black"><span className="w-4 h-4 bg-white/20 rounded-full flex items-center justify-center text-[10px]">✓</span> 一键发起 120 紧急医疗呼叫</li>
+                        </ul>
+                        <div className="flex justify-between items-center">
+                            <span className="text-2xl font-black">¥599 <span className="text-[10px] font-bold">/年</span></span>
+                            <button onClick={() => setShowPay(true)} className="bg-white text-brand-600 px-5 py-2.5 rounded-2xl font-black text-[12px] shadow-lg">立即开启</button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* 紧急警报 Overlay */}
+                {isEmergency && (
+                    <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center p-8 bg-red-600 animate-[pulse-red_0.5s_infinite]">
+                        <style>{`
+                            @keyframes pulse-red {
+                                0% { background-color: #dc2626; }
+                                50% { background-color: #991b1b; }
+                                100% { background-color: #dc2626; }
+                            }
+                        `}</style>
+                        <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mb-8 shadow-2xl animate-bounce">
+                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="#dc2626" className="w-12 h-12">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                             </svg>
+                        </div>
+                        <h2 className="text-3xl font-black text-white mb-2 text-center">识别到疑似发作</h2>
+                        <p className="text-white/80 font-bold mb-10 text-center uppercase tracking-widest text-[14px]">疑似：全身性强直阵挛发作</p>
+                        
+                        <div className="bg-white/10 backdrop-blur-md rounded-[32px] p-8 w-full text-center border border-white/20 shadow-2xl">
+                             <div className="text-white/60 text-[12px] font-black mb-4 uppercase tracking-widest">紧急呼救 120 倒计时</div>
+                             <div className="text-8xl font-black text-white mb-10 tracking-tighter">{countdown}</div>
+                             <div className="flex flex-col gap-4">
+                                <Button fullWidth variant="primary" className="bg-white text-red-600 border-none py-5 text-lg" onClick={handleCancelEmergency}>
+                                    我目前安全 · 取消呼叫
+                                </Button>
+                                <p className="text-white/50 text-[10px] font-bold">已同步通知紧急联系人：女儿 (陈晓梅)</p>
+                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 页脚合规 */}
+                <div className="pt-8 text-center opacity-30 pb-12">
+                    <p className="text-[9px] text-slate-500 font-black tracking-widest uppercase leading-relaxed">
+                        四川大学华西医院神经内科生命监测中心<br/>
+                        所有预警数据仅供临床参考 · 最终解释权归华西医联体所有
+                    </p>
+                </div>
+
+                <CommercialPaymentModal visible={showPay} pkg={PACKAGES.EPILEPSY} onClose={() => setShowPay(false)} onSuccess={() => setIsVip(true)} />
+            </div>
+        </Layout>
+    );
 };
-
-// 为了节省空间并精确执行重构“大脑4S店”的任务，我将重新编写 CognitiveServiceView
 
 /** 
  * 专病子模块: 认知康复训练 (大脑4S店)
@@ -240,14 +441,6 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
                                 </div>
                             </div>
                         </div>
-                        {/* 逻辑思维 (暂未实现游戏，模拟) */}
-                        <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-50 flex items-center gap-4 opacity-50 grayscale">
-                            <div className="w-12 h-12 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center text-2xl border border-blue-100">📐</div>
-                            <div className="flex-1">
-                                <h5 className="text-[14px] font-black text-slate-800">逻辑思维训练</h5>
-                                <div className="text-[10px] text-slate-400 font-bold mt-1">即将上线 · 敬请期待</div>
-                            </div>
-                        </div>
                     </div>
                 </div>
 
@@ -264,9 +457,6 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
                                     className="absolute bottom-0 w-full bg-brand-500 rounded-t-lg transition-all duration-1000" 
                                     style={{ height: `${h}%` }}
                                 ></div>
-                                <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-[8px] font-black text-brand-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    {h}%
-                                </div>
                             </div>
                         ))}
                     </div>
@@ -281,17 +471,6 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
                     <div className="relative z-10">
                         <h4 className="text-[15px] font-black mb-1">未来 3 年 AD 转化风险预测报告</h4>
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-6">根据当前训练及客观 EEG 数据全维计算</p>
-                        
-                        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 blur-[4px] pointer-events-none mb-4">
-                            <div className="flex justify-between mb-2">
-                                <span className="text-[10px]">转化概率</span>
-                                <span className="text-[14px] font-black">12.5% [极低]</span>
-                            </div>
-                            <div className="h-1.5 w-full bg-white/10 rounded-full">
-                                <div className="bg-brand-500 h-full w-1/4"></div>
-                            </div>
-                        </div>
-
                         <button 
                             onClick={() => setShowPay(true)}
                             className="w-full bg-brand-500 text-white font-black py-4 rounded-2xl text-[12px] shadow-lg shadow-brand-500/20 active:scale-[0.98] transition-all"
@@ -301,24 +480,6 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
                     </div>
                 </div>
 
-                {/* 5. 训练结算权益弹出框 (模拟) */}
-                {showPostTrainingHook && (
-                    <div className="fixed inset-0 z-[110] flex items-center justify-center px-8">
-                        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowPostTrainingHook(false)}></div>
-                        <div className="bg-white w-full rounded-[40px] p-8 relative z-10 animate-scale-up shadow-2xl text-center">
-                            <div className="w-16 h-16 bg-brand-50 rounded-full flex items-center justify-center mx-auto mb-6 text-2xl">👩‍⚕️</div>
-                            <h3 className="text-xl font-black text-slate-900 mb-2">训练完成！表现优异</h3>
-                            <p className="text-[13px] text-slate-600 leading-relaxed mb-8">
-                                建议您预约本季度的 <span className="font-black text-brand-600">华西专家远程随访</span>，由专家团队根据本阶段训练数据为您微调康复方案。
-                            </p>
-                            <Button fullWidth onClick={() => { setShowPostTrainingHook(false); setShowPay(true); }}>
-                                立即预约专家随访
-                            </Button>
-                        </div>
-                    </div>
-                )}
-
-                {/* 页脚合规 */}
                 <div className="pt-8 text-center opacity-30 pb-12">
                     <p className="text-[9px] text-slate-500 font-black tracking-widest uppercase">
                         四川大学华西医院神经内科认知中心 · 数字化康复系统
@@ -331,6 +492,25 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
     );
 };
 
-// --- 其他视图的导出 (为了保证文件完整性，这里应包含 HeadacheServiceView 等，但为了代码精简，假设它们已在别处定义或保留)
-export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => { return null; }; // 此处仅为 TS 类型占位
-export const FamilyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => { return null; }; // 此处仅为 TS 类型占位
+// --- 其他占位视图 ---
+export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+    return (
+        <Layout headerTitle="诱因雷达 · 头痛管理" showBack onBack={onBack}>
+            <div className="p-5 flex flex-col items-center justify-center h-[70vh] text-slate-300">
+                <div className="text-4xl mb-4">🌪️</div>
+                <p className="font-black uppercase tracking-widest text-sm text-center">正在开发中...<br/>头痛日记与诱因分析即将上线</p>
+            </div>
+        </Layout>
+    );
+};
+
+export const FamilyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+    return (
+        <Layout headerTitle="亲情账号中心" showBack onBack={onBack}>
+            <div className="p-5 flex flex-col items-center justify-center h-[70vh] text-slate-300">
+                <div className="text-4xl mb-4">👪</div>
+                <p className="font-black uppercase tracking-widest text-sm">亲情联动数据同步中</p>
+            </div>
+        </Layout>
+    );
+};
