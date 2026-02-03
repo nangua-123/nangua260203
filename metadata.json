@@ -1,0 +1,7 @@
+{
+  "name": "Neuro-Link (华西神经专病AI数字医院)",
+  "description": "A West China Hospital standard neurological chronic disease management platform. Features AI triage, professional scales, and tiered medical service distribution.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
