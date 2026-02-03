@@ -3,11 +3,9 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <!-- 核心：移动端锁定视口与安全区适配 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>华西神经专病AI数字医院 - 移动版</title>
+    <title>华西神经专病AI数字医院</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script type="module" src="./index.tsx"></script>
     <script>
       tailwind.config = {
         theme: {
@@ -21,7 +19,7 @@
                 600: '#0958D9',
               },
               slate: {
-                50: '#F7F9FA',
+                50: '#F7F8FA',
                 400: '#8C8C8C',
                 900: '#000000',
               }
@@ -34,7 +32,6 @@
               '4xl': '32px',
             },
             boxShadow: {
-              'afoo': '0 8px 24px rgba(22, 119, 255, 0.04)',
               'soft': '0 10px 40px rgba(0, 0, 0, 0.02)',
               'card': '0 2px 12px -3px rgba(0,0,0,0.04)',
             }
@@ -45,46 +42,41 @@
     <style>
       :root {
         --sat: env(safe-area-inset-top);
-        --sar: env(safe-area-inset-right);
         --sab: env(safe-area-inset-bottom);
-        --sal: env(safe-area-inset-left);
       }
       body { 
-        background-color: #E2E8F0; /* PC端背景 */
+        background-color: #E2E8F0; 
         margin: 0;
         padding: 0;
         -webkit-tap-highlight-color: transparent;
       }
-      /* 核心容器：锁定移动端宽度并在PC居中 */
       #root {
         max-width: 430px;
         margin: 0 auto;
         min-height: 100vh;
-        background-color: #F7F9FA;
+        background-color: #F7F8FA;
         box-shadow: 0 0 50px rgba(0,0,0,0.1);
         position: relative;
         overflow-x: hidden;
       }
       .no-scrollbar::-webkit-scrollbar { display: none; }
-      .pb-safe { padding-bottom: calc(60px + var(--sab)); }
-      @keyframes slideUp {
-        from { transform: translateY(12px); opacity: 0; }
-        to { transform: translateY(0); opacity: 1; }
-      }
-      .animate-slide-up { animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      .pb-safe { padding-bottom: calc(80px + var(--sab)); }
     </style>
-  <script type="importmap">
+    <script type="importmap">
 {
   "imports": {
-    "react/": "https://esm.sh/react@^19.2.4/",
     "react": "https://esm.sh/react@^19.2.4",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.39.0"
+    "react-dom": "https://esm.sh/react-dom@^19.2.4",
+    "react-dom/client": "https://esm.sh/react-dom@^19.2.4/client",
+    "@google/genai": "https://esm.sh/@google/genai@^1.39.0",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/"
   }
 }
 </script>
-</head>
+  </head>
   <body class="antialiased">
     <div id="root"></div>
+    <script type="module" src="./index.tsx"></script>
   </body>
 </html>
