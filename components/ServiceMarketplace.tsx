@@ -32,28 +32,38 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
 
   if (step === 'success') {
     return (
-      <div className="flex flex-col h-screen bg-slate-50 max-w-[430px] mx-auto">
-        <div className="flex-1 flex flex-col items-center justify-center p-8 animate-fade-in">
-          <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-500 mb-6 border border-emerald-100 shadow-soft">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-            </svg>
+      <div className="flex flex-col h-screen bg-slate-50 max-w-[430px] mx-auto overflow-hidden">
+        <div className="flex-1 flex flex-col items-center justify-center p-8 animate-fade-in relative">
+          
+          {/* 3D Checkmark Animation */}
+          <div className="w-32 h-32 relative mb-8">
+             <svg className="w-full h-full text-emerald-500" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" strokeWidth="5" className="opacity-20" />
+                <path fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" 
+                      d="M25 50 L45 70 L75 30"
+                      className="origin-center animate-[draw_0.6s_ease-out_forwards]"
+                      strokeDasharray="100" strokeDashoffset="100">
+                      <style>{`@keyframes draw { to { stroke-dashoffset: 0; } }`}</style>
+                </path>
+             </svg>
+             <div className="absolute inset-0 bg-emerald-500/10 rounded-full blur-2xl animate-pulse"></div>
           </div>
-          <h2 className="text-2xl font-black text-slate-900 mb-2">租赁申请已提交</h2>
-          <p className="text-slate-500 text-sm font-bold mb-8">看护模式已开启 · 顺丰速运待揽件</p>
+
+          <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">租赁申请已提交</h2>
+          <p className="text-slate-500 text-sm font-bold mb-8 uppercase tracking-widest">看护模式已开启 · 顺丰速运待揽件</p>
           
           {isFamilyPay && (
-            <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 w-full mb-8 text-center">
+            <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 w-full mb-8 text-center animate-slide-up" style={{animationDelay: '0.2s'}}>
               <span className="text-2xl mb-2 block">👨‍👩‍👧</span>
               <div className="text-brand-700 font-black text-sm">亲情账号关联成功</div>
               <div className="text-brand-600/70 text-[10px] font-bold mt-1">异常报警将同步推送至您的手机</div>
             </div>
           )}
 
-          <div className="bg-white rounded-2xl p-5 w-full shadow-sm border border-slate-100 space-y-4">
+          <div className="bg-white rounded-2xl p-5 w-full shadow-sm border border-slate-100 space-y-4 animate-slide-up" style={{animationDelay: '0.4s'}}>
             <div className="flex items-start gap-3">
               <div className="flex flex-col items-center gap-1">
-                <div className="w-2.5 h-2.5 bg-brand-500 rounded-full"></div>
+                <div className="w-2.5 h-2.5 bg-brand-500 rounded-full shadow-[0_0_10px_#3b82f6]"></div>
                 <div className="w-0.5 h-10 bg-slate-100"></div>
               </div>
               <div className="flex-1 pb-4 border-b border-slate-50">
@@ -71,8 +81,8 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
             </div>
           </div>
         </div>
-        <div className="p-6 pb-safe">
-          <Button fullWidth onClick={onComplete}>返回首页</Button>
+        <div className="p-6 pb-safe animate-fade-in" style={{animationDelay: '0.8s'}}>
+          <Button fullWidth onClick={onComplete} className="shadow-lg shadow-emerald-500/20">返回首页</Button>
         </div>
       </div>
     );
@@ -80,7 +90,7 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
 
   return (
     <Layout headerTitle="租赁服务结算台" showBack onBack={onBack}>
-      <div className="p-5 pb-safe space-y-5">
+      <div className="p-5 pb-safe space-y-5 animate-slide-up">
         
         {/* 1. 医嘱确认卡 */}
         <div className="bg-gradient-to-br from-brand-50 to-white border border-brand-100 rounded-[24px] p-5 relative overflow-hidden">
@@ -203,7 +213,7 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
 export const ServiceMallView: React.FC<ServiceMarketplaceProps> = ({ onNavigate, onBack }) => {
   return (
     <Layout headerTitle="华西神经专病服务中心" showBack onBack={onBack}>
-      <div className="p-5 space-y-6 pb-24">
+      <div className="p-5 space-y-6 pb-24 animate-slide-up">
         
         {/* Banner */}
         <div className="relative overflow-hidden bg-slate-900 rounded-[32px] p-6 text-white shadow-xl min-h-[160px] flex flex-col justify-center">

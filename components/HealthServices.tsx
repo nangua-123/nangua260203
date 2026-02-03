@@ -5,8 +5,7 @@ import Button from './Button';
 import { DiseaseType } from '../types';
 import { VisualMemoryGame, AttentionGame } from './CognitiveGames';
 
-// --- 商业化底层架构 (与首页保持一致) ---
-
+// --- 商业化底层架构 ---
 interface ServicePackage {
     id: string;
     title: string;
@@ -33,7 +32,6 @@ const PACKAGES: Record<string, ServicePackage> = {
         features: ['AI 诱因全维雷达', '华西专家影像复核', '用药方案优化报告'],
         medicalValue: '精准识别诱因，减少发作频率'
     },
-    // Epilepsy pkg removed from here as it uses a dedicated flow
 };
 
 interface PaymentModalProps {
@@ -107,6 +105,22 @@ const CommercialPaymentModal: React.FC<PaymentModalProps> = ({ visible, pkg, onC
     );
 };
 
+// --- Modal for Advice ---
+const AdviceModal: React.FC<{ visible: boolean; title: string; content: string; onClose: () => void }> = ({ visible, title, content, onClose }) => {
+    if (!visible) return null;
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center px-6">
+            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}></div>
+            <div className="bg-white rounded-[24px] p-6 w-full max-w-sm relative z-10 animate-slide-up shadow-2xl">
+                 <div className="w-12 h-12 bg-brand-50 rounded-full flex items-center justify-center text-2xl mb-4 border border-brand-100">💡</div>
+                 <h3 className="text-lg font-black text-slate-900 mb-2">{title}</h3>
+                 <p className="text-sm text-slate-600 leading-relaxed mb-6 font-medium">{content}</p>
+                 <Button fullWidth onClick={onClose} size="sm">收到建议</Button>
+            </div>
+        </div>
+    );
+};
+
 /** 
  * 专病子模块: 偏头痛诱因雷达
  */
@@ -115,6 +129,7 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
     const [showPay, setShowPay] = useState(false);
     const [medicationCount, setMedicationCount] = useState(8); 
     const [pressure, setPressure] = useState(1012);
+    const [advice, setAdvice] = useState<{visible: boolean; title: string; content: string}>({ visible: false, title: '', content: '' });
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -125,6 +140,20 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
 
     const handleRecordPill = () => {
         setMedicationCount(prev => prev + 1);
+    };
+
+    const showAdvice = (type: string) => {
+        const contentMap: Record<string, string> = {
+            'pressure': '近期气压波动较大，血管收缩可能加剧头痛。建议减少户外剧烈运动，保持室内恒温。',
+            'weather': '阴雨天气可能诱发情绪性头痛。建议进行 15 分钟冥想放松。',
+            'cycle': '处于生理期前激素波动窗口。建议提前服用预防性药物（需遵医嘱）。'
+        };
+        const titleMap: Record<string, string> = {
+            'pressure': '华西专家气压预警',
+            'weather': '气象诱因分析',
+            'cycle': '生理周期管理'
+        };
+        setAdvice({ visible: true, title: titleMap[type], content: contentMap[type] });
     };
 
     const isMOHRisk = medicationCount >= 10;
@@ -143,21 +172,21 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                         </div>
                     </div>
                     <div className="grid grid-cols-3 gap-3">
-                        <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 text-center">
+                        <button onClick={() => showAdvice('pressure')} className="bg-slate-50 rounded-2xl p-3 border border-slate-100 text-center active:scale-95 transition-all">
                             <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">当前气压</span>
                             <span className="text-sm font-black text-slate-900">{pressure} <span className="text-[8px] opacity-40">hPa</span></span>
                             <span className="text-[8px] font-bold text-emerald-500 block mt-1">稳定</span>
-                        </div>
-                        <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 text-center">
+                        </button>
+                        <button onClick={() => showAdvice('weather')} className="bg-slate-50 rounded-2xl p-3 border border-slate-100 text-center active:scale-95 transition-all">
                             <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">当地天气</span>
                             <span className="text-sm font-black text-slate-900">多云转阴</span>
                             <span className="text-[8px] font-bold text-slate-400 block mt-1">无剧变</span>
-                        </div>
-                        <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 text-center">
+                        </button>
+                        <button onClick={() => showAdvice('cycle')} className="bg-slate-50 rounded-2xl p-3 border border-slate-100 text-center active:scale-95 transition-all">
                             <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">生理期</span>
                             <span className="text-sm font-black text-slate-900">3天后</span>
                             <span className="text-[8px] font-bold text-amber-500 block mt-1">预测窗口</span>
-                        </div>
+                        </button>
                     </div>
                 </div>
 
@@ -204,22 +233,6 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                             </div>
                         ))}
                     </div>
-                    <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                        <div className="flex items-center gap-2 mb-3">
-                            <div className="w-1.5 h-1.5 bg-brand-500 rounded-full"></div>
-                            <span className="text-[10px] font-black text-slate-900 uppercase">核心诱因关联性分析</span>
-                        </div>
-                        <div className="space-y-3">
-                             <div>
-                                 <div className="flex justify-between text-[9px] font-black text-slate-400 uppercase mb-1"><span>气压剧烈波动</span><span className="text-brand-600">40% 强相关</span></div>
-                                 <div className="w-full bg-white h-1 rounded-full overflow-hidden"><div className="bg-brand-500 h-full w-[40%]"></div></div>
-                             </div>
-                             <div>
-                                 <div className="flex justify-between text-[9px] font-black text-slate-400 uppercase mb-1"><span>睡眠不足 (低于6h)</span><span className="text-brand-600">30% 中相关</span></div>
-                                 <div className="w-full bg-white h-1 rounded-full overflow-hidden"><div className="bg-brand-500 h-full w-[30%] opacity-70"></div></div>
-                             </div>
-                        </div>
-                    </div>
                 </div>
 
                 <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 to-slate-800 rounded-[32px] p-6 text-white shadow-xl active:scale-[0.98] transition-all cursor-pointer">
@@ -228,10 +241,6 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                         <div>
                              <h4 className="text-[15px] font-black mb-1">华西偏头痛全周期管理</h4>
                              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4">专家复核 · 精准识别诱因 · 优化用药</p>
-                             <div className="flex gap-2">
-                                <span className="text-[8px] font-black bg-white/10 px-2 py-0.5 rounded border border-white/10 uppercase tracking-tighter">专家影像复核</span>
-                                <span className="text-[8px] font-black bg-white/10 px-2 py-0.5 rounded border border-white/10 uppercase tracking-tighter">AI 预测雷达</span>
-                             </div>
                         </div>
                         <div className="text-right">
                              <div className="text-2xl font-black text-white">¥299</div>
@@ -250,6 +259,7 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                 </div>
 
                 <CommercialPaymentModal visible={showPay} pkg={PACKAGES.MIGRAINE} onClose={() => setShowPay(false)} onSuccess={() => setIsVip(true)} />
+                <AdviceModal visible={advice.visible} title={advice.title} content={advice.content} onClose={() => setAdvice({...advice, visible: false})} />
             </div>
         </Layout>
     );
@@ -262,8 +272,8 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
     const [isVip, setIsVip] = useState(false);
     const [showPay, setShowPay] = useState(false);
     const [playingGame, setPlayingGame] = useState<'memory' | 'attention' | null>(null);
+    const [countdown, setCountdown] = useState<number | null>(null);
     const [focusWave, setFocusWave] = useState('');
-    const [showPostTrainingHook, setShowPostTrainingHook] = useState(false);
 
     useEffect(() => {
         let tick = 0;
@@ -282,17 +292,48 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
         return () => cancelAnimationFrame(anim);
     }, []);
 
-    const handleGameComplete = () => {
-        setPlayingGame(null);
-        setShowPostTrainingHook(true);
+    // 倒计时逻辑
+    useEffect(() => {
+        if (countdown !== null) {
+            if (countdown > 0) {
+                const timer = setTimeout(() => setCountdown(c => (c as number) - 1), 1000);
+                return () => clearTimeout(timer);
+            } else {
+                setCountdown(null); // 开始游戏
+            }
+        }
+    }, [countdown]);
+
+    const startGameWithCountdown = (game: 'memory' | 'attention') => {
+        if (game === 'attention' && !isVip) {
+            setShowPay(true);
+            return;
+        }
+        setPlayingGame(game); 
+        setCountdown(3); 
     };
 
-    if (playingGame === 'memory') return <VisualMemoryGame onComplete={handleGameComplete} onExit={() => setPlayingGame(null)} />;
-    if (playingGame === 'attention') return <AttentionGame onComplete={handleGameComplete} onExit={() => setPlayingGame(null)} />;
+    const handleGameComplete = () => {
+        setPlayingGame(null);
+    };
+
+    // 渲染游戏
+    if (playingGame && countdown === null) {
+        if (playingGame === 'memory') return <VisualMemoryGame onComplete={handleGameComplete} onExit={() => setPlayingGame(null)} />;
+        if (playingGame === 'attention') return <AttentionGame onComplete={handleGameComplete} onExit={() => setPlayingGame(null)} />;
+    }
 
     return (
         <Layout headerTitle="大脑4S店 · 认知康复" showBack onBack={onBack}>
             <div className="p-5 space-y-5 max-w-[430px] mx-auto pb-24 relative">
+                
+                {/* 倒计时遮罩 */}
+                {countdown !== null && (
+                    <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-md flex items-center justify-center">
+                        <div className="text-9xl font-black text-white animate-ping">{countdown === 0 ? 'GO' : countdown}</div>
+                    </div>
+                )}
+
                 <div className="bg-slate-900 rounded-[32px] p-6 text-white shadow-xl relative overflow-hidden group">
                     <div className="absolute inset-0 opacity-5 pointer-events-none select-none flex items-center justify-center">
                         <span className="text-[32px] font-black tracking-widest rotate-12 uppercase">客观脑电数据采集中心</span>
@@ -323,7 +364,7 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
                 <div className="space-y-3">
                     <h4 className="text-[13px] font-black text-slate-900 px-1 tracking-wider">今日康复处方模块</h4>
                     <div className="grid grid-cols-1 gap-3">
-                        <div onClick={() => setPlayingGame('memory')} className="bg-white p-4 rounded-3xl shadow-sm border border-slate-50 flex items-center gap-4 active:scale-[0.98] transition-all cursor-pointer group">
+                        <div onClick={() => startGameWithCountdown('memory')} className="bg-white p-4 rounded-3xl shadow-sm border border-slate-50 flex items-center gap-4 active:scale-[0.98] transition-all cursor-pointer group">
                             <div className="w-12 h-12 bg-purple-50 text-purple-500 rounded-2xl flex items-center justify-center text-2xl border border-purple-100 group-hover:rotate-6 transition-transform">🧠</div>
                             <div className="flex-1">
                                 <h5 className="text-[14px] font-black text-slate-800">记忆力强化训练</h5>
@@ -334,7 +375,7 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
                                 </div>
                             </div>
                         </div>
-                        <div onClick={() => isVip ? setPlayingGame('attention') : setShowPay(true)} className={`bg-white p-4 rounded-3xl shadow-sm border border-slate-50 flex items-center gap-4 active:scale-[0.98] transition-all cursor-pointer group ${!isVip && 'opacity-70'}`}>
+                        <div onClick={() => startGameWithCountdown('attention')} className={`bg-white p-4 rounded-3xl shadow-sm border border-slate-50 flex items-center gap-4 active:scale-[0.98] transition-all cursor-pointer group ${!isVip && 'opacity-70'}`}>
                             <div className="w-12 h-12 bg-orange-50 text-orange-500 rounded-2xl flex items-center justify-center text-2xl border border-orange-100 group-hover:rotate-6 transition-transform">👁️</div>
                             <div className="flex-1">
                                 <div className="flex justify-between"><h5 className="text-[14px] font-black text-slate-800">注意力专注训练</h5>{!isVip && <span className="text-[8px] font-black bg-brand-50 text-brand-500 px-1.5 py-0.5 rounded border border-brand-100">会员专享</span>}</div>
@@ -345,25 +386,6 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <div className="bg-white rounded-[32px] p-6 shadow-sm border border-slate-50">
-                    <h4 className="text-[13px] font-black text-slate-900 mb-4 tracking-wider flex justify-between items-center">康复曲线<span className="text-[10px] font-bold text-slate-400">已坚持 125 天</span></h4>
-                    <div className="h-24 flex items-end gap-2 mb-4">
-                        {[40, 55, 45, 70, 65, 85, 95].map((h, i) => (
-                            <div key={i} className="flex-1 bg-brand-50 rounded-t-lg relative group"><div className="absolute bottom-0 w-full bg-brand-500 rounded-t-lg transition-all duration-1000" style={{ height: `${h}%` }}></div></div>
-                        ))}
-                    </div>
-                    <div className="flex justify-around text-[9px] font-bold text-slate-400 uppercase tracking-tighter"><span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span><span>周日</span></div>
-                </div>
-
-                <div className="relative overflow-hidden bg-gradient-to-br from-slate-800 to-slate-900 rounded-[32px] p-6 text-white shadow-2xl">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/10 rounded-full blur-3xl -translate-y-16 translate-x-16"></div>
-                    <div className="relative z-10">
-                        <h4 className="text-[15px] font-black mb-1">未来 3 年 AD 转化风险预测报告</h4>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-6">根据当前训练及客观 EEG 数据全维计算</p>
-                        <button onClick={() => setShowPay(true)} className="w-full bg-brand-500 text-white font-black py-4 rounded-2xl text-[12px] shadow-lg shadow-brand-500/20 active:scale-[0.98] transition-all">订阅会员解锁完整分析报告 (¥365/年)</button>
                     </div>
                 </div>
 
@@ -379,58 +401,15 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
     );
 };
 
-/** 
- * 专病子模块: 癫痫生命守护 (使用新的 HaaS 流程)
- */
-export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    // 这里使用 window.dispatchEvent 或者 props 来导航，但在当前 App.tsx 结构中，
-    // 我们需要一种方式告诉父组件切换到 rental-checkout。
-    // 为了简化，我们假设 App.tsx 传递了 setCurrentView 给这些子组件，或者我们使用 global event。
-    // 由于类型限制，我们使用一个 hack 或者重构。
-    // 最佳方式是重构 HealthServices 以接收 onNavigate。
-    // 这里我们先使用一个隐藏的 context 或者通过 onBack 传递特殊信号？
-    // 为了代码的整洁，我将修改 App.tsx 里的 prop 传递，但首先我需要修改 HealthServices 的 props 定义。
-    // 但鉴于我只能修改文件内容，我会在这里使用一个临时状态来展示 "RentalView" 或者
-    // 更好的方法：修改 `EpilepsyServiceView` 内部不直接跳转路由，而是展示一个内嵌的卡片，点击后
-    // 触发一个回调。但是 App.tsx 控制了视图。
-    
-    // Hack: 使用 window.location.hash 或者不做 hack，直接在 App.tsx 传 navigate。
-    // 让我们假设 App.tsx 会把 onNavigate 传进来，或者我们无法直接跳转。
-    // 实际上，我可以在 App.tsx 里把 onBack 做得更通用，比如 onNavigate。
-    
-    // 让我们看看 App.tsx。它传递了 `onBack={() => setCurrentView('home')}`。
-    // 我们无法从这里跳转到 rental-checkout。
-    
-    // 修正：App.tsx 需要更新，传递 `onNavigate` 给这些 ServiceView。
-    // 我已经在 App.tsx 的修改中包含了 `<EpilepsyServiceView onBack... />`。
-    // 让我更新 EpilepsyServiceView 的实现，使其包含一个按钮，该按钮实际上需要导航。
-    // 由于我不能更改函数签名（为了保持兼容性），我将使用一个内部状态来显示“引导去租赁页面”的提示，
-    // 或者，更有可能的是，我应该在 App.tsx 中通过 props 传递 `onNavigate`。
-    // 让我们假设我将修改 App.tsx 来传递 `onNavigate` 给所有 ServiceView。
-    // 但是这需要修改 HealthServices.tsx 的所有导出组件的 Props 定义。
-    // 好的，我将修改 HealthServices.tsx 中的所有组件定义来接受 onNavigate (可选)。
-    
-    // 这是一个比较大的改动。
-    // 替代方案：在点击租赁时，使用 window.dispatchEvent 发送一个自定义事件，App.tsx 监听它。
-    // 或者，简单地：我们在 HealthServices.tsx 里 export HaaSRentalView，然后在 App.tsx 里引用。
-    // 等等，App.tsx 已经引用了 HaaSRentalView。
-    // 现在的挑战是：EpilepsyServiceView 如何触发 App.tsx 切换到 HaaSRentalView？
-    // 我将在 Layout 中添加一个 onClick 拦截？不。
-    
-    // 我将在 HealthServices.tsx 中添加一个全局事件触发器，或者修改 App.tsx 传递 onNavigate。
-    // 我选择修改 HealthServices.tsx 的组件 Props。
-
-    return <EpilepsyServiceViewImpl onBack={onBack} />;
-};
-
-// 内部实现，用于处理 logic，因为我不想破坏 App.tsx 对其它组件的引用，
-// 但为了实现跳转，我必须引入一种机制。
-// 我将使用 custom event 'navigate-to'。
+// --- Custom Event Navigation ---
 const navigateTo = (view: string) => {
     window.dispatchEvent(new CustomEvent('navigate-to', { detail: view }));
 };
 
-const EpilepsyServiceViewImpl: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+/** 
+ * 专病子模块: 癫痫生命守护
+ */
+export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const [isEmergency, setIsEmergency] = useState(false);
     const [countdown, setCountdown] = useState(10);
     const [eegPath, setEegPath] = useState('');
@@ -447,14 +426,17 @@ const EpilepsyServiceViewImpl: React.FC<{ onBack: () => void }> = ({ onBack }) =
         return () => clearInterval(interval);
     }, []);
 
+    // 优化后的波形生成：正弦波叠加随机噪声
     useEffect(() => {
         let tick = 0;
         const generateWave = () => {
             tick += 0.2;
             const points = [];
             const width = 360; 
-            for (let i = 0; i <= width; i += 8) {
-                const y = 25 + Math.sin(tick + i * 0.1) * 10 + Math.sin(tick * 2 + i * 0.2) * 5 + (Math.random() - 0.5) * 4;
+            for (let i = 0; i <= width; i += 5) {
+                // 基础波形 + 谐波 + 随机噪声 (模拟生物信号的不规则性)
+                const noise = (Math.random() - 0.5) * 6;
+                const y = 25 + Math.sin(tick + i * 0.08) * 8 + Math.sin(tick * 2 + i * 0.2) * 4 + noise;
                 points.push(`${i},${y}`);
             }
             setEegPath(`M 0,25 L ${points.join(' L ')}`);
@@ -522,7 +504,6 @@ const EpilepsyServiceViewImpl: React.FC<{ onBack: () => void }> = ({ onBack }) =
                     </div>
                 )}
 
-                {/* 商业权益包 - 跳转至 HaaS 租赁结算 */}
                 <div 
                     onClick={() => navigateTo('haas-checkout')}
                     className="relative overflow-hidden bg-gradient-to-br from-brand-600 to-brand-500 rounded-[32px] p-6 text-white shadow-xl active:scale-[0.98] transition-all cursor-pointer"
@@ -530,21 +511,11 @@ const EpilepsyServiceViewImpl: React.FC<{ onBack: () => void }> = ({ onBack }) =
                     <div className="relative z-10">
                         <h4 className="text-[15px] font-black mb-1">癫痫生命守护会员包</h4>
                         <p className="text-[10px] text-white/70 font-bold uppercase tracking-widest mb-6">全维度居家安全实时监护系统</p>
-                        <ul className="space-y-2 mb-6">
-                            <li className="flex items-center gap-2 text-[11px] font-black"><span className="w-4 h-4 bg-white/20 rounded-full flex items-center justify-center text-[10px]">✓</span> 智能穿戴硬件租赁 (HaaS)</li>
-                            <li className="flex items-center gap-2 text-[11px] font-black"><span className="w-4 h-4 bg-white/20 rounded-full flex items-center justify-center text-[10px]">✓</span> 华西 AI 发作哨兵 24h 监测</li>
-                        </ul>
                         <div className="flex justify-between items-center">
                             <span className="text-2xl font-black">¥599 <span className="text-[10px] font-bold">/年</span></span>
                             <button className="bg-white text-brand-600 px-5 py-2.5 rounded-2xl font-black text-[12px] shadow-lg">立即开启</button>
                         </div>
                     </div>
-                </div>
-
-                <div className="pt-8 text-center opacity-30 pb-12">
-                    <p className="text-[9px] text-slate-500 font-black tracking-widest uppercase">
-                        四川大学华西医院神经内科生命监测中心 · 预警仅供参考
-                    </p>
                 </div>
             </div>
         </Layout>
