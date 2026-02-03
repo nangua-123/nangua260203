@@ -77,7 +77,7 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
         <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mb-6 shadow-sm">
            <span className="text-4xl">🧠</span>
         </div>
-        <h2 className="text-2xl font-black text-slate-900 mb-2">训练已完成</h2>
+        <h2 className="text-2xl font-black text-slate-900 mb-2">康复训练已完成</h2>
         <div className="text-4xl font-black text-brand-500 mb-6">{score} <span className="text-sm text-slate-400 font-bold uppercase tracking-widest">积分</span></div>
         
         {/* 结算页双栏重构 */}
@@ -91,7 +91,7 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
                 <span className="text-sm font-black text-slate-800">{(level/(level+1) * 100).toFixed(0)}%</span>
             </div>
         </div>
-        <Button fullWidth onClick={onExit} className="py-4 shadow-lg shadow-brand-500/20">保存并上传华西大脑</Button>
+        <Button fullWidth onClick={onExit} className="py-4 shadow-lg shadow-brand-500/20">保存并上传华西数据中心</Button>
       </div>
     );
   }
@@ -100,7 +100,7 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
     <div className="flex flex-col h-screen bg-slate-900 text-white relative max-w-[430px] mx-auto">
       {/* 游戏状态栏 */}
       <div className="flex justify-between items-center p-6 pt-[calc(1.5rem+env(safe-area-inset-top))]">
-        <div className="text-[11px] font-black opacity-60 uppercase tracking-widest">关卡 {level}</div>
+        <div className="text-[11px] font-black opacity-60 uppercase tracking-widest">康复关卡 {level}</div>
         <div className="flex gap-2">
             {[...Array(3)].map((_, i) => (
                 <div key={i} className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${i < lives ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]' : 'bg-slate-800'}`}></div>
@@ -121,7 +121,7 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
                     statusClass = "bg-white shadow-[0_0_25px_rgba(255,255,255,0.7)] scale-105 transition-all duration-300";
                 }
                 if (gameState === 'playing' && userSelection.includes(i)) {
-                    statusClass = "bg-brand-500 shadow-[0_0_20px_rgba(22,119,255,0.8)] scale-95 transition-all duration-100";
+                    statusClass = "bg-brand-500 shadow-[0_0_20px_rgba(22,119,255,0.8)] scale-95 duration-100";
                 }
 
                 return (
@@ -137,7 +137,7 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
       </div>
       
       <div className="p-10 text-center text-white/40 text-[11px] font-black uppercase tracking-widest pb-[calc(2.5rem+env(safe-area-inset-bottom))]">
-        {gameState === 'preview' ? '记忆正在闪烁的方块' : '按显示顺序点击方块'}
+        {gameState === 'preview' ? '请观察并记忆闪烁的方块' : '请按显示顺序点击方块'}
       </div>
     </div>
   );
@@ -197,13 +197,13 @@ export const AttentionGame: React.FC<AttentionGameProps> = ({ onComplete, onExit
     };
 
     if (isGameOver) {
-        return <div className="flex items-center justify-center h-screen bg-white text-brand-600 font-black text-2xl max-w-[430px] mx-auto uppercase tracking-widest animate-pulse">数据同步中...</div>;
+        return <div className="flex items-center justify-center h-screen bg-white text-brand-600 font-black text-2xl max-w-[430px] mx-auto uppercase tracking-widest animate-pulse">数据同步至华西...</div>;
     }
 
     return (
         <div className="flex flex-col h-screen bg-slate-50 relative max-w-[430px] mx-auto overflow-hidden">
              <div className="p-6 flex justify-between items-center bg-white shadow-soft z-10 pt-[calc(1.5rem+env(safe-area-inset-top))]">
-                 <div className="text-[11px] font-black text-slate-400 uppercase tracking-widest">下一个目标: <span className="text-brand-600 font-black text-2xl ml-2">{nextNum}</span></div>
+                 <div className="text-[11px] font-black text-slate-400 uppercase tracking-widest">寻找目标: <span className="text-brand-600 font-black text-2xl ml-2">{nextNum}</span></div>
                  <div className="font-mono text-xl font-black text-slate-900">{(elapsed/1000).toFixed(1)} 秒</div>
              </div>
 
@@ -230,9 +230,9 @@ export const AttentionGame: React.FC<AttentionGameProps> = ({ onComplete, onExit
              </div>
              
              <div className="p-8 text-center text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] pb-[calc(2.5rem+env(safe-area-inset-bottom))]">
-                 请按 1-16 的顺序快速点击数字
+                 请按从 1 到 16 的顺序点击数字
                  <br/>
-                 <button onClick={onExit} className="mt-6 text-slate-400 underline decoration-slate-200">退出本次训练</button>
+                 <button onClick={onExit} className="mt-6 text-slate-400 underline decoration-slate-200">退出强化训练</button>
              </div>
         </div>
     );
