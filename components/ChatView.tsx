@@ -21,17 +21,16 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasTriggeredReport = useRef(false);
 
-  // Initialize Chat
+  // 初始化问诊对话
   useEffect(() => {
-    const systemPrompt = "System Init"; 
+    const systemPrompt = "系统初始化"; 
     chatSessionRef.current = createChatSession(systemPrompt);
     handleSend("开始分诊");
   }, []);
 
-  // Auto-scroll logic
+  // 自动滚动到底部
   const scrollToBottom = () => {
     if (scrollRef.current) {
-        // Use timeout to ensure DOM has updated
         setTimeout(() => {
             if (scrollRef.current) {
                 scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -49,14 +48,14 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
     let options: string[] = [];
     let triggerReport = false;
 
-    // Extract Options
+    // 解析对话中的选项标记
     const optionsMatch = rawText.match(/<OPTIONS>([\s\S]*?)<\/OPTIONS>/i);
     if (optionsMatch) {
         options = optionsMatch[1].split(/[|、,]/).map(s => s.trim()).filter(s => s.length > 0);
         cleanText = cleanText.replace(optionsMatch[0], '');
     }
 
-    // Extract Report Action
+    // 解析报告触发标记
     if (rawText.includes("<ACTION>REPORT</ACTION>")) {
         triggerReport = true;
         cleanText = cleanText.replace(/<ACTION>\s*REPORT\s*<\/ACTION>/i, '');
@@ -68,7 +67,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
   const handleSend = async (text: string) => {
     const isSystemStart = text === "开始分诊";
     
-    // 1. Add User Message
+    // 1. 添加用户消息
     if (!isSystemStart) {
         const newMsg: ChatMessage = {
             id: Date.now().toString(),
@@ -84,11 +83,11 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
     setIsLoading(true);
 
     try {
-      // 2. Call AI
+      // 2. 调用 AI 接口
       const rawResponse = await sendMessageToAI(chatSessionRef.current, text);
       const { cleanText, options, triggerReport } = parseResponse(rawResponse);
       
-      // 3. Add AI Message
+      // 3. 添加 AI 消息
       const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
@@ -100,35 +99,31 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
       setMessages(prev => [...prev, aiMsg]);
       setLatestOptions(options);
 
-      // 4. Handle Report Trigger
+      // 4. 处理报告生成触发
       if (triggerReport && !hasTriggeredReport.current) {
          hasTriggeredReport.current = true;
-         handleTriggerAnalysis( [...messages, aiMsg] ); // Pass full history
+         handleTriggerAnalysis( [...messages, aiMsg] ); 
       }
 
     } catch (e) {
       console.error(e);
-      // Error handling...
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleTriggerAnalysis = async (fullHistory: ChatMessage[]) => {
-    // Show "System Analyzing" state
+    // 进入系统分析状态
     setIsAnalysing(true);
     
-    // Simulate system processing delay
     setTimeout(async () => {
         try {
             const analysisJson = await getTriageAnalysis(fullHistory);
             const summary = JSON.parse(analysisJson);
-            
-            // Trigger the Payment Gate in App.tsx
             onPaymentGate(summary);
         } catch (e) {
-            console.error("Analysis failed", e);
-            onPaymentGate({ risk: 50, disease: 'UNKNOWN', summary: '建议进一步检查。' });
+            console.error("分析失败", e);
+            onPaymentGate({ risk: 50, disease: 'UNKNOWN', summary: '建议进一步完善专业量表。' });
         } finally {
             setIsAnalysing(false);
         }
@@ -139,7 +134,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
     <Layout headerTitle="AI 数字门诊" showBack onBack={onBack} hideHeader={false} disableScroll={true}>
       <div className="flex flex-col h-full bg-slate-50 w-full relative">
         
-        {/* Chat Area - Flex Grow to take available space */}
+        {/* 对话展示区 */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 scroll-smooth no-scrollbar">
           <div className="space-y-6 pb-4">
             {messages.map((msg, index) => {
@@ -165,14 +160,14 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                             </div>
                         </div>
 
-                        {/* Options Buttons */}
+                        {/* 交互选项按钮 */}
                         {showOptions && (
                             <div className="pl-12 pr-4 space-y-2.5 w-full max-w-sm animate-fade-in">
                                 {latestOptions.map((opt, idx) => (
                                     <button 
                                         key={idx}
                                         onClick={() => handleSend(opt)}
-                                        className="w-full bg-white hover:bg-brand-50 active:bg-brand-100 border border-brand-100 text-brand-600 font-medium py-3.5 px-5 rounded-xl shadow-sm text-left transition-all active:scale-[0.98] flex items-center justify-between group"
+                                        className="w-full bg-white hover:bg-brand-50 active:bg-brand-100 border border-brand-100 text-brand-600 font-bold py-3.5 px-5 rounded-xl shadow-sm text-left transition-all active:scale-[0.98] flex items-center justify-between group"
                                     >
                                         <span>{opt}</span>
                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-brand-200 group-hover:text-brand-500">
@@ -186,7 +181,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                 );
             })}
           
-            {/* Loading / Typing Indicator */}
+            {/* 输入中指示器 */}
             {isLoading && (
                 <div className="flex justify-start items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-brand-600 flex items-center justify-center flex-shrink-0 shadow-sm">
@@ -204,19 +199,19 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                 </div>
             )}
 
-            {/* System Analyzing Indicator */}
+            {/* 系统分析指示器 */}
             {isAnalysing && (
                 <div className="flex justify-center py-4 animate-fade-in">
                     <div className="bg-brand-50 border border-brand-100 text-brand-700 px-6 py-3 rounded-full shadow-sm flex items-center gap-3 text-sm font-bold">
                         <div className="w-4 h-4 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin"></div>
-                        华西大脑正在生成分诊报告...
+                        华西大脑正在生成您的分诊报告...
                     </div>
                 </div>
             )}
           </div>
         </div>
 
-        {/* Input Area - Fixed at bottom via Flex layout */}
+        {/* 输入控制区 */}
         {!isAnalysing && (
             <div className="flex-none bg-white border-t border-slate-100 p-3 pb-safe z-20 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
                 <div className="flex items-center gap-3">
@@ -225,8 +220,8 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSend(input)}
-                    placeholder={latestOptions.length > 0 ? "手动输入其他情况..." : "请详细描述您的症状..."}
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-full px-5 py-3 text-sm focus:ring-2 focus:ring-brand-100 focus:border-brand-500 outline-none transition-all"
+                    placeholder={latestOptions.length > 0 ? "若上述选项无匹配，请手动输入..." : "请详细描述您当前的不适..."}
+                    className="flex-1 bg-slate-50 border border-slate-200 rounded-full px-5 py-3 text-sm focus:ring-2 focus:ring-brand-100 focus:border-brand-500 outline-none transition-all font-medium"
                     disabled={isLoading}
                     />
                     <button 
