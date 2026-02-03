@@ -176,7 +176,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, onNavigate, primaryCondition 
       <div className="px-5 mt-6 space-y-3">
         <div className="flex items-center justify-between">
           <h4 className="text-[13px] font-black text-slate-900 tracking-wider">我的智能装备</h4>
-          <button className="text-brand-500 text-[10px] font-black bg-brand-50 px-3 py-1 rounded-lg active:scale-95 transition-all">申请租赁硬件</button>
+          <button onClick={() => onNavigate('service-mall')} className="text-brand-500 text-[10px] font-black bg-brand-50 px-3 py-1 rounded-lg active:scale-95 transition-all">申请租赁硬件</button>
         </div>
         <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
           <div className="min-w-[180px] bg-white rounded-2xl p-3 border border-slate-100 flex items-center gap-3 shadow-soft">
@@ -204,7 +204,10 @@ const HomeView: React.FC<HomeViewProps> = ({ user, onNavigate, primaryCondition 
 
       {/* 增值服务 Premium */}
       <div className="px-5 mt-6 mb-24">
-        <div className="relative overflow-hidden bg-slate-900 rounded-[24px] p-5 shadow-xl group active:scale-[0.98] transition-all cursor-pointer">
+        <div 
+            onClick={() => onNavigate('service-mall')}
+            className="relative overflow-hidden bg-slate-900 rounded-[24px] p-5 shadow-xl group active:scale-[0.98] transition-all cursor-pointer"
+        >
           <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/10 rounded-full blur-3xl -translate-y-16 translate-x-16"></div>
           <div className="absolute inset-0 opacity-5 pointer-events-none select-none flex items-center justify-center">
              <div className="text-[60px] font-black text-white transform -rotate-12">WEST CHINA</div>

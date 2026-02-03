@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, UserRole, DiseaseType, AppView } from './types';
 import HomeView from './components/HomeView';
 import ChatView from './components/ChatView';
@@ -8,6 +8,7 @@ import ReportView from './components/ReportView';
 import Button from './components/Button';
 import BottomNav from './components/BottomNav';
 import { CognitiveServiceView, HeadacheServiceView, EpilepsyServiceView, FamilyServiceView } from './components/HealthServices';
+import { ServiceMallView, HaaSRentalView } from './components/ServiceMarketplace';
 
 // 模拟初始化用户
 const INITIAL_USER: User = {
@@ -29,6 +30,20 @@ const App: React.FC = () => {
   
   // 用户当前确定的主诉方向
   const [primaryCondition, setPrimaryCondition] = useState<DiseaseType | null>(null);
+
+  // 全局导航监听器
+  useEffect(() => {
+    const handleNavigation = (e: CustomEvent) => {
+        const targetView = e.detail as AppView;
+        if (targetView) {
+            setCurrentView(targetView);
+        }
+    };
+    window.addEventListener('navigate-to', handleNavigation as EventListener);
+    return () => {
+        window.removeEventListener('navigate-to', handleNavigation as EventListener);
+    };
+  }, []);
 
   const handleLogin = () => {
     setUser(INITIAL_USER);
@@ -81,7 +96,7 @@ const App: React.FC = () => {
     );
   }
 
-  const showBottomNav = ['home', 'chat', 'profile', 'service-cognitive', 'service-headache', 'service-epilepsy', 'service-family'].includes(currentView);
+  const showBottomNav = ['home', 'chat', 'profile', 'service-cognitive', 'service-headache', 'service-epilepsy', 'service-family', 'service-mall'].includes(currentView);
 
   return (
     <div className="min-h-screen bg-slate-50 relative">
@@ -98,6 +113,10 @@ const App: React.FC = () => {
         {currentView === 'service-headache' && <HeadacheServiceView onBack={() => setCurrentView('home')} />}
         {currentView === 'service-epilepsy' && <EpilepsyServiceView onBack={() => setCurrentView('home')} />}
         {currentView === 'service-family' && <FamilyServiceView onBack={() => setCurrentView('home')} />}
+
+        {/* 服务商城与结算 */}
+        {currentView === 'service-mall' && <ServiceMallView onNavigate={setCurrentView} onBack={() => setCurrentView('home')} />}
+        {currentView === 'haas-checkout' && <HaaSRentalView onBack={() => setCurrentView('service-epilepsy')} onComplete={() => setCurrentView('home')} />}
 
         {/* AI 数字门诊 */}
         {currentView === 'chat' && (
@@ -125,7 +144,7 @@ const App: React.FC = () => {
              </div>
         )}
 
-        {/* 支付验证网关 */}
+        {/* 支付验证网关 (1元评估) */}
         {currentView === 'payment' && (
             <div className="fixed inset-0 z-50 flex items-end justify-center max-w-[430px] mx-auto">
                 <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={handleClosePayment}></div>

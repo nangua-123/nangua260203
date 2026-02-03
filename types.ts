@@ -123,4 +123,4 @@ export interface DeviceInfo {
 }
 
 // Added specific health module views
-export type AppView = 'login' | 'home' | 'chat' | 'payment' | 'assessment' | 'report' | 'profile' | 'service-cognitive' | 'service-epilepsy' | 'service-headache' | 'service-family';
+export type AppView = 'login' | 'home' | 'chat' | 'payment' | 'assessment' | 'report' | 'profile' | 'service-cognitive' | 'service-epilepsy' | 'service-headache' | 'service-family' | 'service-mall' | 'haas-checkout';
