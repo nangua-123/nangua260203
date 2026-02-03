@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Layout from './Layout';
 import Button from './Button';
 import { TrainingRecord, HeadacheLog, MedicationTask, FamilyMember, SeizureLog, DeviceInfo } from '../types';
@@ -275,7 +275,7 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
     );
 };
 
-// --- SUB-MODULE 2: EPILEPSY CARE (Guardian Package) ---
+// --- SUB-MODULE 2: EPILEPSY CARE (Guardian Package & Meds) ---
 
 export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     // Hardware State: unbound -> shipping -> active
@@ -292,12 +292,19 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
     const [meds, setMeds] = useState<MedicationTask[]>([
         { id: '1', name: '丙戊酸钠缓释片', dosage: '500mg', time: '08:00', taken: false },
         { id: '2', name: '左乙拉西坦片', dosage: '250mg', time: '08:00', taken: false },
+        { id: '3', name: '丙戊酸钠缓释片', dosage: '500mg', time: '20:00', taken: false },
     ]);
     const [showPay, setShowPay] = useState(false);
     const [isActivating, setIsActivating] = useState(false);
     const [showAddMed, setShowAddMed] = useState(false);
     const [newMed, setNewMed] = useState({ name: '', dosage: '', time: '' });
     const [notificationPermission, setNotificationPermission] = useState(typeof Notification !== 'undefined' ? Notification.permission : 'default');
+
+    useEffect(() => {
+        if ("Notification" in window) {
+            setNotificationPermission(Notification.permission);
+        }
+    }, []);
 
     const handleRentDevice = () => {
         setShowPay(true);
@@ -336,13 +343,17 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
 
     const handleAddMedSubmit = () => {
         if (!newMed.name || !newMed.time) return;
-        setMeds([...meds, {
+        
+        // Add new med
+        const medToAdd: MedicationTask = {
             id: Date.now().toString(),
             name: newMed.name,
             dosage: newMed.dosage,
             time: newMed.time,
             taken: false
-        }]);
+        };
+        
+        setMeds([...meds, medToAdd]);
         
         // Mock scheduling notification
         if (notificationPermission === 'granted') {
@@ -364,6 +375,11 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
             new Notification("华西 Neuro-Link", { body: "服药提醒功能已开启，我们将按时提醒您。" });
         }
     };
+
+    // UI Helpers
+    const totalMeds = meds.length;
+    const takenMeds = meds.filter(m => m.taken).length;
+    const adherenceRate = totalMeds > 0 ? (takenMeds / totalMeds) * 100 : 0;
 
     return (
         <Layout headerTitle="癫痫全程管理" showBack onBack={onBack}>
@@ -447,74 +463,107 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                     )}
                 </div>
 
-                {/* 2. Medication Adherence (Medical Core) */}
+                {/* 2. Medication Reminder (Enhanced) */}
                 <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                    <div className="bg-slate-50/50 px-4 py-3 border-b border-slate-50 flex justify-between items-center">
-                        <h3 className="font-bold text-slate-800 text-sm">今日服药计划</h3>
+                    <div className="bg-slate-50 px-5 py-4 border-b border-slate-100 flex justify-between items-center">
+                        <div>
+                            <h3 className="font-bold text-slate-800 text-sm">今日服药计划</h3>
+                            <div className="flex items-center gap-1.5 mt-1">
+                                <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                    <div className="bg-green-500 h-full rounded-full transition-all duration-500" style={{width: `${adherenceRate}%`}}></div>
+                                </div>
+                                <span className="text-[10px] text-slate-400">{takenMeds}/{totalMeds} 已服</span>
+                            </div>
+                        </div>
+                        
                         <div className="flex items-center gap-2">
-                            <span className={`text-xs font-medium ${notificationPermission === 'granted' ? 'text-green-600' : 'text-slate-400'}`}>
-                                {notificationPermission === 'granted' ? '按时提醒开启' : '开启服药提醒'}
+                            <span className={`text-[10px] font-medium ${notificationPermission === 'granted' ? 'text-green-600' : 'text-slate-400'}`}>
+                                {notificationPermission === 'granted' ? '提醒已开启' : '开启提醒'}
                             </span>
                             <button 
                                 onClick={enableNotifications} 
-                                className={`w-10 h-5 rounded-full transition-colors relative ${notificationPermission === 'granted' ? 'bg-green-500' : 'bg-slate-300'}`}
+                                className={`w-9 h-5 rounded-full transition-colors relative ${notificationPermission === 'granted' ? 'bg-green-500' : 'bg-slate-300'}`}
                             >
-                                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${notificationPermission === 'granted' ? 'left-5' : 'left-0.5'}`}></span>
+                                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${notificationPermission === 'granted' ? 'left-4.5 translate-x-0' : 'left-0.5'}`}></span>
                             </button>
                         </div>
                     </div>
                     
-                    {/* Add Med Form */}
+                    {/* Inline Add Form */}
                     {showAddMed && (
-                        <div className="p-4 bg-slate-50 border-b border-slate-100 animate-slide-up">
-                            <div className="grid grid-cols-2 gap-3 mb-3">
-                                <input type="text" placeholder="药物名称" value={newMed.name} onChange={e => setNewMed({...newMed, name: e.target.value})} className="px-3 py-2 rounded-lg border border-slate-200 text-sm" />
-                                <input type="text" placeholder="剂量" value={newMed.dosage} onChange={e => setNewMed({...newMed, dosage: e.target.value})} className="px-3 py-2 rounded-lg border border-slate-200 text-sm" />
-                            </div>
-                            <div className="flex gap-3">
-                                <input type="time" value={newMed.time} onChange={e => setNewMed({...newMed, time: e.target.value})} className="px-3 py-2 rounded-lg border border-slate-200 text-sm flex-1" />
-                                <Button size="sm" onClick={handleAddMedSubmit}>添加</Button>
-                                <Button size="sm" variant="outline" onClick={() => setShowAddMed(false)}>取消</Button>
+                        <div className="p-4 bg-slate-50/50 border-b border-slate-100 animate-slide-up">
+                            <h4 className="text-xs font-bold text-slate-500 mb-3">添加新药物提醒</h4>
+                            <div className="space-y-3">
+                                <div className="flex gap-3">
+                                    <input 
+                                        type="text" 
+                                        placeholder="药物名称 (如: 丙戊酸钠)" 
+                                        value={newMed.name} 
+                                        onChange={e => setNewMed({...newMed, name: e.target.value})} 
+                                        className="flex-[2] px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-brand-500 outline-none" 
+                                    />
+                                    <input 
+                                        type="text" 
+                                        placeholder="剂量" 
+                                        value={newMed.dosage} 
+                                        onChange={e => setNewMed({...newMed, dosage: e.target.value})} 
+                                        className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-brand-500 outline-none" 
+                                    />
+                                </div>
+                                <div className="flex gap-3">
+                                    <input 
+                                        type="time" 
+                                        value={newMed.time} 
+                                        onChange={e => setNewMed({...newMed, time: e.target.value})} 
+                                        className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-brand-500 outline-none bg-white" 
+                                    />
+                                    <Button size="sm" onClick={handleAddMedSubmit} disabled={!newMed.name || !newMed.time}>确认添加</Button>
+                                    <Button size="sm" variant="outline" onClick={() => setShowAddMed(false)}>取消</Button>
+                                </div>
                             </div>
                         </div>
                     )}
 
-                    <div className="p-4 space-y-3">
-                         {/* Empty State */}
+                    <div className="p-5">
                          {meds.length === 0 && (
-                             <div className="text-center py-6 text-slate-400 text-sm">
-                                 暂无服药计划，请点击右上角添加
+                             <div className="text-center py-8 text-slate-400 text-sm bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                                 暂无服药计划，请添加
                              </div>
                          )}
 
-                         {meds.map(med => (
-                             <div key={med.id} className="flex items-center justify-between group">
-                                 <div className="flex items-center gap-3">
-                                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${med.taken ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-500'}`}>
-                                         {med.taken ? '✓' : med.time.split(':')[0]}
-                                     </div>
-                                     <div>
-                                         <div className={`text-sm font-bold ${med.taken ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{med.name}</div>
-                                         <div className="text-xs text-slate-400">{med.dosage} · {med.time}</div>
+                         {/* Timeline View */}
+                         <div className="relative pl-4 space-y-6 border-l-2 border-slate-100 my-2">
+                             {meds.sort((a,b) => a.time.localeCompare(b.time)).map(med => (
+                                 <div key={med.id} className="relative pl-6 group">
+                                     {/* Timeline Dot */}
+                                     <div className={`absolute -left-[21px] top-1 w-3.5 h-3.5 rounded-full border-[3px] border-white shadow-sm transition-colors ${med.taken ? 'bg-green-500' : 'bg-slate-300'}`}></div>
+                                     
+                                     <div className="flex items-start justify-between">
+                                         <div>
+                                             <div className="text-xs font-bold text-slate-400 mb-0.5 font-mono">{med.time}</div>
+                                             <div className={`text-sm font-bold ${med.taken ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{med.name}</div>
+                                             <div className="text-xs text-slate-400 mt-0.5 bg-slate-50 px-1.5 py-0.5 rounded inline-block">{med.dosage}</div>
+                                         </div>
+                                         <Button 
+                                            size="sm" 
+                                            variant={med.taken ? "ghost" : "outline"} 
+                                            onClick={() => toggleMed(med.id)}
+                                            className={`${med.taken ? "text-green-600 bg-green-50 hover:bg-green-100" : "text-brand-600 border-brand-200"} min-w-[70px]`}
+                                        >
+                                             {med.taken ? '已服' : '打卡'}
+                                         </Button>
                                      </div>
                                  </div>
-                                 <Button 
-                                    size="sm" 
-                                    variant={med.taken ? "ghost" : "outline"} 
-                                    onClick={() => toggleMed(med.id)}
-                                    className={med.taken ? "opacity-50" : ""}
-                                >
-                                     {med.taken ? '已服' : '打卡'}
-                                 </Button>
-                             </div>
-                         ))}
+                             ))}
+                         </div>
                          
                          {!showAddMed && (
                             <button 
                                 onClick={() => setShowAddMed(true)}
-                                className="w-full py-2 border border-dashed border-slate-200 rounded-lg text-xs text-slate-400 hover:bg-slate-50 transition-colors mt-2"
+                                className="w-full py-3 border border-dashed border-slate-200 rounded-xl text-xs font-bold text-slate-400 hover:text-brand-500 hover:border-brand-200 hover:bg-brand-50 transition-all mt-4 flex items-center justify-center gap-1"
                             >
-                                + 添加新药物
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
+                                添加服药提醒
                             </button>
                          )}
                     </div>

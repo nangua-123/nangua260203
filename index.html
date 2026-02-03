@@ -3,10 +3,10 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>华西神经专病AI数字医院 - 阿福版</title>
+    <!-- 核心：移动端锁定视口与安全区适配 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>华西神经专病AI数字医院 - 移动版</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script type="module" src="./index.tsx"></script>
     <script>
       tailwind.config = {
         theme: {
@@ -16,13 +16,13 @@
                 50: '#E6F4FF', 
                 100: '#BAE0FF',
                 200: '#91CAFF',
-                500: '#1677FF', // 蚂蚁阿福蓝
+                500: '#1677FF',
                 600: '#0958D9',
               },
               slate: {
-                50: '#F7F9FA', // 空气感背景
-                400: '#8C8C8C', // 辅助灰
-                900: '#000000', // 核心文字
+                50: '#F7F9FA',
+                400: '#8C8C8C',
+                900: '#000000',
               }
             },
             fontFamily: {
@@ -35,22 +35,42 @@
             boxShadow: {
               'afoo': '0 8px 24px rgba(22, 119, 255, 0.04)',
               'soft': '0 10px 40px rgba(0, 0, 0, 0.02)',
-              'inner-light': 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.02)',
+              'card': '0 2px 12px -3px rgba(0,0,0,0.04)',
             }
           },
         },
       }
     </script>
     <style>
-      body { background-color: #F7F9FA; color: #000000; -webkit-tap-highlight-color: transparent; }
+      :root {
+        --sat: env(safe-area-inset-top);
+        --sar: env(safe-area-inset-right);
+        --sab: env(safe-area-inset-bottom);
+        --sal: env(safe-area-inset-left);
+      }
+      body { 
+        background-color: #E2E8F0; /* PC端背景 */
+        margin: 0;
+        padding: 0;
+        -webkit-tap-highlight-color: transparent;
+      }
+      /* 核心容器：锁定移动端宽度并在PC居中 */
+      #root {
+        max-width: 430px;
+        margin: 0 auto;
+        min-height: 100vh;
+        background-color: #F7F9FA;
+        box-shadow: 0 0 50px rgba(0,0,0,0.1);
+        position: relative;
+        overflow-x: hidden;
+      }
       .no-scrollbar::-webkit-scrollbar { display: none; }
-      .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
-      .glass-bg { backdrop-filter: blur(10px); background: rgba(255, 255, 255, 0.9); }
+      .pb-safe { padding-bottom: calc(60px + var(--sab)); }
       @keyframes slideUp {
-        from { transform: translateY(20px); opacity: 0; }
+        from { transform: translateY(12px); opacity: 0; }
         to { transform: translateY(0); opacity: 1; }
       }
-      .animate-slide-up { animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      .animate-slide-up { animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
     </style>
   <script type="importmap">
 {
@@ -63,7 +83,7 @@
 }
 </script>
 </head>
-  <body class="antialiased font-sans">
+  <body class="antialiased">
     <div id="root"></div>
   </body>
 </html>

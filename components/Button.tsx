@@ -15,19 +15,19 @@ const Button: React.FC<ButtonProps> = ({
   className = '',
   ...props 
 }) => {
-  const baseStyles = "inline-flex items-center justify-center rounded-full font-bold transition-all focus:outline-none disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 select-none";
+  const baseStyles = "inline-flex items-center justify-center rounded-full font-black transition-all focus:outline-none disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.97] select-none min-h-[44px]";
   
   const variants = {
     primary: "bg-[#1677FF] hover:bg-[#0958D9] text-white shadow-md shadow-brand-500/20",
     secondary: "bg-brand-50 text-brand-500 hover:bg-brand-100",
-    outline: "border border-slate-100 bg-white text-slate-600 hover:bg-slate-50 shadow-sm",
+    outline: "border-[0.5px] border-gray-200 bg-white text-slate-600 hover:bg-slate-50",
     ghost: "text-[#1677FF] hover:bg-brand-50",
   };
 
   const sizes = {
     sm: "px-5 py-2 text-[11px] tracking-tight",
-    md: "px-8 py-3.5 text-xs tracking-wider",
-    lg: "px-10 py-4.5 text-sm tracking-widest",
+    md: "px-8 py-3 text-xs tracking-widest",
+    lg: "px-10 py-4 text-sm tracking-widest",
   };
 
   return (

@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { AppView } from '../types';
 
@@ -27,7 +28,7 @@ const BottomNav: React.FC<BottomNavProps> = ({ currentView, onNavigate }) => {
       )
     },
     {
-      id: 'profile', // We will map 'profile' to home/settings logic later or just placeholder
+      id: 'profile',
       label: '我的',
       icon: (active: boolean) => (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={active ? "currentColor" : "none"} stroke="currentColor" strokeWidth={active ? 0 : 2} className="w-6 h-6">
@@ -38,19 +39,19 @@ const BottomNav: React.FC<BottomNavProps> = ({ currentView, onNavigate }) => {
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 flex justify-around items-center pb-safe pt-2 h-[60px] z-50 shadow-[0_-4px_12px_rgba(0,0,0,0.03)]">
+    <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white/90 backdrop-blur-lg border-t border-slate-100 flex justify-around items-center pt-2 h-[calc(60px+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] z-50 shadow-[0_-4px_12px_rgba(0,0,0,0.03)]">
       {navItems.map((item) => {
-        const isActive = currentView === item.id || (item.id === 'home' && currentView === 'home');
+        const isActive = currentView === item.id;
         return (
             <button 
               key={item.id}
               onClick={() => onNavigate(item.id as AppView)}
-              className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${isActive ? 'text-brand-600' : 'text-slate-400'}`}
+              className={`flex flex-col items-center justify-center w-full min-h-[44px] space-y-1 ${isActive ? 'text-brand-600' : 'text-slate-400'}`}
             >
               <div className="transition-transform duration-200 active:scale-90">
                 {item.icon(isActive)}
               </div>
-              <span className="text-[10px] font-medium">{item.label}</span>
+              <span className="text-[10px] font-black uppercase tracking-tighter">{item.label}</span>
             </button>
         );
       })}
