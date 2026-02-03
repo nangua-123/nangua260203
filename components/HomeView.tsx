@@ -5,24 +5,33 @@ import Button from './Button';
 
 interface HomeViewProps {
   user: User;
+  riskScore: number;
+  hasDevice: boolean;
   onNavigate: (view: AppView) => void;
   primaryCondition: DiseaseType | null;
 }
 
-const HomeView: React.FC<HomeViewProps> = ({ user, onNavigate, primaryCondition }) => {
-  const [healthScore] = useState(80);
+const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavigate, primaryCondition }) => {
   const [wavePath, setWavePath] = useState('');
-
-  // 1. 风险指示灯颜色逻辑
+  
+  // Use passed risk score or default to safe if 0
+  const displayScore = riskScore > 0 ? riskScore : 95;
+  const isHighRisk = displayScore < 60 || riskScore > 80; // Assuming specific logic: if using "RiskScore" as 0-100 risk probability
+  // Correction: Let's assume input is "Health Score". 
+  // If we assume input is "Risk Score" (from Triage): Higher is worse.
+  // If we assume input is "Health Score" (default): Higher is better.
+  // Let's standardise: If it came from Triage (85%), it's Risk. If it's default (0), we show Health 95.
+  
+  const finalHealthScore = riskScore > 0 ? (100 - riskScore) : 95;
+  
   const getRiskStatus = (score: number) => {
-    if (score >= 80) return { color: 'text-emerald-500', bg: 'bg-emerald-50', border: 'border-emerald-100', text: '良好' };
-    if (score >= 60) return { color: 'text-amber-500', bg: 'bg-amber-50', border: 'border-amber-100', text: '中等' };
-    return { color: 'text-rose-500', bg: 'bg-rose-50', border: 'border-rose-100', text: '高风险' };
+    if (score >= 80) return { color: 'text-emerald-500', bg: 'bg-emerald-50', border: 'border-emerald-100', text: '健康', ring: 'stroke-emerald-500' };
+    if (score >= 60) return { color: 'text-amber-500', bg: 'bg-amber-50', border: 'border-amber-100', text: '亚健康', ring: 'stroke-amber-500' };
+    return { color: 'text-rose-500', bg: 'bg-rose-50', border: 'border-rose-100', text: '高风险', ring: 'stroke-rose-500' };
   };
 
-  const status = getRiskStatus(healthScore);
+  const status = getRiskStatus(finalHealthScore);
 
-  // 2. 癫痫实时脑电波模拟动画
   useEffect(() => {
     let tick = 0;
     const generateWave = () => {
@@ -44,51 +53,65 @@ const HomeView: React.FC<HomeViewProps> = ({ user, onNavigate, primaryCondition 
     <div className="bg-[#F7F8FA] min-h-screen flex flex-col max-w-[430px] mx-auto overflow-x-hidden pb-safe select-none">
       
       {/* 顶部看板 Dashboard */}
-      <div className="bg-white rounded-b-[32px] px-5 pt-[calc(1.2rem+env(safe-area-inset-top))] pb-6 shadow-sm">
+      <div className={`bg-white rounded-b-[32px] px-5 pt-[calc(1.2rem+env(safe-area-inset-top))] pb-6 shadow-sm transition-colors duration-500 ${finalHealthScore < 60 ? 'bg-red-50/50' : ''}`}>
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-brand-50 flex items-center justify-center text-brand-500 font-bold text-lg border-[2.5px] border-white shadow-sm">
+            <div className={`w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold text-lg border-[2.5px] shadow-sm ${user.vipLevel > 0 ? 'border-amber-400 text-amber-600' : 'border-white'}`}>
               {user.name[0]}
             </div>
             <div>
               <h2 className="text-[16px] font-bold text-slate-900">你好，{user.name}</h2>
               <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border mt-1 ${status.bg} ${status.border} ${status.color}`}>
                 <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
-                <span className="text-[10px] font-bold">风险状态：{status.text}</span>
+                <span className="text-[10px] font-bold">状态：{status.text}</span>
               </div>
             </div>
           </div>
           <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
             <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
               <circle cx="50" cy="50" r="44" fill="none" stroke="#F1F5F9" strokeWidth="8" />
-              <circle cx="50" cy="50" r="44" fill="none" stroke="#1677FF" strokeWidth="10" strokeDasharray="276.4" strokeDashoffset={276.4 - (276.4 * healthScore) / 100} strokeLinecap="round" className="transition-all duration-1000" />
+              <circle cx="50" cy="50" r="44" fill="none" className={`transition-all duration-1000 ${status.ring}`} strokeWidth="10" strokeDasharray="276.4" strokeDashoffset={276.4 - (276.4 * finalHealthScore) / 100} strokeLinecap="round" />
             </svg>
             <div className="absolute flex flex-col items-center">
-              <span className="text-[18px] font-black text-slate-900">{healthScore}</span>
+              <span className={`text-[18px] font-black ${finalHealthScore < 60 ? 'text-rose-600' : 'text-slate-900'}`}>{finalHealthScore}</span>
               <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">健康分</span>
             </div>
           </div>
         </div>
 
-        {/* 1元解锁高亮转化金条 */}
-        {healthScore >= 60 && (
+        {/* 1元解锁高亮转化金条 (高风险且未付费) */}
+        {finalHealthScore < 80 && user.vipLevel === 0 ? (
           <div 
             onClick={() => onNavigate('payment')}
-            className="bg-gradient-to-r from-brand-600 to-brand-500 rounded-2xl p-3 flex items-center justify-between shadow-lg shadow-brand-500/20 active:scale-[0.98] transition-all cursor-pointer"
+            className="bg-gradient-to-r from-rose-500 to-rose-600 rounded-2xl p-3 flex items-center justify-between shadow-lg shadow-rose-500/20 active:scale-[0.98] transition-all cursor-pointer animate-pulse-fast"
           >
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center text-white">🧧</div>
+              <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center text-white font-bold">!</div>
               <div>
-                <p className="text-white font-black text-[12px]">解锁华西标准深度评估报告</p>
-                <p className="text-white/70 text-[9px]">针对您的风险指数进行精准临床解读</p>
+                <p className="text-white font-black text-[12px]">检测到健康风险异常</p>
+                <p className="text-white/80 text-[9px] font-medium">专家建议立即进行深度评估</p>
               </div>
             </div>
-            <div className="bg-white px-3 py-1 rounded-full text-brand-600 text-[11px] font-black">¥1 开启</div>
+            <div className="bg-white px-3 py-1 rounded-full text-rose-600 text-[11px] font-black">¥1 解锁</div>
+          </div>
+        ) : (
+          <div 
+            onClick={() => onNavigate('chat')}
+            className="bg-white border border-brand-100 rounded-2xl p-3 flex items-center justify-between shadow-sm active:scale-[0.98] transition-all"
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-brand-50 rounded-full flex items-center justify-center text-brand-500 text-lg">🩺</div>
+              <div>
+                <p className="text-slate-800 font-black text-[12px]">AI 每日健康自查</p>
+                <p className="text-slate-400 text-[9px]">更新今日体征数据</p>
+              </div>
+            </div>
+            <span className="text-slate-300">›</span>
           </div>
         )}
       </div>
 
-      {/* 核心业务区：三大专病工具箱 */}
+      {/* 核心业务区 */}
       <div className="px-5 mt-5 space-y-4">
         <h4 className="text-[13px] font-black text-slate-900 tracking-wider">专病管理工具箱</h4>
         <div className="grid grid-cols-2 gap-4">
@@ -100,14 +123,24 @@ const HomeView: React.FC<HomeViewProps> = ({ user, onNavigate, primaryCondition 
           >
             <div className="flex justify-between items-start mb-3">
               <h5 className="text-[12px] font-black text-slate-800">生命守护 (癫痫)</h5>
-              <span className="text-[8px] font-bold text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">监测中</span>
+              {hasDevice ? (
+                  <span className="text-[8px] font-bold text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">监测中</span>
+              ) : (
+                  <span className="text-[8px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">未连接</span>
+              )}
             </div>
             <div className="h-[60px] bg-slate-50 rounded-xl flex items-center justify-center overflow-hidden border border-slate-100">
-              <svg width="100%" height="40" viewBox="0 0 160 40">
-                <path d={wavePath} fill="none" stroke="#1677FF" strokeWidth="2" strokeLinecap="round" />
-              </svg>
+               {hasDevice ? (
+                 <svg width="100%" height="40" viewBox="0 0 160 40">
+                    <path d={wavePath} fill="none" stroke="#10B981" strokeWidth="2" strokeLinecap="round" />
+                 </svg>
+               ) : (
+                 <span className="text-[9px] text-slate-400">点击租赁设备</span>
+               )}
             </div>
-            <p className="text-[9px] text-slate-400 mt-3 font-medium">实时脑电稳定性：极佳</p>
+            <p className="text-[9px] text-slate-400 mt-3 font-medium">
+                {hasDevice ? '实时脑电稳定性：极佳' : '全天候发作预警'}
+            </p>
           </div>
 
           {/* AD卡片 */}
@@ -176,7 +209,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, onNavigate, primaryCondition 
       <div className="px-5 mt-6 space-y-3">
         <div className="flex items-center justify-between">
           <h4 className="text-[13px] font-black text-slate-900 tracking-wider">我的智能装备</h4>
-          <button onClick={() => onNavigate('service-mall')} className="text-brand-500 text-[10px] font-black bg-brand-50 px-3 py-1 rounded-lg active:scale-95 transition-all">申请租赁硬件</button>
+          <button onClick={() => onNavigate('service-mall')} className="text-brand-500 text-[10px] font-black bg-brand-50 px-3 py-1 rounded-lg active:scale-95 transition-all">租赁管理</button>
         </div>
         <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
           <div className="min-w-[180px] bg-white rounded-2xl p-3 border border-slate-100 flex items-center gap-3 shadow-soft">
@@ -184,46 +217,23 @@ const HomeView: React.FC<HomeViewProps> = ({ user, onNavigate, primaryCondition 
             <div className="flex-1">
               <div className="text-[11px] font-black text-slate-800">脑电头带 Pro</div>
               <div className="flex items-center justify-between mt-1">
-                <span className="text-[9px] text-emerald-500 font-bold">已连接</span>
-                <span className="text-[9px] text-slate-400 font-bold tracking-tighter">电量 80%</span>
+                <span className="text-[9px] text-slate-400 font-bold">未连接</span>
               </div>
             </div>
           </div>
-          <div className="min-w-[180px] bg-white rounded-2xl p-3 border border-slate-100 flex items-center gap-3 shadow-soft">
+          <div 
+             onClick={() => onNavigate('haas-checkout')}
+             className={`min-w-[180px] bg-white rounded-2xl p-3 border transition-all flex items-center gap-3 shadow-soft ${hasDevice ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'}`}
+          >
             <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-lg">⌚</div>
             <div className="flex-1">
               <div className="text-[11px] font-black text-slate-800">生命监测手环</div>
               <div className="flex items-center justify-between mt-1">
-                <span className="text-[9px] text-emerald-500 font-bold">已连接</span>
-                <span className="text-[9px] text-slate-400 font-bold tracking-tighter">电量 92%</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 增值服务 Premium */}
-      <div className="px-5 mt-6 mb-24">
-        <div 
-            onClick={() => onNavigate('service-mall')}
-            className="relative overflow-hidden bg-slate-900 rounded-[24px] p-5 shadow-xl group active:scale-[0.98] transition-all cursor-pointer"
-        >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/10 rounded-full blur-3xl -translate-y-16 translate-x-16"></div>
-          <div className="absolute inset-0 opacity-5 pointer-events-none select-none flex items-center justify-center">
-             <div className="text-[60px] font-black text-white transform -rotate-12">WEST CHINA</div>
-          </div>
-          <div className="relative z-10 flex justify-between items-center">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] font-black bg-brand-500 text-white px-2 py-0.5 rounded uppercase tracking-widest">Premium</span>
-                <h4 className="text-white font-black text-[16px]">华西专家影像复核</h4>
-              </div>
-              <p className="text-slate-400 text-[10px] font-bold">官方专家人工阅片 · 48小时出具临床建议报告</p>
-            </div>
-            <div className="flex flex-col items-end">
-              <span className="text-white font-black text-lg">¥99 <span className="text-[10px] text-slate-500">起</span></span>
-              <div className="w-8 h-8 bg-white/10 rounded-full flex items-center justify-center text-white mt-1">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clipRule="evenodd" /></svg>
+                 {hasDevice ? (
+                     <span className="text-[9px] text-emerald-500 font-bold">已连接</span>
+                 ) : (
+                     <span className="text-[9px] text-brand-500 font-bold">申请租赁 ›</span>
+                 )}
               </div>
             </div>
           </div>
@@ -231,7 +241,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, onNavigate, primaryCondition 
       </div>
 
       {/* 合规标注页脚 */}
-      <div className="mt-auto px-10 pb-[calc(80px+env(safe-area-inset-bottom))] text-center opacity-30 pointer-events-none">
+      <div className="mt-auto px-10 pb-[calc(80px+env(safe-area-inset-bottom))] pt-8 text-center opacity-30 pointer-events-none">
         <p className="text-[9px] text-slate-500 leading-relaxed font-bold tracking-tight">
           所有建议均为辅助决策 (CDSS)，仅供医学参考<br/>
           最终处方权及诊断结论归线下接诊医生所有<br/>

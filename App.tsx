@@ -23,20 +23,20 @@ const INITIAL_USER: User = {
 };
 
 // --- Profile View Component ---
-const ProfileView: React.FC<{ user: User; onNavigate: (v: AppView) => void }> = ({ user, onNavigate }) => {
+const ProfileView: React.FC<{ user: User; hasDevice: boolean; onNavigate: (v: AppView) => void }> = ({ user, hasDevice, onNavigate }) => {
   return (
     <Layout headerTitle="个人中心" hideHeader>
       <div className="min-h-screen bg-slate-50 pb-24 relative">
         {/* Header */}
         <div className="bg-white p-6 pt-12 pb-8 border-b border-slate-50 shadow-sm">
            <div className="flex items-center gap-4">
-             <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-3xl shadow-inner border border-white">
+             <div className={`w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-3xl shadow-inner border-2 ${user.vipLevel > 0 ? 'border-amber-400' : 'border-white'}`}>
                👨‍🦳
              </div>
              <div>
                <h2 className="text-xl font-black text-slate-900">{user.name}</h2>
                <div className="flex items-center gap-2 mt-1">
-                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${user.vipLevel > 0 ? 'bg-brand-50 text-brand-600 border-brand-100' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${user.vipLevel > 0 ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
                     {user.vipLevel > 0 ? '华西尊享会员' : '普通用户'}
                   </span>
                </div>
@@ -50,11 +50,21 @@ const ProfileView: React.FC<{ user: User; onNavigate: (v: AppView) => void }> = 
            <div className="bg-white rounded-[24px] p-5 shadow-sm border border-slate-100">
               <div className="flex justify-between items-center mb-4">
                  <h3 className="font-black text-slate-800 text-[13px]">我的智能设备</h3>
-                 <button onClick={() => onNavigate('haas-checkout')} className="text-brand-600 text-[10px] font-bold bg-brand-50 px-2 py-1 rounded-lg">申请设备 +</button>
+                 {!hasDevice && <button onClick={() => onNavigate('haas-checkout')} className="text-brand-600 text-[10px] font-bold bg-brand-50 px-2 py-1 rounded-lg">申请设备 +</button>}
               </div>
-              <div className="bg-slate-50 rounded-2xl p-4 text-center text-slate-400 text-[11px] font-bold border border-slate-100 border-dashed">
-                 暂无绑定监测设备
-              </div>
+              {hasDevice ? (
+                <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100 flex items-center gap-3">
+                   <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-xl shadow-sm">⌚</div>
+                   <div>
+                      <div className="text-[11px] font-black text-emerald-800">生命体征监测手环</div>
+                      <div className="text-[9px] text-emerald-600 font-bold mt-0.5">运行中 · 电量 85%</div>
+                   </div>
+                </div>
+              ) : (
+                <div className="bg-slate-50 rounded-2xl p-4 text-center text-slate-400 text-[11px] font-bold border border-slate-100 border-dashed">
+                   暂无绑定监测设备
+                </div>
+              )}
            </div>
 
            {/* Menu */}
@@ -81,9 +91,12 @@ const ProfileView: React.FC<{ user: User; onNavigate: (v: AppView) => void }> = 
 };
 
 const App: React.FC = () => {
+  // State Machine
   const [currentView, setCurrentView] = useState<AppView>('home');
   const [user, setUser] = useState<User>(INITIAL_USER);
-  const [assessmentData, setAssessmentData] = useState<{score: number; type: DiseaseType} | null>(null);
+  const [riskScore, setRiskScore] = useState<number>(0);
+  const [hasDevice, setHasDevice] = useState<boolean>(false);
+  const [assessmentType, setAssessmentType] = useState<DiseaseType>(DiseaseType.MIGRAINE);
 
   // --- Navigation Handler ---
   const handleNavigate = (view: AppView) => {
@@ -91,7 +104,7 @@ const App: React.FC = () => {
     window.scrollTo(0, 0);
   };
 
-  // Listen for custom navigation events from deeply nested components (like EpilepsyServiceView HaaS logic)
+  // Listen for custom deep links
   useEffect(() => {
     const handleDeepLink = (e: Event) => {
         const customEvent = e as CustomEvent;
@@ -103,46 +116,65 @@ const App: React.FC = () => {
     return () => window.removeEventListener('navigate-to', handleDeepLink);
   }, []);
 
-  // --- Callbacks ---
-  const handleAssessmentComplete = (score: number) => {
-    setAssessmentData({ score, type: DiseaseType.MIGRAINE }); // Default mock
-    handleNavigate('report');
-  };
+  // --- Logic Handlers (The Brain) ---
 
+  // 1. Triage Logic: Chat -> Report
   const handleTriageComplete = (summary: any) => {
-    // Simulate mapping AI summary to disease type
-    let diseaseType = DiseaseType.UNKNOWN;
-    if (summary.disease === 'MIGRAINE') diseaseType = DiseaseType.MIGRAINE;
-    if (summary.disease === 'COGNITIVE') diseaseType = DiseaseType.COGNITIVE;
-    if (summary.disease === 'EPILEPSY') diseaseType = DiseaseType.EPILEPSY;
-
-    setAssessmentData({ score: summary.risk || 50, type: diseaseType });
+    // 强制设定为高风险以展示闭环逻辑
+    setRiskScore(summary.risk || 85); 
+    setAssessmentType(DiseaseType.MIGRAINE); // Mock mapping
     handleNavigate('report');
   };
 
-  // --- Main Render Logic (The Controller) ---
-  // STRICTLY returns JSX Elements (<Component />), never objects.
+  // 2. Report Logic: Report -> Home (Intervention)
+  const handleIntervention = () => {
+    handleNavigate('home');
+  };
+
+  // 3. Payment/Rental Logic: Mall -> Home (Asset Sync)
+  const handleAssetSync = () => {
+    setUser(u => ({ ...u, vipLevel: 1 }));
+    setHasDevice(true);
+    handleNavigate('home');
+  };
+
+  const handleScoreUpdate = (score: number) => {
+      setRiskScore(score);
+      handleNavigate('report');
+  };
+
+  // --- Render (The View) ---
   const renderContent = () => {
     switch (currentView) {
-      // 1. Health Tower (Home)
+      // Tower 1: Health
       case 'home':
-        return <HomeView user={user} onNavigate={handleNavigate} primaryCondition={DiseaseType.MIGRAINE} />;
+        return <HomeView 
+                  user={user} 
+                  riskScore={riskScore}
+                  hasDevice={hasDevice}
+                  onNavigate={handleNavigate} 
+                  primaryCondition={DiseaseType.MIGRAINE} 
+               />;
       
-      // 2. Triage Tower (AI Chat)
+      // Tower 2: Chat
       case 'chat':
         return <ChatView onBack={() => handleNavigate('home')} onPaymentGate={handleTriageComplete} />;
       
-      // 3. Profile Tower (User Center)
+      // Tower 3: Profile
       case 'profile':
-        return <ProfileView user={user} onNavigate={handleNavigate} />;
+        return <ProfileView user={user} hasDevice={hasDevice} onNavigate={handleNavigate} />;
       
-      // --- Sub Views (Tools & Services) ---
-      
+      // Sub-views
       case 'assessment':
-        return <AssessmentView type={DiseaseType.MIGRAINE} onComplete={handleAssessmentComplete} onBack={() => handleNavigate('home')} />;
+        return <AssessmentView type={assessmentType} onComplete={handleScoreUpdate} onBack={() => handleNavigate('home')} />;
       
       case 'report':
-        return <ReportView score={assessmentData?.score || 0} diseaseType={assessmentData?.type || DiseaseType.UNKNOWN} onBackToHome={() => handleNavigate('home')} />;
+        return <ReportView 
+                  score={riskScore} 
+                  diseaseType={assessmentType} 
+                  onBackToHome={() => handleNavigate('home')} 
+                  onIntervention={handleIntervention}
+               />;
       
       case 'service-headache':
         return <HeadacheServiceView onBack={() => handleNavigate('home')} />;
@@ -161,11 +193,10 @@ const App: React.FC = () => {
         return <ServiceMallView onNavigate={handleNavigate} onBack={() => handleNavigate('home')} />;
       
       case 'haas-checkout':
-        return <HaaSRentalView onBack={() => handleNavigate('home')} onComplete={() => handleNavigate('home')} />;
+        return <HaaSRentalView onBack={() => handleNavigate('home')} onComplete={handleAssetSync} />;
       
       default:
-        // Fallback to Home to prevent rendering null/undefined or objects
-        return <HomeView user={user} onNavigate={handleNavigate} primaryCondition={DiseaseType.MIGRAINE} />;
+        return <HomeView user={user} riskScore={riskScore} hasDevice={hasDevice} onNavigate={handleNavigate} primaryCondition={DiseaseType.MIGRAINE} />;
     }
   };
 
@@ -173,7 +204,6 @@ const App: React.FC = () => {
 
   return (
     <div className="font-sans antialiased text-slate-900 bg-white min-h-screen max-w-[430px] mx-auto shadow-2xl relative">
-       {/* Execute render function to get the React Element */}
        {renderContent()}
        
        {showBottomNav && (
