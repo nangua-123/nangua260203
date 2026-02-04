@@ -12,7 +12,7 @@
  */
 
 import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
-import { User, UserRole, FeatureKey, DiseaseType, ReferralData, HeadacheProfile, IoTStats, CognitiveStats, FamilyMember } from '../types';
+import { User, UserRole, FeatureKey, DiseaseType, ReferralData, HeadacheProfile, IoTStats, CognitiveStats, FamilyMember, SharingScope, PrivacySettings } from '../types';
 
 // --- Security Utils (Simulated) ---
 // 模拟 GDPR/HIPAA 合规的数据脱敏
@@ -45,6 +45,13 @@ const INITIAL_STATE: AppState = {
     unlockedFeatures: [],
     hasHardware: false,
     isElderlyMode: false,
+    // [NEW] 默认隐私设置
+    privacySettings: {
+        allowCloudStorage: true,
+        sharingScope: SharingScope.ONLY_ME, // 默认仅自己可见
+        allowResearchUse: false,
+        lastUpdated: Date.now()
+    },
     // 本人健康数据
     iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, lastUpdated: 0 },
     cognitiveStats: { totalSessions: 0, todaySessions: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0 },
@@ -86,11 +93,12 @@ type Action =
   | { type: 'UPDATE_IOT_STATS'; payload: { id: string; stats: IoTStats } }
   | { type: 'UPDATE_COGNITIVE_STATS'; payload: { id: string; stats: Partial<CognitiveStats> } }
   | { type: 'TOGGLE_ELDERLY_MODE' }
-  // Family CRUD Actions
   | { type: 'ADD_FAMILY_MEMBER'; payload: { name: string; relation: string; avatar: string } }
   | { type: 'EDIT_FAMILY_MEMBER'; payload: { id: string; updates: Partial<FamilyMember> } }
   | { type: 'REMOVE_FAMILY_MEMBER'; payload: string }
-  | { type: 'CLEAR_CACHE' };
+  | { type: 'CLEAR_CACHE' }
+  // [NEW] 隐私设置更新 Action
+  | { type: 'UPDATE_PRIVACY_SETTINGS'; payload: Partial<PrivacySettings> };
 
 // --- Reducer ---
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -241,6 +249,21 @@ const appReducer = (state: AppState, action: Action): AppState => {
         };
     }
 
+    // [NEW] 处理隐私设置更新
+    case 'UPDATE_PRIVACY_SETTINGS': {
+        return {
+            ...state,
+            user: {
+                ...state.user,
+                privacySettings: {
+                    ...state.user.privacySettings,
+                    ...action.payload,
+                    lastUpdated: Date.now()
+                }
+            }
+        };
+    }
+
     case 'CLEAR_CACHE':
         localStorage.removeItem(STORAGE_KEY);
         return INITIAL_STATE;
@@ -255,7 +278,12 @@ const initState = (initial: AppState): AppState => {
     try {
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored) {
-            return JSON.parse(stored);
+            const parsed = JSON.parse(stored);
+            // 兼容旧数据：如果读取的 user 没有 privacySettings，则合并默认值
+            if (!parsed.user.privacySettings) {
+                parsed.user.privacySettings = INITIAL_STATE.user.privacySettings;
+            }
+            return parsed;
         }
     } catch (e) {
         console.error("Failed to load state from localStorage", e);

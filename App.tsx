@@ -10,6 +10,7 @@ import AssessmentView from './components/AssessmentView';
 import ReportView from './components/ReportView';
 import { HeadacheServiceView, CognitiveServiceView, EpilepsyServiceView, FamilyServiceView } from './components/HealthServices';
 import { HaaSRentalView, ServiceMallView } from './components/ServiceMarketplace';
+import PrivacyPanel from './components/PrivacyPanel'; // Import New Component
 import Layout from './components/Layout';
 import { useApp } from './context/AppContext';
 
@@ -22,7 +23,13 @@ const INITIAL_USER: User = {
   vipLevel: 0,
   unlockedFeatures: [],
   hasHardware: false,
-  isElderlyMode: false
+  isElderlyMode: false,
+  privacySettings: { // Fallback privacy settings
+      allowCloudStorage: true,
+      sharingScope: 'ONLY_ME' as any,
+      allowResearchUse: false,
+      lastUpdated: 0
+  }
 };
 
 // --- Profile View Component (Refined) ---
@@ -121,10 +128,13 @@ const ProfileView: React.FC<{ user: User; hasDevice: boolean; onNavigate: (v: Ap
                  </button>
               ))}
               
-              {/* Privacy & Settings (New) */}
+              {/* Privacy & Settings (Updated Link) */}
               <div className="border-t border-slate-100 mx-4 my-2"></div>
               
-              <button onClick={() => window.alert("隐私权限设置面板")} className="w-full flex items-center justify-between p-4 hover:bg-slate-50 rounded-2xl transition-colors group">
+              <button 
+                  onClick={() => onNavigate('privacy-settings')} 
+                  className="w-full flex items-center justify-between p-4 hover:bg-slate-50 rounded-2xl transition-colors group"
+              >
                   <div className="flex items-center gap-3">
                       <span className="text-lg group-hover:scale-110 transition-transform duration-300">🛡️</span>
                       <div className="text-left">
@@ -244,6 +254,8 @@ const App: React.FC = () => {
         return <div className="animate-slide-up"><ServiceMallView onNavigate={handleNavigate} onBack={() => handleNavigate('home')} /></div>;
       case 'haas-checkout':
         return <div className="animate-slide-up"><HaaSRentalView onBack={() => handleNavigate('home')} onComplete={handleAssetSync} /></div>;
+      case 'privacy-settings': // [NEW] Route
+        return <div className="animate-slide-up"><PrivacyPanel onBack={() => handleNavigate('profile')} /></div>;
       default:
         return <HomeView user={state.user} riskScore={state.riskScore} hasDevice={state.user.hasHardware} onNavigate={handleNavigate} primaryCondition={state.primaryCondition} />;
     }

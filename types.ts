@@ -24,6 +24,23 @@ export type FeatureKey =
   | 'VIP_EPILEPSY'           // 癫痫年卡
   | 'VIP_COGNITIVE';         // 认知障碍年卡
 
+// --- [NEW] 隐私权限相关定义 ---
+
+export enum SharingScope {
+  ONLY_ME = 'ONLY_ME',     // 仅自己可见
+  DOCTOR = 'DOCTOR',       // 授权医生可见
+  FAMILY = 'FAMILY',       // 家属可见
+}
+
+export interface PrivacySettings {
+  allowCloudStorage: boolean;  // 医疗数据加密存储权限
+  sharingScope: SharingScope;  // 数据分享范围
+  allowResearchUse: boolean;   // 允许匿名科研使用 (扩展项)
+  lastUpdated: number;
+}
+
+// ---------------------------
+
 // --- IoT 设备实时数据 ---
 export interface IoTStats {
   hr: number;      // 心率
@@ -103,6 +120,9 @@ export interface User {
   hasHardware: boolean; // 是否绑定了HaaS设备
   isElderlyMode: boolean; // [NEW] 老年模式状态
   
+  // [NEW] 隐私设置
+  privacySettings: PrivacySettings;
+
   // 扩展字段
   headacheProfile?: HeadacheProfile;
   epilepsyProfile?: EpilepsyProfile;     // 新增
@@ -167,4 +187,5 @@ export interface Prescription {
 export type AppView = 
   | 'login' | 'home' | 'chat' | 'payment' | 'assessment' | 'report' | 'profile' 
   | 'service-cognitive' | 'service-epilepsy' | 'service-headache' 
-  | 'service-family' | 'service-mall' | 'haas-checkout';
+  | 'service-family' | 'service-mall' | 'haas-checkout'
+  | 'privacy-settings'; // [NEW] 隐私设置页路由
