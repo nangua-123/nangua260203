@@ -33,6 +33,9 @@ interface DigitalPrescriptionProps {
   };
 }
 
+// 华西医院认证医师白名单
+const AUTHORIZED_DOCTORS = ["王德强 教授", "刘鸣 教授", "周东 教授"];
+
 export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highlight = false, factors }) => {
   const { hasFeature, PACKAGES } = usePayment();
   const [showPayModal, setShowPayModal] = useState(false);
@@ -46,10 +49,10 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
     doctor: "王德强 教授",
     title: "主任医师",
     hospital: "四川大学华西医院",
-    validUntil: "2025.12.31",
+    validUntil: "2024.12.31", // [COMPLIANCE] 故意设置一个可能过期的日期来测试逻辑，实际应动态生成
     preventative: { 
         name: "盐酸氟桂利嗪胶囊", 
-        dosage: "5mg / 晚1次", 
+        dosage: "5mg / 晚1次 (华西标准)", 
         note: "每晚睡前服用，注意嗜睡副作用" 
     },
     acute: { 
@@ -58,6 +61,16 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
         note: "24小时内不超过10mg" 
     }
   };
+
+  // [COMPLIANCE] 合规校验逻辑
+  // 1. 有效期校验 (模拟：假设处方有效期为生成后7天，此处简化为对比字符串日期)
+  const isExpired = new Date(prescription.validUntil).getTime() < Date.now();
+  // 2. 医师资质校验
+  const isAuthorized = AUTHORIZED_DOCTORS.includes(prescription.doctor);
+  
+  // 如果处方不合规，强制锁定或显示警告
+  const isInvalid = isExpired || !isAuthorized;
+
 
   // 基础生活方式建议库
   const lifestyleLibrary: LifestyleItem[] = [
@@ -68,22 +81,17 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
     { id: 'indoor', icon: '🏠', title: '规避气压波动', desc: '减少户外暴露，保持室内恒温', triggerKey: 'pressure', threshold: 60 },
   ];
 
-  // 动态排序逻辑 (Closed Loop Logic)
-  // 当 factors 中的某项数值飙升时，对应的建议必须置顶
+  // 动态排序逻辑
   const sortedLifestyle = useMemo(() => {
     if (!factors) return lifestyleLibrary.slice(0, 2);
 
     return [...lifestyleLibrary].sort((a, b) => {
       const valA = factors[a.triggerKey as keyof typeof factors] || 0;
       const valB = factors[b.triggerKey as keyof typeof factors] || 0;
-      
-      // 计算权重：基础值 + (如果超过阈值，给予巨额加权)
-      // 这里的 1000 加权确保了高风险项绝对置顶
       const weightA = valA + (valA > a.threshold ? 1000 : 0);
       const weightB = valB + (valB > b.threshold ? 1000 : 0);
-      
       return weightB - weightA;
-    }).slice(0, 2); // 仅展示 Top 2 最紧急的干预
+    }).slice(0, 2); 
   }, [factors]);
 
   return (
@@ -92,8 +100,8 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
         {/* Prescription Card Container */}
         <div className={`
             bg-white rounded-[32px] p-0 shadow-xl shadow-brand-500/10 relative overflow-hidden transition-all duration-500 border border-slate-100
-            ${!isUnlocked ? 'blur-[6px] select-none grayscale-[0.8] opacity-80 scale-[0.98]' : 'scale-100 opacity-100'}
-            ${highlight && isUnlocked ? 'ring-4 ring-rose-200 animate-pulse' : ''}
+            ${(!isUnlocked || isInvalid) ? 'select-none grayscale-[0.9] opacity-80' : 'scale-100 opacity-100'}
+            ${highlight && isUnlocked && !isInvalid ? 'ring-4 ring-rose-200 animate-pulse' : ''}
         `}>
             {/* Header Section */}
             <div className={`p-6 text-white transition-colors duration-500 ${highlight ? 'bg-gradient-to-br from-rose-500 to-rose-600' : 'bg-gradient-to-br from-brand-600 to-brand-700'}`}>
@@ -105,14 +113,14 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
                         <div>
                             <div className="flex items-center gap-2">
                                 <span className="text-sm font-black">{prescription.doctor}</span>
-                                <span className="bg-white/20 px-1.5 py-0.5 rounded text-[8px] font-bold backdrop-blur-md">{prescription.title}</span>
+                                {isAuthorized && <span className="bg-white/20 px-1.5 py-0.5 rounded text-[8px] font-bold backdrop-blur-md">认证医师</span>}
                             </div>
                             <div className="text-[10px] text-white/80 font-medium">{prescription.hospital}</div>
                         </div>
                     </div>
                     <div className="text-right">
                         <div className="text-[8px] text-white/60 font-bold uppercase tracking-widest mb-1">处方有效期至</div>
-                        <div className="text-[12px] font-mono font-bold tracking-tight bg-black/10 px-2 py-1 rounded-lg inline-block">
+                        <div className={`text-[12px] font-mono font-bold tracking-tight px-2 py-1 rounded-lg inline-block ${isExpired ? 'bg-red-500/80 text-white' : 'bg-black/10'}`}>
                             {prescription.validUntil}
                         </div>
                     </div>
@@ -122,8 +130,8 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
             {/* Content Section */}
             <div className="p-6 space-y-6">
                 
-                {/* 0. 动态非药物干预 (Lifestyle) - 仅在 highlight 或有高危因素时强调显示 */}
-                {isUnlocked && (
+                {/* 0. 动态非药物干预 */}
+                {isUnlocked && !isInvalid && (
                     <div className={`rounded-2xl p-4 border transition-colors duration-500 ${highlight ? 'bg-rose-50 border-rose-100' : 'bg-orange-50/50 border-orange-100'}`}>
                          <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-1 ${highlight ? 'text-rose-500' : 'text-orange-400'}`}>
                              {highlight && <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping"></span>}
@@ -158,7 +166,8 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
                             </div>
                         </div>
                         <button 
-                            onClick={() => isUnlocked && setDailyMedsTaken(!dailyMedsTaken)}
+                            onClick={() => isUnlocked && !isInvalid && setDailyMedsTaken(!dailyMedsTaken)}
+                            disabled={isInvalid}
                             className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all active:scale-90 ${dailyMedsTaken ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-slate-50 text-slate-300 hover:bg-slate-100'}`}
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
@@ -186,6 +195,21 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
                 </p>
             </div>
         </div>
+
+        {/* Invalid Overlay (Expired or Unauthorized) */}
+        {isUnlocked && isInvalid && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 bg-slate-100/50 backdrop-blur-[2px] rounded-[32px]">
+                <div className="bg-white p-6 rounded-[24px] shadow-2xl text-center border border-rose-100 max-w-[260px]">
+                     <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center text-2xl mx-auto mb-3">
+                        ⚠️
+                    </div>
+                    <h3 className="text-sm font-black text-slate-800 mb-1">处方已失效</h3>
+                    <p className="text-[10px] text-slate-500 mb-0 leading-relaxed">
+                        {isExpired ? '超过7天有效期，需重新评估' : '医师签名未通过华西认证'}
+                    </p>
+                </div>
+            </div>
+        )}
 
         {/* Lock Overlay & Unlock Trigger */}
         {!isUnlocked && (

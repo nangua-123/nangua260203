@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChatMessage, HeadacheProfile } from '../types';
+import { ChatMessage, HeadacheProfile, DiseaseType, EpilepsyProfile, CognitiveProfile } from '../types';
 import { createChatSession, sendMessageToAI, getTriageAnalysis } from '../services/geminiService';
 import { useApp } from '../context/AppContext';
 import Layout from './Layout';
+import Button from './Button';
 
 interface ChatViewProps {
   onBack: () => void;
@@ -12,28 +13,66 @@ interface ChatViewProps {
 
 const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
   const { state, dispatch } = useApp();
+  
+  // --- State for Chat ---
+  const [activeDisease, setActiveDisease] = useState<DiseaseType>(DiseaseType.MIGRAINE);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalysing, setIsAnalysing] = useState(false);
-  
-  // New State for Archive Animation
   const [showArchiveGen, setShowArchiveGen] = useState(false);
-  
   const [latestOptions, setLatestOptions] = useState<string[]>([]);
+  const [apiError, setApiError] = useState(false); // New Error State
   
   const chatSessionRef = useRef<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasTriggeredReport = useRef(false);
 
-  // 初始化问诊对话
-  useEffect(() => {
-    const systemPrompt = "系统初始化"; 
-    chatSessionRef.current = createChatSession(systemPrompt);
-    handleSend("开始分诊");
-  }, []);
+  // --- Context Caching Logic (localStorage) ---
+  const STORAGE_KEY_PREFIX = 'huaxi_chat_history_';
 
-  // 自动滚动到底部
+  // Load history when disease type changes
+  useEffect(() => {
+    loadHistory(activeDisease);
+  }, [activeDisease]);
+
+  const loadHistory = (disease: DiseaseType) => {
+    setMessages([]);
+    setLatestOptions([]);
+    setIsLoading(false);
+    setIsAnalysing(false);
+    setShowArchiveGen(false);
+    setApiError(false);
+    hasTriggeredReport.current = false;
+
+    chatSessionRef.current = createChatSession("系统初始化", disease);
+
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}${disease}`);
+    if (saved) {
+        try {
+            const parsedMsgs = JSON.parse(saved) as ChatMessage[];
+            if (parsedMsgs.length > 0) {
+                setMessages(parsedMsgs);
+                chatSessionRef.current.step = Math.floor(parsedMsgs.length / 2);
+                const lastMsg = parsedMsgs[parsedMsgs.length - 1];
+                if (lastMsg.role === 'model' && lastMsg.suggestedOptions) {
+                    setLatestOptions(lastMsg.suggestedOptions);
+                }
+                setTimeout(scrollToBottom, 100);
+                return;
+            }
+        } catch (e) {
+            console.error("Failed to load chat history", e);
+        }
+    }
+    handleSend("开始分诊", true);
+  };
+
+  const saveHistory = (newMessages: ChatMessage[]) => {
+      const sliced = newMessages.slice(-15);
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}${activeDisease}`, JSON.stringify(sliced));
+  };
+
   const scrollToBottom = () => {
     if (scrollRef.current) {
         setTimeout(() => {
@@ -46,21 +85,19 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isLoading, isAnalysing, latestOptions]);
+  }, [messages, isLoading, isAnalysing, apiError]);
 
   const parseResponse = (rawText: string) => {
     let cleanText = rawText;
     let options: string[] = [];
     let triggerReport = false;
 
-    // 解析对话中的选项标记
     const optionsMatch = rawText.match(/<OPTIONS>([\s\S]*?)<\/OPTIONS>/i);
     if (optionsMatch) {
         options = optionsMatch[1].split(/[|、,]/).map(s => s.trim()).filter(s => s.length > 0);
         cleanText = cleanText.replace(optionsMatch[0], '');
     }
 
-    // 解析报告触发标记
     if (rawText.includes("<ACTION>REPORT</ACTION>")) {
         triggerReport = true;
         cleanText = cleanText.replace(/<ACTION>\s*REPORT\s*<\/ACTION>/i, '');
@@ -69,30 +106,32 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
     return { cleanText: cleanText.trim(), options, triggerReport };
   };
 
-  const handleSend = async (text: string) => {
-    const isSystemStart = text === "开始分诊";
-    
-    // 1. 添加用户消息
-    if (!isSystemStart) {
+  const handleSend = async (text: string, isSystemStart = false) => {
+    let currentMsgs = messages;
+
+    // 如果是从错误状态重试，不添加新消息，而是重发上一条
+    if (!apiError && !isSystemStart) {
         const newMsg: ChatMessage = {
             id: Date.now().toString(),
             role: 'user',
             text: text,
             timestamp: Date.now()
         };
-        setMessages(prev => [...prev, newMsg]);
+        currentMsgs = [...messages, newMsg];
+        setMessages(currentMsgs);
+        saveHistory(currentMsgs);
     }
     
     setLatestOptions([]);
     setInput('');
     setIsLoading(true);
+    setApiError(false);
 
     try {
-      // 2. 调用 AI 接口
-      const rawResponse = await sendMessageToAI(chatSessionRef.current, text);
+      // API 熔断保护
+      const rawResponse = await sendMessageToAI(chatSessionRef.current, text, currentMsgs);
       const { cleanText, options, triggerReport } = parseResponse(rawResponse);
       
-      // 3. 添加 AI 消息
       const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
@@ -101,78 +140,101 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
         suggestedOptions: options
       };
       
-      setMessages(prev => [...prev, aiMsg]);
+      const updatedMsgs = [...currentMsgs, aiMsg];
+      setMessages(updatedMsgs);
       setLatestOptions(options);
+      saveHistory(updatedMsgs);
 
-      // 4. 处理报告生成触发
       if (triggerReport && !hasTriggeredReport.current) {
          hasTriggeredReport.current = true;
-         handleTriggerAnalysis( [...messages, aiMsg] ); 
+         handleTriggerAnalysis(updatedMsgs); 
       }
 
     } catch (e) {
       console.error(e);
+      setApiError(true); // Trigger Error UI
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleTriggerAnalysis = async (fullHistory: ChatMessage[]) => {
-    // 进入系统分析状态
     setIsAnalysing(true);
     
     setTimeout(async () => {
         try {
-            const analysisJson = await getTriageAnalysis(fullHistory);
+            const analysisJson = await getTriageAnalysis(fullHistory, activeDisease);
             const summary = JSON.parse(analysisJson);
             
-            // 触发档案生成动画
             setShowArchiveGen(true);
             
-            // 模拟 3秒 的建档过程，然后写入 Context 并跳转
             setTimeout(() => {
                 if (summary.extractedProfile) {
-                     dispatch({
-                         type: 'UPDATE_PROFILE',
-                         payload: {
-                             id: state.user.id, // 默认更新当前用户，实际逻辑可由 Chat 确定为谁咨询
-                             profile: summary.extractedProfile as HeadacheProfile
-                         }
-                     });
+                     const payload: any = { id: state.user.id, profile: summary.extractedProfile };
+                     dispatch({ type: 'UPDATE_PROFILE', payload: payload });
                 }
-                
-                // 跳转
+                localStorage.removeItem(`${STORAGE_KEY_PREFIX}${activeDisease}`);
                 onPaymentGate(summary);
-                
             }, 3000);
 
         } catch (e) {
             console.error("分析失败", e);
-            onPaymentGate({ risk: 50, disease: 'UNKNOWN', summary: '建议进一步完善专业量表。' });
+            setApiError(true);
         } finally {
             setIsAnalysing(false);
         }
     }, 1500);
   };
 
+  const DiseaseTab = ({ type, label, icon }: { type: DiseaseType; label: string; icon: string }) => (
+      <button 
+        onClick={() => setActiveDisease(type)}
+        disabled={isLoading || isAnalysing}
+        className={`flex-1 py-3 text-xs font-bold transition-all border-b-2 flex items-center justify-center gap-1.5 ${
+            activeDisease === type 
+            ? 'border-brand-600 text-brand-700 bg-brand-50/50' 
+            : 'border-transparent text-slate-400 hover:text-slate-600'
+        }`}
+      >
+          <span>{icon}</span>
+          {label}
+      </button>
+  );
+
   return (
-    <Layout headerTitle="AI 数字门诊" showBack onBack={onBack} hideHeader={false} disableScroll={true}>
+    <Layout headerTitle="AI 专病门诊" showBack onBack={onBack} hideHeader={false} disableScroll={true}>
       <div className="flex flex-col h-full bg-slate-50 w-full relative">
         
-        {/* 对话展示区 */}
+        {!isAnalysing && !showArchiveGen && (
+            <div className="flex bg-white border-b border-slate-100 z-20 shrink-0">
+                <DiseaseTab type={DiseaseType.MIGRAINE} label="偏头痛" icon="⚡" />
+                <DiseaseTab type={DiseaseType.EPILEPSY} label="癫痫" icon="🧠" />
+                <DiseaseTab type={DiseaseType.COGNITIVE} label="认知/AD" icon="🧩" />
+            </div>
+        )}
+
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 scroll-smooth no-scrollbar">
           <div className="space-y-6 pb-4">
+            
+            <div className="flex justify-center">
+                 <div className="bg-slate-100 text-slate-400 text-[10px] px-3 py-1 rounded-full font-medium">
+                     当前接入：华西{activeDisease === DiseaseType.MIGRAINE ? '头痛' : activeDisease === DiseaseType.EPILEPSY ? '癫痫' : '认知'}中心 CDSS 知识库
+                 </div>
+            </div>
+
             {messages.map((msg, index) => {
                 const isLast = index === messages.length - 1;
-                const showOptions = isLast && msg.role === 'model' && latestOptions.length > 0 && !isLoading && !isAnalysing && !showArchiveGen;
+                const showOptions = isLast && msg.role === 'model' && latestOptions.length > 0 && !isLoading && !isAnalysing && !showArchiveGen && !apiError;
 
                 return (
                     <div key={msg.id} className="flex flex-col gap-3 animate-slide-up">
                         <div className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start items-start gap-3'}`}>
                             {msg.role === 'model' && (
-                                <div className="w-9 h-9 rounded-full bg-brand-600 flex items-center justify-center flex-shrink-0 shadow-sm mt-1">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="white" className="w-5 h-5">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12h15m-15 3.75h15m-1.5-3.75h.008v.008h-.008v-.008zM3.75 20.25h16.5" />
+                                <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm mt-1 text-white
+                                    ${activeDisease === DiseaseType.EPILEPSY ? 'bg-emerald-500' : activeDisease === DiseaseType.COGNITIVE ? 'bg-purple-500' : 'bg-brand-600'}
+                                `}>
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12h15m-15 3.75h15m-1.5-3.75h.008v.008h-.008v-.008zM3.75 20.25h16.5" />
                                     </svg>
                                 </div>
                             )}
@@ -185,7 +247,6 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                             </div>
                         </div>
 
-                        {/* 交互选项按钮 */}
                         {showOptions && (
                             <div className="pl-12 pr-4 space-y-2.5 w-full max-w-sm animate-fade-in">
                                 {latestOptions.map((opt, idx) => (
@@ -206,25 +267,16 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                 );
             })}
           
-            {/* 输入中指示器 */}
             {isLoading && (
                 <div className="flex justify-start items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-brand-600 flex items-center justify-center flex-shrink-0 shadow-sm">
-                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="white" className="w-5 h-5">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12h15m-15 3.75h15m-1.5-3.75h.008v.008h-.008v-.008zM3.75 20.25h16.5" />
-                         </svg>
-                    </div>
-                    <div className="bg-white px-4 py-3 rounded-2xl rounded-tl-sm shadow-sm border border-slate-100">
-                         <div className="flex space-x-1">
-                            <span className="w-1.5 h-1.5 bg-brand-400 rounded-full animate-bounce"></span>
-                            <span className="w-1.5 h-1.5 bg-brand-400 rounded-full animate-bounce delay-75"></span>
-                            <span className="w-1.5 h-1.5 bg-brand-400 rounded-full animate-bounce delay-150"></span>
-                         </div>
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm
+                        ${activeDisease === DiseaseType.EPILEPSY ? 'bg-emerald-500' : activeDisease === DiseaseType.COGNITIVE ? 'bg-purple-500' : 'bg-brand-600'}
+                    `}>
+                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                     </div>
                 </div>
             )}
 
-            {/* 系统分析指示器 */}
             {isAnalysing && !showArchiveGen && (
                 <div className="flex justify-center py-4 animate-fade-in">
                     <div className="bg-brand-50 border border-brand-100 text-brand-700 px-6 py-3 rounded-full shadow-sm flex items-center gap-3 text-sm font-bold">
@@ -233,14 +285,22 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                     </div>
                 </div>
             )}
+
+            {/* Error UI */}
+            {apiError && (
+                 <div className="flex flex-col items-center justify-center py-6 animate-fade-in px-8 text-center">
+                     <div className="text-3xl mb-2">📡</div>
+                     <p className="text-sm font-bold text-slate-800 mb-1">华西 AI 服务暂不可用</p>
+                     <p className="text-xs text-slate-400 mb-4">网络波动或云端服务繁忙，请稍后重试</p>
+                     <Button size="sm" onClick={() => handleSend(messages[messages.length-1].text, true)}>重新连接</Button>
+                 </div>
+            )}
           </div>
         </div>
         
-        {/* --- 档案生成全屏覆盖动画 --- */}
         {showArchiveGen && (
             <div className="absolute inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex flex-col items-center justify-center p-8 text-center animate-fade-in">
                 <div className="w-24 h-24 relative mb-8">
-                     {/* 旋转的光环 */}
                      <div className="absolute inset-0 border-4 border-brand-500/30 rounded-full"></div>
                      <div className="absolute inset-0 border-4 border-t-brand-500 border-l-brand-500 rounded-full animate-spin"></div>
                      <div className="absolute inset-4 bg-slate-800 rounded-full flex items-center justify-center border border-white/10 shadow-inner">
@@ -250,32 +310,17 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                 
                 <h3 className="text-2xl font-black text-white mb-2 tracking-tight">华西标准数字档案生成中</h3>
                 <p className="text-brand-300 text-xs font-bold uppercase tracking-[0.2em] animate-pulse">
-                    AI 正在提取临床特征向量...
+                    正在写入{activeDisease === DiseaseType.EPILEPSY ? '癫痫' : activeDisease === DiseaseType.COGNITIVE ? '认知' : '头痛'}专病数据库...
                 </p>
                 
-                {/* 模拟进度条 */}
                 <div className="w-64 h-1.5 bg-slate-800 rounded-full mt-8 overflow-hidden">
                     <div className="h-full bg-brand-500 w-full animate-[loading_3s_ease-in-out_forwards] origin-left scale-x-0"></div>
                 </div>
-                
-                {/* 滚动的数据流文字 */}
-                <div className="mt-8 text-[10px] text-slate-500 font-mono space-y-1 opacity-60">
-                    <div className="animate-slide-up" style={{animationDelay:'0.5s'}}>Extracting Symptoms: [跳痛, 畏光]... OK</div>
-                    <div className="animate-slide-up" style={{animationDelay:'1.2s'}}>Mapping ICD-10 Code: G43.0... OK</div>
-                    <div className="animate-slide-up" style={{animationDelay:'2.0s'}}>Encrypting User Profile... OK</div>
-                </div>
-
-                <style>{`
-                    @keyframes loading {
-                        0% { transform: scaleX(0); }
-                        100% { transform: scaleX(1); }
-                    }
-                `}</style>
+                <style>{`@keyframes loading { 0% { transform: scaleX(0); } 100% { transform: scaleX(1); } }`}</style>
             </div>
         )}
 
-        {/* 输入控制区 */}
-        {!isAnalysing && !showArchiveGen && (
+        {!isAnalysing && !showArchiveGen && !apiError && (
             <div className="flex-none bg-white border-t border-slate-100 p-3 pb-safe z-20 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
                 <div className="flex items-center gap-3">
                     <input
@@ -283,7 +328,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSend(input)}
-                    placeholder={latestOptions.length > 0 ? "若上述选项无匹配，请手动输入..." : "请详细描述您当前的不适..."}
+                    placeholder={latestOptions.length > 0 ? "若上述选项无匹配，请手动输入..." : "请描述症状..."}
                     className="flex-1 bg-slate-50 border border-slate-200 rounded-full px-5 py-3 text-sm focus:ring-2 focus:ring-brand-100 focus:border-brand-500 outline-none transition-all font-medium"
                     disabled={isLoading}
                     />

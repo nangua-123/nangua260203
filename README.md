@@ -1,20 +1,99 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
 
-# Run and deploy your AI Studio app
+# Neuro-Link (华西神经专病AI数字医院)
 
-This contains everything you need to run your app locally.
+## 1. 项目愿景 (Project Vision)
+本项目致力于构建一个**符合华西医院神经内科临床标准**的 C 端数字医疗服务平台。
+它不仅仅是一个问诊工具，而是集成了**AI CDSS（临床决策支持系统）**、**专业医学量表**、**数字疗法（游戏/监测）**以及**医联体分级诊疗**的全周期慢病管理系统。我们的目标是通过技术手段，将优质的医疗资源标准化、数字化，服务于偏头痛、癫痫及认知障碍患者。
 
-View your app in AI Studio: https://ai.studio/apps/drive/1ADcxQ6B7an7BEZSO7eIbbxltBE41SJdp
+---
 
-## Run Locally
+## 2. 代码架构索引 (Source Map)
 
-**Prerequisites:**  Node.js
+### Core Logic & State (核心逻辑与状态)
+*   **`App.tsx`**: 应用主入口。负责路由分发、全局状态初始化及 Deep Link 监听。
+*   **`context/AppContext.tsx`**: 全局状态容器。负责**用户数据脱敏 (Masking)**、**模拟 AES 加密存储**及多家庭成员档案管理。
+*   **`types.ts`**: 类型定义库。包含详细的**专病档案结构 (Epilepsy/Cognitive Profile)**、商业化权益枚举及用户角色定义。
 
+### Services & Hooks (服务层)
+*   **`services/geminiService.ts`**: AI 核心服务。目前采用**Mock 状态机**模拟华西 CDSS 问诊逻辑，包含术语库清洗与 NLP 字段提取模拟。
+*   **`hooks/usePayment.ts`**: 商业化逻辑核心。包含**个性化套餐推荐算法**、优惠券核销逻辑、硬件租期价格计算逻辑。
+*   **`hooks/useTriage.ts`**: 分诊逻辑 Hook。负责串联 AI 分析结果与转诊系统的交互。
+*   **`hooks/useLBS.ts`**: 位置服务 Hook。模拟获取用户地理位置并计算距最近医联体医院的距离。
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### Business Components (核心医学业务组件)
+> 位于 `components/business/`，承载高内聚的医学/商业规则。
+*   **`business/headache/DigitalPrescription.tsx`**: **[数字处方]**。负责处方有效期校验、华西医师白名单鉴权、动态生活方式干预计算。
+*   **`business/epilepsy/WaveMonitor.tsx`**: **[脑电监测]**。负责 60FPS 高保真脑电波形绘制，包含随机**痫样放电 (Spike Wave)** 的数学模拟逻辑。
+*   **`business/ReferralSystem.tsx`**: **[转诊系统]**。负责转诊指征的 CDSS 校验（字数/关键词拦截）及生成防伪二维码通行证。
+*   **`business/payment/PaywallModal.tsx`**: **[支付墙]**。负责权益对比展示、优惠券选择及模拟支付网关交互。
+
+### UI Views (视图层)
+*   **`components/ChatView.tsx`**: AI 问诊页。实现多轮对话 UI、**专病切换 (Tab)** 及基于 LocalStorage 的**上下文持久化**。
+*   **`components/HomeView.tsx`**: 首页仪表盘。实现**动态风险水波球**、**AI 智能推荐卡片**及各专病状态卡片。
+*   **`components/AssessmentView.tsx`**: 量表评估页。适配华西修订版 **MIDAS / AD8** 量表，包含进度条与评分逻辑。
+*   **`components/ReportView.tsx`**: 报告页。根据风险评分渲染红/黄/绿分级报告，并提供干预入口。
+*   **`components/HealthServices.tsx`**: 专病服务详情页容器。聚合了数字处方、脑电监测等子模块。
+*   **`components/ServiceMarketplace.tsx`**: 服务商城与租赁台。实现**硬件租赁流程**（租期选择、押金计算、物流模拟）。
+*   **`components/CognitiveGames.tsx`**: 认知训练游戏。包含“视觉记忆”与“舒尔特方格”，用于 AD 患者康复。
+
+### Shared Components (通用组件)
+*   **`components/Layout.tsx`**: 基础布局。处理顶部导航栏与刘海屏安全区适配。
+*   **`components/Button.tsx`**: 通用按钮。
+
+---
+
+## 3. 业务功能现状 (Audit Matrix)
+
+| 核心功能模块 | 子功能点 | 完成度状态 | 备注 (Audit Note) |
+| :--- | :--- | :--- | :--- |
+| **AI 问诊** | 多轮对话交互 | ✅ 已实现 | 包含打字机效果、选项交互 |
+| | 专病逻辑分流 | ✅ 已实现 | 覆盖头痛/癫痫/认知三类话术 |
+| | **真实 LLM 接入** | ⚠️ **Mock** | 目前为基于规则的硬编码逻辑，未接真实 API |
+| **数字处方** | 动态内容展示 | ✅ 已实现 | 根据诱因权重重排生活建议 |
+| | **合规校验** | ✅ 已实现 | 包含有效期、医师签名、过期变灰逻辑 |
+| **诱因雷达** | 风险计算模型 | ✅ 已实现 | 基于权重矩阵计算风险分 |
+| | IoT 数据接入 | ⚠️ **Mock** | 诱因通过手动点击模拟，非真实传感器数据 |
+| **脑电监测** | 波形渲染 | ✅ 已实现 | 高性能 SVG 渲染，含病理波模拟 |
+| | 蓝牙设备连接 | ⚠️ **Mock** | 无真实蓝牙通信代码 |
+| **转诊系统** | CDSS 规则校验| ✅ 已实现 | 拦截不合规转诊理由 |
+| | 通行证生成 | ✅ 已实现 | 包含伪二维码算法 |
+| **商业化** | 支付流程 | ✅ 已实现 | 含优惠券、SKU计算 |
+| | 硬件租赁 | ✅ 已实现 | 含押金、租期、物流状态机 |
+
+---
+
+## 4. 商业化埋点清单 (Commercial Checkpoints)
+
+| 触发位置 | 触发条件 | 关联 Package (FeatureKey) | 表现形式 |
+| :--- | :--- | :--- | :--- |
+| **HomeView** | 风险分 < 80 且非 VIP | `ICE_BREAKING_MIGRAINE` | 顶部高亮“1元解锁”金条 |
+| **HomeView** | AI 智能推荐卡片 | 动态计算 (如 `VIP_EPILEPSY`) | 首页信息流大卡片 |
+| **DigitalPrescription** | 点击“立即解锁”/查看处方 | `ICE_BREAKING_MIGRAINE` | 处方卡片上的遮罩锁 |
+| **EpilepsyService** | 查看历史监测数据 | `VIP_EPILEPSY` | 列表项遮罩 |
+| **CognitiveService** | 点击“高阶认知训练” | `VIP_COGNITIVE` | 底部 Banner |
+| **ServiceMarketplace**| 租赁“癫痫守护包” | `VIP_EPILEPSY` | 包含硬件租赁的复合商品 |
+| **ProfileView** | 点击“导出病历 PDF” | `VIP_MIGRAINE` | 按钮触发 |
+
+---
+
+## 5. 变更日志 (Change Log)
+
+**Date: 2024-05-22 (Init)**
+*   **Action**: 项目文档初始化 (Project Documentation Initialization)。
+*   **Impact**: 创建 `README.md`，梳理全项目文件结构与业务逻辑。
+*   **Status**: 基建完成。
+
+**Date: 2024-05-22 (Feature)**
+*   **Action**: 商业化链路增强 (Commercialization Enhancement)。
+*   **Impact**: 
+    *   新增 `HomeView` AI 智能推荐卡片。
+    *   重构 `ServiceMarketplace` 支持租赁周期、押金、优惠券。
+    *   升级 `PaywallModal` 增加会员权益对比表。
+*   **Status**: 商业化闭环跑通。
+
+**Date: 2024-05-22 (Feature)**
+*   **Action**: 认知训练与 IoT 增强 (Cognitive & IoT Enhancement)。
+*   **Impact**:
+    *   `CognitiveGames.tsx`: 补全视觉记忆与舒尔特方格游戏逻辑，集成 AI 效果评估。
+    *   `HealthServices.tsx`: 集成认知训练智能仪表盘。
+*   **Status**: 核心数字疗法闭环完成。

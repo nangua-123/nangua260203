@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, AppView, DiseaseType } from './types';
 
@@ -10,8 +11,9 @@ import ReportView from './components/ReportView';
 import { HeadacheServiceView, CognitiveServiceView, EpilepsyServiceView, FamilyServiceView } from './components/HealthServices';
 import { HaaSRentalView, ServiceMallView } from './components/ServiceMarketplace';
 import Layout from './components/Layout';
+import { useApp } from './context/AppContext';
 
-// Mock User Data
+// Mock User Data for fallback
 const INITIAL_USER: User = {
   id: 'user_001',
   name: '陈建国',
@@ -23,13 +25,12 @@ const INITIAL_USER: User = {
 };
 
 // --- Profile View Component (Refined) ---
-const ProfileView: React.FC<{ user: User; hasDevice: boolean; onNavigate: (v: AppView) => void }> = ({ user, hasDevice, onNavigate }) => {
+const ProfileView: React.FC<{ user: User; hasDevice: boolean; onNavigate: (v: AppView) => void; onClearCache: () => void }> = ({ user, hasDevice, onNavigate, onClearCache }) => {
   return (
     <Layout headerTitle="个人中心" hideHeader>
       <div className="min-h-screen bg-slate-50 pb-24 relative animate-fade-in">
-        {/* Header - 金沙遗址风格会员卡 */}
+        {/* Header */}
         <div className="relative bg-slate-900 pt-16 pb-24 px-6 overflow-hidden">
-           {/* 背景纹理 - 模拟金沙金箔肌理 */}
            <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, #d4af37 1px, transparent 0)', backgroundSize: '24px 24px' }}></div>
            <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4"></div>
            
@@ -47,7 +48,6 @@ const ProfileView: React.FC<{ user: User; hasDevice: boolean; onNavigate: (v: Ap
              </div>
            </div>
 
-           {/* 实时链路状态 */}
            {hasDevice && (
              <div className="mt-8 flex items-center gap-3 bg-white/5 backdrop-blur-sm rounded-xl p-3 border border-white/10">
                 <div className="relative w-3 h-3">
@@ -95,7 +95,7 @@ const ProfileView: React.FC<{ user: User; hasDevice: boolean; onNavigate: (v: Ap
                 { label: '我的健康报告', icon: '📄', action: () => onNavigate('report') },
                 { label: '亲情账号管理', icon: '👨‍👩‍👧', action: () => onNavigate('service-family') },
                 { label: '服务订单中心', icon: '📦', action: () => onNavigate('service-mall') },
-                { label: '隐私与设置', icon: '⚙️', action: () => {} }
+                { label: '清除本地缓存', icon: '🗑️', action: onClearCache }
               ].map((item, i) => (
                  <button key={i} onClick={item.action} className="w-full flex items-center justify-between p-4 hover:bg-slate-50 rounded-2xl transition-colors group">
                     <div className="flex items-center gap-3">
@@ -113,20 +113,31 @@ const ProfileView: React.FC<{ user: User; hasDevice: boolean; onNavigate: (v: Ap
 };
 
 const App: React.FC = () => {
-  // State Machine
+  const { state, dispatch } = useApp();
   const [currentView, setCurrentView] = useState<AppView>('home');
-  const [user, setUser] = useState<User>(INITIAL_USER);
-  const [riskScore, setRiskScore] = useState<number>(0);
-  const [hasDevice, setHasDevice] = useState<boolean>(false);
   const [assessmentType, setAssessmentType] = useState<DiseaseType>(DiseaseType.MIGRAINE);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-  // --- Navigation Handler ---
+  // Network listener
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Sync state from Context to local logic where necessary, though Context is single source of truth now.
+  // We use `state.user` directly.
+
   const handleNavigate = (view: AppView) => {
     setCurrentView(view);
     window.scrollTo(0, 0);
   };
 
-  // Listen for custom deep links
   useEffect(() => {
     const handleDeepLink = (e: Event) => {
         const customEvent = e as CustomEvent;
@@ -138,83 +149,65 @@ const App: React.FC = () => {
     return () => window.removeEventListener('navigate-to', handleDeepLink);
   }, []);
 
-  // --- Logic Handlers (The Brain) ---
-
-  // 1. Triage Logic: Chat -> Report
   const handleTriageComplete = (summary: any) => {
-    // 强制设定为高风险以展示闭环逻辑
-    setRiskScore(summary.risk || 85); 
-    setAssessmentType(DiseaseType.MIGRAINE); // Mock mapping
+    dispatch({ type: 'SET_RISK_SCORE', payload: { score: summary.risk || 85, type: DiseaseType.MIGRAINE } });
+    setAssessmentType(DiseaseType.MIGRAINE); 
     handleNavigate('report');
   };
 
-  // 2. Report Logic: Report -> Home (Intervention)
   const handleIntervention = () => {
     handleNavigate('home');
   };
 
-  // 3. Payment/Rental Logic: Mall -> Home (Asset Sync)
   const handleAssetSync = () => {
-    setUser(u => ({ ...u, vipLevel: 1 }));
-    setHasDevice(true);
+    dispatch({ type: 'UNLOCK_FEATURE', payload: 'VIP_EPILEPSY' }); // Example unlock
+    dispatch({ type: 'BIND_HARDWARE', payload: true });
     handleNavigate('home');
   };
 
   const handleScoreUpdate = (score: number) => {
-      setRiskScore(score);
+      dispatch({ type: 'SET_RISK_SCORE', payload: { score, type: assessmentType } });
       handleNavigate('report');
   };
 
-  // --- Render (The View) ---
   const renderContent = () => {
     switch (currentView) {
-      // Tower 1: Health
       case 'home':
         return <HomeView 
-                  user={user} 
-                  riskScore={riskScore}
-                  hasDevice={hasDevice}
+                  user={state.user} 
+                  riskScore={state.riskScore}
+                  hasDevice={state.user.hasHardware}
                   onNavigate={handleNavigate} 
-                  primaryCondition={DiseaseType.MIGRAINE} 
+                  primaryCondition={state.primaryCondition} 
                />;
-      
-      // Tower 2: Chat
       case 'chat':
         return <ChatView onBack={() => handleNavigate('home')} onPaymentGate={handleTriageComplete} />;
-      
-      // Tower 3: Profile
       case 'profile':
-        return <ProfileView user={user} hasDevice={hasDevice} onNavigate={handleNavigate} />;
-      
-      // Sub-views (Animated Entry)
-      
+        return <ProfileView 
+                  user={state.user} 
+                  hasDevice={state.user.hasHardware} 
+                  onNavigate={handleNavigate} 
+                  onClearCache={() => { dispatch({type: 'CLEAR_CACHE'}); window.location.reload(); }}
+               />;
       case 'assessment':
         return <div className="animate-slide-up"><AssessmentView type={assessmentType} onComplete={handleScoreUpdate} onBack={() => handleNavigate('home')} /></div>;
-      
       case 'report':
-        return <div className="animate-slide-up"><ReportView score={riskScore} diseaseType={assessmentType} onBackToHome={() => handleNavigate('home')} onIntervention={handleIntervention} /></div>;
-      
+        return <div className="animate-slide-up"><ReportView score={state.riskScore} diseaseType={assessmentType} onBackToHome={() => handleNavigate('home')} onIntervention={handleIntervention} /></div>;
       case 'service-headache':
         return <div className="animate-slide-up"><HeadacheServiceView onBack={() => handleNavigate('home')} /></div>;
-      
       case 'service-cognitive':
         return <div className="animate-slide-up"><CognitiveServiceView onBack={() => handleNavigate('home')} /></div>;
-      
       case 'service-epilepsy':
         return <div className="animate-slide-up"><EpilepsyServiceView onBack={() => handleNavigate('home')} /></div>;
-
       case 'service-family':
         return <div className="animate-slide-up"><FamilyServiceView onBack={() => handleNavigate('profile')} /></div>;
-      
       case 'service-mall':
       case 'payment':
         return <div className="animate-slide-up"><ServiceMallView onNavigate={handleNavigate} onBack={() => handleNavigate('home')} /></div>;
-      
       case 'haas-checkout':
         return <div className="animate-slide-up"><HaaSRentalView onBack={() => handleNavigate('home')} onComplete={handleAssetSync} /></div>;
-      
       default:
-        return <HomeView user={user} riskScore={riskScore} hasDevice={hasDevice} onNavigate={handleNavigate} primaryCondition={DiseaseType.MIGRAINE} />;
+        return <HomeView user={state.user} riskScore={state.riskScore} hasDevice={state.user.hasHardware} onNavigate={handleNavigate} primaryCondition={state.primaryCondition} />;
     }
   };
 
@@ -222,6 +215,14 @@ const App: React.FC = () => {
 
   return (
     <div className="font-sans antialiased text-slate-900 bg-white min-h-screen max-w-[430px] mx-auto shadow-2xl relative overflow-hidden">
+       {/* Global Offline Warning */}
+       {!isOnline && (
+          <div className="absolute top-0 left-0 right-0 bg-slate-800 text-white text-[10px] font-bold py-2 text-center z-[9999] animate-slide-up flex items-center justify-center gap-2">
+             <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+             网络连接已断开，部分 AI 服务不可用
+          </div>
+       )}
+       
        {renderContent()}
        
        {showBottomNav && (

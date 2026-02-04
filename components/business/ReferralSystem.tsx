@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import Button from '../Button';
 
@@ -12,33 +12,66 @@ export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
   const diagnosis = state.lastDiagnosis;
   const referral = diagnosis?.referral;
 
-  // 如果没有转诊数据，返回空（实际业务中可能需要 Loading 或 Empty State）
+  // [COMPLIANCE] CDSS 规则校验：验证转诊理由是否符合华西规范
+  const validationError = useMemo(() => {
+    if (!diagnosis?.reason) return "缺失诊断理由";
+    const reason = diagnosis.reason;
+    const requiredKeywords = ["建议", "风险", "发作", "障碍", "减退", "特征"];
+    
+    // 1. 字数校验
+    if (reason.length < 10) return "临床指征描述不足 (少于10字)";
+    
+    // 2. 关键词校验
+    const hasKeyword = requiredKeywords.some(kw => reason.includes(kw));
+    if (!hasKeyword) return "未匹配到有效转诊指征，请完善病史";
+
+    return null; // Valid
+  }, [diagnosis]);
+
+  // 如果没有转诊数据，返回空
   if (!referral) return null;
+
+  // 如果校验失败，显示阻断弹窗
+  if (validationError) {
+      return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center px-6">
+            <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={onClose}></div>
+            <div className="bg-white w-full rounded-[24px] p-6 relative z-10 animate-slide-up text-center shadow-2xl max-w-sm">
+                <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">
+                    🛑
+                </div>
+                <h3 className="text-lg font-black text-slate-800 mb-2">转诊申请被驳回</h3>
+                <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+                    CDSS 系统检测到当前转诊理由不满足《华西医院双向转诊管理规范》。
+                    <br/><br/>
+                    <span className="bg-red-50 text-red-600 px-2 py-1 rounded font-bold">原因: {validationError}</span>
+                </p>
+                <Button fullWidth onClick={onClose} className="bg-slate-800">
+                    关闭并补充信息
+                </Button>
+            </div>
+        </div>
+      );
+  }
 
   // 生成一个基于 qrCodeValue 的伪随机像素矩阵，模拟真实二维码
   const renderPseudoQRCode = (codeValue: string) => {
-    // 简单的伪随机生成器
     const seed = codeValue.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
     const cells = [];
-    for (let i = 0; i < 64; i++) { // 8x8 grid for simplicity
+    for (let i = 0; i < 64; i++) { 
         const isActive = (seed * (i + 1) * 9301 + 49297) % 233280 > 116640;
         cells.push(isActive);
     }
     
     return (
         <div className="grid grid-cols-8 gap-1 w-full h-full p-2 bg-white rounded-lg">
-            {/* 定位点 - 左上 */}
             <div className="col-span-2 row-span-2 bg-slate-900 rounded-sm"></div>
             <div className="col-span-6 row-span-2 grid grid-cols-6 gap-1">
                  {cells.slice(0, 12).map((on, i) => <div key={`t-${i}`} className={`rounded-[1px] ${on ? 'bg-slate-900' : 'bg-transparent'}`}></div>)}
             </div>
-            
-            {/* 中间区域 */}
             {cells.slice(12, 52).map((on, i) => (
                 <div key={`m-${i}`} className={`rounded-[1px] aspect-square ${on ? 'bg-slate-900' : 'bg-transparent'}`}></div>
             ))}
-
-            {/* 定位点 - 右下 (模拟) */}
             <div className="col-span-6 grid grid-cols-6 gap-1">
                  {cells.slice(52, 64).map((on, i) => <div key={`b-${i}`} className={`rounded-[1px] ${on ? 'bg-slate-900' : 'bg-transparent'}`}></div>)}
             </div>

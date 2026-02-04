@@ -1,25 +1,28 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { RiskLevel, DiseaseType } from '../types';
 import Layout from './Layout';
 import Button from './Button';
+
+// Declare Chart.js type for TypeScript
+declare const Chart: any;
 
 interface ReportViewProps {
   score: number;
   diseaseType: DiseaseType;
   onBackToHome: () => void;
-  onIntervention?: () => void; // New callback
+  onIntervention?: () => void;
 }
 
 const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHome, onIntervention }) => {
   const [risk, setRisk] = useState<RiskLevel>(RiskLevel.LOW);
   const [reportTitle, setReportTitle] = useState("");
   const [reportDesc, setReportDesc] = useState("");
-  const [nearestHospital, setNearestHospital] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const chartInstance = useRef<any>(null);
 
   useEffect(() => {
-    // Determine Risk (Logic simplified for demo)
-    // High risk threshold from chat is usually > 80
+    // Determine Risk Logic
     let r = RiskLevel.LOW;
     let title = "";
     let desc = "";
@@ -42,15 +45,75 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
     setReportTitle(title);
     setReportDesc(desc);
 
-    // Mock LBS
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-            () => setNearestHospital("四川大学华西医院 (距离 3.2km)"),
-            () => setNearestHospital("成都市第一人民医院 [华西协作] (距离 1.5km)")
-        );
-    } else {
-        setNearestHospital("四川大学华西医院 (总院)");
+    // --- Chart.js Rendering ---
+    if (canvasRef.current && typeof Chart !== 'undefined') {
+        if (chartInstance.current) {
+            chartInstance.current.destroy();
+        }
+
+        const ctx = canvasRef.current.getContext('2d');
+        
+        // Mock 7-day data
+        const labels = ['T-6', 'T-5', 'T-4', 'T-3', 'T-2', 'T-1', 'Today'];
+        const dataPoints = [35, 42, 38, 45, 50, 48, score];
+        const color = score >= 60 ? '#E11D48' : (score >= 30 ? '#F59E0B' : '#10B981');
+        const bgGradient = ctx!.createLinearGradient(0, 0, 0, 200);
+        bgGradient.addColorStop(0, score >= 60 ? 'rgba(225, 29, 72, 0.2)' : 'rgba(16, 185, 129, 0.2)');
+        bgGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+        chartInstance.current = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '风险趋势',
+                    data: dataPoints,
+                    borderColor: color,
+                    backgroundColor: bgGradient,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 4,
+                    pointBackgroundColor: '#FFFFFF',
+                    pointBorderColor: color,
+                    pointBorderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#1E293B',
+                        titleFont: { size: 10 },
+                        bodyFont: { size: 12, weight: 'bold' },
+                        padding: 10,
+                        cornerRadius: 8,
+                        displayColors: false
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: { font: { size: 9 }, color: '#94A3B8' }
+                    },
+                    y: {
+                        min: 0,
+                        max: 100,
+                        grid: { color: '#F1F5F9', borderDash: [4, 4] },
+                        ticks: { font: { size: 9 }, color: '#94A3B8', stepSize: 20 }
+                    }
+                }
+            }
+        });
     }
+
+    return () => {
+        if (chartInstance.current) {
+            chartInstance.current.destroy();
+        }
+    };
+
   }, [score, diseaseType]);
 
   const getRiskColor = () => {
@@ -76,7 +139,18 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
         {/* Content Card */}
         <div className="mx-4 -mt-16 relative z-20 space-y-5 animate-slide-up">
             
-            {/* 1. Analysis Box */}
+            {/* 1. Risk Trend Chart */}
+            <div className="bg-white rounded-2xl shadow-card p-4 border border-slate-50">
+                 <h3 className="text-xs font-black text-slate-800 mb-3 flex items-center gap-2 px-2">
+                    <span className="w-1 h-3 bg-slate-800 rounded-full"></span>
+                    近7日风险评分趋势
+                 </h3>
+                 <div className="h-48 w-full">
+                     <canvas ref={canvasRef}></canvas>
+                 </div>
+            </div>
+
+            {/* 2. Analysis Box */}
             <div className="bg-white rounded-2xl shadow-card p-6 border border-slate-50">
                 <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-brand-600" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
@@ -91,7 +165,7 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
                 </div>
             </div>
 
-            {/* 2. Action Triage */}
+            {/* 3. Action Triage */}
             {risk === RiskLevel.HIGH ? (
                 <div className="bg-white rounded-2xl shadow-card p-1 border border-rose-100 overflow-hidden">
                      <div className="bg-rose-50 px-4 py-3 border-b border-rose-100">

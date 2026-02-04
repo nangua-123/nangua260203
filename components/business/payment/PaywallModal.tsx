@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { ServicePackage } from '../../../types';
 import Button from '../../Button';
-import { usePayment } from '../../../hooks/usePayment';
+import { usePayment, AVAILABLE_COUPONS } from '../../../hooks/usePayment';
 
 interface PaywallModalProps {
   visible: boolean;
@@ -14,10 +14,14 @@ interface PaywallModalProps {
 export const PaywallModal: React.FC<PaywallModalProps> = ({ visible, pkg, onClose, onSuccess }) => {
   const { handlePay } = usePayment();
   const [step, setStep] = useState<'info' | 'paying' | 'success'>('info');
+  const [selectedCouponId, setSelectedCouponId] = useState<string | undefined>(undefined);
 
   // 当弹窗重新打开时，重置状态
   useEffect(() => {
-    if (visible) setStep('info');
+    if (visible) {
+        setStep('info');
+        setSelectedCouponId(undefined);
+    }
   }, [visible]);
 
   if (!visible) return null;
@@ -37,6 +41,21 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({ visible, pkg, onClos
   };
 
   const isVipMigraine = pkg.featureKey === 'VIP_MIGRAINE';
+
+  // 计算折扣后价格
+  let finalPrice = pkg.price;
+  let discountAmount = 0;
+  
+  if (selectedCouponId) {
+      const coupon = AVAILABLE_COUPONS.find(c => c.id === selectedCouponId);
+      if (coupon && pkg.price >= coupon.minSpend) {
+          discountAmount = coupon.value;
+          finalPrice = Math.max(0, pkg.price - discountAmount);
+      }
+  }
+
+  // 获取可用优惠券
+  const usableCoupons = AVAILABLE_COUPONS.filter(c => c.type === 'general' && pkg.price >= c.minSpend);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-end justify-center max-w-[430px] mx-auto">
@@ -62,12 +81,12 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({ visible, pkg, onClos
 
                 {isVipMigraine ? (
                    // 对比表格视图 (针对 VIP_MIGRAINE 的高转化设计)
-                   <div className="bg-slate-50 rounded-2xl p-4 mb-6 border border-slate-100">
+                   <div className="bg-slate-50 rounded-2xl p-4 mb-4 border border-slate-100">
                        <h4 className="text-[10px] text-center font-black text-slate-400 uppercase tracking-widest mb-3">权益对比</h4>
                        <div className="grid grid-cols-3 gap-2 text-[11px] mb-2 border-b border-slate-200 pb-2">
                            <div className="text-slate-400 font-bold">功能点</div>
                            <div className="text-center text-slate-400 font-bold">免费版</div>
-                           <div className="text-center text-brand-600 font-black">VIP 会员</div>
+                           <div className="text-center font-black bg-brand-100 text-brand-700 rounded py-0.5">VIP 会员</div>
                        </div>
                        <div className="space-y-3">
                            <div className="grid grid-cols-3 gap-2 items-center text-[10px]">
@@ -89,7 +108,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({ visible, pkg, onClos
                    </div>
                 ) : (
                     // 默认列表视图
-                    <div className="bg-slate-50 rounded-3xl p-5 mb-8 space-y-4 border border-slate-100/50">
+                    <div className="bg-slate-50 rounded-3xl p-5 mb-4 space-y-4 border border-slate-100/50">
                         {pkg.features.map((feat, i) => (
                             <div key={i} className="flex items-center gap-3">
                                 <div className="w-5 h-5 rounded-full bg-brand-500 flex items-center justify-center text-white text-[10px] font-black">✓</div>
@@ -98,13 +117,40 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({ visible, pkg, onClos
                         ))}
                     </div>
                 )}
+                
+                {/* 优惠券选择 */}
+                {usableCoupons.length > 0 && (
+                    <div className="mb-6">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">可用优惠券</label>
+                        <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                            {usableCoupons.map(coupon => (
+                                <button
+                                    key={coupon.id}
+                                    onClick={() => setSelectedCouponId(selectedCouponId === coupon.id ? undefined : coupon.id)}
+                                    className={`px-3 py-2 rounded-lg border text-[10px] font-bold whitespace-nowrap transition-colors ${
+                                        selectedCouponId === coupon.id 
+                                        ? 'bg-red-50 border-red-200 text-red-500' 
+                                        : 'bg-white border-slate-200 text-slate-500'
+                                    }`}
+                                >
+                                    {coupon.name} (-¥{coupon.value})
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 <div className="flex justify-between items-end mb-8 border-t border-slate-50 pt-5">
                     <div><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">服务周期: {pkg.duration}</span></div>
-                    <div className="flex items-baseline gap-1">
-                        <span className="text-sm font-black text-slate-900">¥</span>
-                        <span className="text-4xl font-black text-slate-900 tracking-tighter">{pkg.price}</span>
-                        {pkg.originalPrice && <span className="text-xs text-slate-300 line-through ml-2">¥{pkg.originalPrice}</span>}
+                    <div className="flex flex-col items-end">
+                        <div className="flex items-baseline gap-1">
+                            <span className="text-sm font-black text-slate-900">¥</span>
+                            <span className="text-4xl font-black text-slate-900 tracking-tighter">{finalPrice}</span>
+                            {pkg.originalPrice && <span className="text-xs text-slate-300 line-through ml-2">¥{pkg.originalPrice}</span>}
+                        </div>
+                        {discountAmount > 0 && (
+                            <span className="text-[10px] font-bold text-red-500">已优惠 ¥{discountAmount}</span>
+                        )}
                     </div>
                 </div>
 

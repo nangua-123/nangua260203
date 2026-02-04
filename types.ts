@@ -24,16 +24,59 @@ export type FeatureKey =
   | 'VIP_EPILEPSY'           // 癫痫年卡
   | 'VIP_COGNITIVE';         // 认知障碍年卡
 
-// --- 新增：头痛专病档案 ---
+// --- IoT 设备实时数据 ---
+export interface IoTStats {
+  hr: number;      // 心率
+  bpSys: number;   // 收缩压
+  bpDia: number;   // 舒张压
+  spo2: number;    // 血氧
+  isAbnormal: boolean; // 是否异常
+  lastUpdated: number;
+}
+
+// --- 认知训练进度 ---
+export interface CognitiveStats {
+  totalSessions: number;  // 累计训练次数
+  todaySessions: number;  // 今日次数
+  totalDuration: number;  // 累计时长(秒)
+  lastScore: number;      // 最近一次得分
+  aiRating: string;       // AI 综合评价 (S/A/B/C)
+  lastUpdated: number;
+}
+
+// --- 头痛专病档案 ---
 export interface HeadacheProfile {
   isComplete: boolean;
-  source: 'USER_INPUT' | 'AI_GENERATED'; // 档案来源
-  onsetAge: number; // 首发年龄
-  frequency: string; // 发作频率
-  familyHistory: boolean; // 家族史
-  medicationHistory: string[]; // 用药史
-  diagnosisType: string; // 诊断类型 (e.g. 无先兆偏头痛)
-  symptomsTags: string[]; // 伴随症状标签 (AI 提取) e.g. ["畏光", "搏动性跳痛"]
+  source: 'USER_INPUT' | 'AI_GENERATED'; 
+  onsetAge: number; 
+  frequency: string; 
+  familyHistory: boolean; 
+  medicationHistory: string[]; 
+  diagnosisType: string; 
+  symptomsTags: string[]; 
+  lastUpdated: number;
+}
+
+// --- 新增：癫痫专病档案 ---
+export interface EpilepsyProfile {
+  isComplete: boolean;
+  source: 'AI_GENERATED';
+  seizureType: string; // 发作类型 (全面性/局灶性)
+  frequency: string;   // 发作频率
+  lastSeizure: string; // 上次发作时间
+  triggers: string[];  // 诱因 (熬夜/漏服药)
+  consciousness: boolean; // 是否伴随意识丧失
+  lastUpdated: number;
+}
+
+// --- 新增：认知障碍专病档案 ---
+export interface CognitiveProfile {
+  isComplete: boolean;
+  source: 'AI_GENERATED';
+  mmseScoreEstimate: string; // MMSE 预估分区间
+  symptoms: string[];        // 核心症状 (迷路/遗忘/性格改变)
+  adlScore: string;          // 日常生活能力 (ADL) 状态
+  caregiver: string;         // 照料者情况
   lastUpdated: number;
 }
 
@@ -44,6 +87,10 @@ export interface FamilyMember {
   relation: string; // e.g. "父亲"
   avatar: string;
   headacheProfile?: HeadacheProfile;
+  epilepsyProfile?: EpilepsyProfile;
+  cognitiveProfile?: CognitiveProfile;
+  iotStats?: IoTStats; // 独立设备数据
+  cognitiveStats?: CognitiveStats; // 独立训练数据
 }
 
 export interface User {
@@ -57,6 +104,12 @@ export interface User {
   
   // 扩展字段
   headacheProfile?: HeadacheProfile;
+  epilepsyProfile?: EpilepsyProfile;     // 新增
+  cognitiveProfile?: CognitiveProfile;   // 新增
+  
+  iotStats?: IoTStats;             // [IoT]
+  cognitiveStats?: CognitiveStats; // [Cognitive]
+
   familyMembers?: FamilyMember[];
   currentProfileId?: string; // 当前选中的患者ID (自身或家属)
 }

@@ -4,7 +4,8 @@ import Layout from './Layout';
 import Button from './Button';
 import { usePayment } from '../hooks/usePayment';
 import { useApp } from '../context/AppContext';
-import { VisualMemoryGame, AttentionGame } from './CognitiveGames';
+// 引入完整的认知游戏组件集合
+import { VisualMemoryGame, AttentionGame, CognitiveDashboard } from './CognitiveGames';
 import { HeadacheProfile } from '../types';
 
 // 引入拆分后的核心业务组件
@@ -506,21 +507,17 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
     const { PACKAGES } = usePayment();
     const [showPay, setShowPay] = useState(false);
 
-    if (game === 'memory') return <VisualMemoryGame onComplete={() => setGame('none')} onExit={() => setGame('none')} />;
-    if (game === 'attention') return <AttentionGame onComplete={() => setGame('none')} onExit={() => setGame('none')} />;
+    // 游戏状态管理：
+    // 当游戏进行中时，onComplete 回调仅用于内部状态传递，不直接关闭游戏
+    // 只有当用户在结算页点击“保存并返回”时，触发 onExit，此时才将 game 设为 'none'
+    if (game === 'memory') return <VisualMemoryGame onComplete={() => {}} onExit={() => setGame('none')} />;
+    if (game === 'attention') return <AttentionGame onComplete={() => {}} onExit={() => setGame('none')} />;
 
     return (
         <Layout headerTitle="认知康复训练" showBack onBack={onBack}>
             <div className="p-5 space-y-4">
-                 <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-50">
-                    <h3 className="font-black text-slate-800 mb-4">今日训练处方</h3>
-                    <Button fullWidth onClick={() => setGame('memory')} className="mb-4">
-                        <span className="mr-2">🧩</span> 开始视觉记忆训练
-                    </Button>
-                    <Button fullWidth variant="outline" onClick={() => setGame('attention')}>
-                        <span className="mr-2">🔢</span> 开始舒尔特方格
-                    </Button>
-                 </div>
+                 {/* 智能仪表盘：展示进度与推荐 */}
+                 <CognitiveDashboard onStartGame={setGame} />
                  
                  {/* VIP Promote */}
                  <div onClick={() => setShowPay(true)} className="bg-gradient-to-r from-purple-50 to-white p-5 rounded-2xl border border-purple-100 cursor-pointer active:scale-[0.98] transition-all">

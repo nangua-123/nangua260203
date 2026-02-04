@@ -1,7 +1,9 @@
 
-import React, { useState, useEffect } from 'react';
-import { User, AppView, DiseaseType } from '../types';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { User, AppView, DiseaseType, IoTStats } from '../types';
 import Button from './Button';
+import { usePayment } from '../hooks/usePayment';
+import { useApp } from '../context/AppContext';
 
 interface HomeViewProps {
   user: User;
@@ -12,8 +14,24 @@ interface HomeViewProps {
 }
 
 const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavigate, primaryCondition }) => {
+  const { dispatch } = useApp();
   const [wavePath, setWavePath] = useState('');
+  const { getRecommendedPackage, hasFeature } = usePayment();
+  const [showAlertModal, setShowAlertModal] = useState(false);
   
+  // IoT Simulation State
+  const activeProfileId = user.currentProfileId || user.id;
+  
+  // Helper to get stats for current active profile
+  const currentIoTStats = useMemo(() => {
+     if (user.id === activeProfileId) return user.iotStats;
+     return user.familyMembers?.find(m => m.id === activeProfileId)?.iotStats;
+  }, [user, activeProfileId]);
+
+  // 获取推荐套餐
+  const recommendedPkg = getRecommendedPackage();
+  const isPkgUnlocked = hasFeature(recommendedPkg.featureKey);
+
   // Use passed risk score or default to safe if 0
   const displayScore = riskScore > 0 ? riskScore : 95;
   const finalHealthScore = riskScore > 0 ? (100 - riskScore) : 95;
@@ -25,10 +43,50 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
   };
 
   const status = getRiskStatus(finalHealthScore);
-  
-  // 模拟：如果总分低于 60 (即风险分 > 40)，或者强制为了演示效果设定阈值
-  // 此处逻辑：riskScore 代表风险值(0-100)，>60 为高危
   const isHeadacheCritical = riskScore > 60;
+
+  // --- IoT Simulation Logic ---
+  useEffect(() => {
+    if (!hasDevice) return;
+
+    const interval = setInterval(() => {
+        // Generate random vitals
+        // HR: 正常 60-100, 偶发异常 <60 或 >120
+        const isAnomaly = Math.random() > 0.9; // 10% chance of anomaly
+        let hr = 75 + Math.floor(Math.random() * 20 - 10);
+        if (isAnomaly) hr = Math.random() > 0.5 ? 135 : 55;
+
+        const bpSys = 110 + Math.floor(Math.random() * 20);
+        const bpDia = 75 + Math.floor(Math.random() * 10);
+        const spo2 = 96 + Math.floor(Math.random() * 4);
+
+        const stats: IoTStats = {
+            hr, bpSys, bpDia, spo2,
+            isAbnormal: hr > 120 || hr < 60,
+            lastUpdated: Date.now()
+        };
+
+        // Dispatch to Global State
+        dispatch({
+            type: 'UPDATE_IOT_STATS',
+            payload: { id: activeProfileId, stats }
+        });
+
+        // Trigger Alert Logic
+        if (stats.isAbnormal) {
+            setShowAlertModal(true);
+            // 自动提升癫痫/健康风险评分
+            dispatch({
+                type: 'SET_RISK_SCORE',
+                payload: { score: 85, type: DiseaseType.EPILEPSY }
+            });
+        }
+
+    }, 5000); // 5 seconds update
+
+    return () => clearInterval(interval);
+  }, [hasDevice, activeProfileId]);
+
 
   useEffect(() => {
     let tick = 0;
@@ -46,6 +104,31 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
     const anim = requestAnimationFrame(generateWave);
     return () => cancelAnimationFrame(anim);
   }, []);
+
+  // --- Alert Modal Component ---
+  const AlertModal = () => (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl border border-red-100 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1 bg-red-500 animate-pulse"></div>
+              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center text-3xl mx-auto mb-4 animate-bounce text-red-500 border border-red-100">
+                  💓
+              </div>
+              <h3 className="text-lg font-black text-slate-900 mb-2">检测到生命体征异常</h3>
+              <p className="text-sm text-slate-500 mb-6 font-bold">
+                  监测到心率 ({currentIoTStats?.hr} bpm) 超出安全范围。
+                  <br/>建议立即停止当前活动并联系医生。
+              </p>
+              <div className="space-y-3">
+                  <Button fullWidth className="bg-red-600 shadow-red-500/30" onClick={() => onNavigate('chat')}>
+                      联系华西值班医生 (SOS)
+                  </Button>
+                  <Button fullWidth variant="outline" onClick={() => setShowAlertModal(false)}>
+                      我知道了 (取消报警)
+                  </Button>
+              </div>
+          </div>
+      </div>
+  );
 
   return (
     <div className="bg-[#F7F8FA] min-h-screen flex flex-col max-w-[430px] mx-auto overflow-x-hidden pb-safe select-none">
@@ -108,6 +191,36 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
           </div>
         )}
       </div>
+
+      {/* 智能推荐卡片 (NEW) */}
+      {!isPkgUnlocked && (
+        <div className="px-5 mt-5">
+            <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-[24px] p-5 shadow-lg relative overflow-hidden text-white" onClick={() => onNavigate('service-mall')}>
+                <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -translate-y-8 translate-x-8"></div>
+                <div className="flex justify-between items-start mb-3 relative z-10">
+                    <div>
+                        <div className="flex items-center gap-2 mb-1">
+                            <span className="bg-amber-500 text-[9px] font-black px-1.5 py-0.5 rounded text-white">AI 推荐</span>
+                            <span className="text-[11px] text-slate-300 font-bold">为您定制方案</span>
+                        </div>
+                        <h3 className="text-[15px] font-black">{recommendedPkg.title}</h3>
+                    </div>
+                    <div className="bg-white/10 backdrop-blur-md rounded-xl p-2 flex flex-col items-center min-w-[60px]">
+                        <span className="text-[10px] line-through text-slate-400">¥{recommendedPkg.originalPrice || recommendedPkg.price * 1.5}</span>
+                        <span className="text-lg font-black text-amber-400">¥{recommendedPkg.price}</span>
+                    </div>
+                </div>
+                <div className="space-y-1.5 relative z-10">
+                    {recommendedPkg.features.slice(0, 2).map((feat, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                            <span className="text-emerald-400 text-[10px]">✓</span>
+                            <span className="text-[11px] text-slate-300">{feat}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+      )}
 
       {/* 核心业务区 */}
       <div className="px-5 mt-5 space-y-4">
@@ -249,13 +362,14 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
         </div>
       </div>
 
-      {/* 设备中心 IoT Hub */}
-      <div className="px-5 mt-6 space-y-3">
+      {/* 设备中心 IoT Hub - Enhanced with Real Data */}
+      <div className="px-5 mt-6 space-y-3 mb-24">
         <div className="flex items-center justify-between">
           <h4 className="text-[13px] font-black text-slate-900 tracking-wider">我的智能装备</h4>
           <button onClick={() => onNavigate('service-mall')} className="text-brand-500 text-[10px] font-black bg-brand-50 px-3 py-1 rounded-lg active:scale-95 transition-all">租赁管理</button>
         </div>
         <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+          {/* 脑电卡片 */}
           <div className="min-w-[180px] bg-white rounded-2xl p-3 border border-slate-100 flex items-center gap-3 shadow-soft">
             <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-lg">🧠</div>
             <div className="flex-1">
@@ -265,24 +379,43 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
               </div>
             </div>
           </div>
+
+          {/* 手环卡片 (Real-time Updated) */}
           <div 
              onClick={() => onNavigate('haas-checkout')}
-             className={`min-w-[180px] bg-white rounded-2xl p-3 border transition-all flex items-center gap-3 shadow-soft ${hasDevice ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'}`}
+             className={`min-w-[180px] rounded-2xl p-3 border transition-all flex items-center gap-3 shadow-soft ${
+                 hasDevice 
+                 ? (currentIoTStats?.isAbnormal ? 'bg-red-50 border-red-200' : 'bg-emerald-50/30 border-emerald-200')
+                 : 'bg-white border-slate-100'
+             }`}
           >
-            <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-lg">⌚</div>
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${hasDevice && currentIoTStats?.isAbnormal ? 'bg-red-100 animate-pulse' : 'bg-slate-50'}`}>⌚</div>
             <div className="flex-1">
               <div className="text-[11px] font-black text-slate-800">生命监测手环</div>
-              <div className="flex items-center justify-between mt-1">
-                 {hasDevice ? (
-                     <span className="text-[9px] text-emerald-500 font-bold">已连接</span>
-                 ) : (
+              {hasDevice && currentIoTStats ? (
+                  <div className="mt-1">
+                      <div className="flex items-center gap-2 text-[9px] font-bold">
+                          <span className={currentIoTStats.isAbnormal ? 'text-red-600' : 'text-slate-600'}>
+                              HR: {currentIoTStats.hr}
+                          </span>
+                          <span className="text-slate-400">BP: {currentIoTStats.bpSys}/{currentIoTStats.bpDia}</span>
+                      </div>
+                      <div className="text-[8px] text-emerald-500 mt-0.5 flex items-center gap-1">
+                          <span className={`w-1.5 h-1.5 rounded-full ${currentIoTStats.isAbnormal ? 'bg-red-500 animate-ping' : 'bg-emerald-500'}`}></span>
+                          {currentIoTStats.isAbnormal ? '异常数据' : '实时同步中'}
+                      </div>
+                  </div>
+              ) : (
+                  <div className="flex items-center justify-between mt-1">
                      <span className="text-[9px] text-brand-500 font-bold">申请租赁 ›</span>
-                 )}
-              </div>
+                  </div>
+              )}
             </div>
           </div>
         </div>
       </div>
+
+      {showAlertModal && <AlertModal />}
 
       {/* 合规标注页脚 */}
       <div className="mt-auto px-10 pb-[calc(80px+env(safe-area-inset-bottom))] pt-8 text-center opacity-30 pointer-events-none">

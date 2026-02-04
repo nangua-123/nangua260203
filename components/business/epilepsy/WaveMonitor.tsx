@@ -5,6 +5,7 @@ import React, { useEffect, useState, useRef, memo } from 'react';
 export const WaveMonitor = memo(() => {
   const [eegPath, setEegPath] = useState('');
   const [stats, setStats] = useState({ hr: 72, spo2: 98, tremor: 0.5 });
+  const [isAbnormal, setIsAbnormal] = useState(false);
   
   // 使用 Ref 存储动画帧 ID，防止内存泄漏
   const animationFrameRef = useRef<number>(0);
@@ -32,39 +33,42 @@ export const WaveMonitor = memo(() => {
       const width = 360; 
       const pointsCount = 90; // 增加采样点密度以提高曲线平滑度
       const step = width / pointsCount;
+      
+      let hasSpikeThisFrame = false;
 
       for (let i = 0; i <= pointsCount; i++) {
         const x = i * step;
-        // const t = tickRef.current + i * 0.1; // 旧算法
-        
-        // [AUDIT_FIX] 核心算法增强：引入偶发痫样放电 (Spike Wave)
-        // 使用正弦波叠加模拟脑电背景活动，并随机插入高幅值的棘波
         
         // 基础节律 (Alpha/Beta)
         const basePhase = x * 0.15 + tickRef.current;
         const baseWave = Math.sin(basePhase) * 10; 
         
-        // 随机尖波模拟：利用 x 和 tick 的组合产生伪随机但连续的尖峰
-        // 通过 Math.sin 的高频分量模拟尖波形态
+        // 随机尖波模拟
         const spikeTrigger = Math.sin(x * 0.05 - tickRef.current * 0.5);
         let spike = 0;
         
-        // 当触发器处于特定相位且随机因子满足时，产生尖波
-        if (spikeTrigger > 0.95 && Math.random() > 0.3) {
-             spike = -35; // 向下棘波
-        } else if (spikeTrigger < -0.95 && Math.random() > 0.3) {
-             spike = 35;  // 向上棘波
+        // 增加尖波触发逻辑
+        if (spikeTrigger > 0.95 && Math.random() > 0.95) { // 降低随机概率，增加视觉冲击
+             spike = -45; // 向下棘波幅度增大
+             hasSpikeThisFrame = true;
+        } else if (spikeTrigger < -0.95 && Math.random() > 0.95) {
+             spike = 45;  // 向上棘波
+             hasSpikeThisFrame = true;
         }
 
-        // 组合波形，基线调整为 50 (容器高度 100 的中心)
-        const y = 50 + baseWave + spike + (Math.random() - 0.5) * 4; // 添加少量高频噪声
+        // 组合波形，基线调整为 50
+        const y = 50 + baseWave + spike + (Math.random() - 0.5) * 4; 
 
         points.push(`${x},${y}`);
       }
-
-      // [AUDIT_FIX] 调整 viewBox 为 0 0 360 100 以容纳大幅值尖波，防止截断
-      setEegPath(`M 0,50 L ${points.join(' L ')}`);
       
+      // 异常状态持续一小段时间
+      if (hasSpikeThisFrame) {
+          setIsAbnormal(true);
+          setTimeout(() => setIsAbnormal(false), 500); // 500ms 红色警报
+      }
+
+      setEegPath(`M 0,50 L ${points.join(' L ')}`);
       animationFrameRef.current = requestAnimationFrame(generateWave);
     };
 
@@ -78,7 +82,7 @@ export const WaveMonitor = memo(() => {
   }, []);
 
   return (
-    <div className="bg-slate-900 rounded-[32px] p-6 text-white shadow-2xl relative overflow-hidden transform transition-transform">
+    <div className={`bg-slate-900 rounded-[32px] p-6 text-white shadow-2xl relative overflow-hidden transform transition-all duration-300 ${isAbnormal ? 'animate-shake ring-4 ring-red-500 shadow-red-500/50' : ''}`}>
         {/* 背景网格装饰 */}
         <div className="absolute inset-0 opacity-10" 
              style={{ backgroundImage: 'linear-gradient(#334155 1px, transparent 1px), linear-gradient(90deg, #334155 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
@@ -88,10 +92,12 @@ export const WaveMonitor = memo(() => {
         <div className="relative z-10 flex justify-between items-start mb-6">
             <div className="flex items-center gap-2">
                 <div className="relative">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                    <div className="absolute inset-0 bg-emerald-500 rounded-full animate-ping opacity-75"></div>
+                    <div className={`w-2 h-2 rounded-full ${isAbnormal ? 'bg-red-500' : 'bg-emerald-500'} animate-pulse`}></div>
+                    <div className={`absolute inset-0 rounded-full animate-ping opacity-75 ${isAbnormal ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
                 </div>
-                <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">华西 AI 实时哨兵监测中</span>
+                <span className={`text-[10px] font-black uppercase tracking-widest ${isAbnormal ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {isAbnormal ? '检测到异常棘慢波' : '华西 AI 实时哨兵监测中'}
+                </span>
             </div>
             <div className="flex flex-col items-end">
                 <span className="text-[9px] text-slate-400 font-bold">设备连接: 稳定</span>
@@ -108,7 +114,7 @@ export const WaveMonitor = memo(() => {
                 <span>-100</span>
             </div>
             
-            {/* 动态 SVG [AUDIT_FIX] 更新 viewBox 以匹配新的波形幅度 */}
+            {/* 动态 SVG */}
             <svg width="100%" height="100%" viewBox="0 0 360 100" preserveAspectRatio="none" className="overflow-visible">
                 <defs>
                     <linearGradient id="waveGradient" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -116,8 +122,21 @@ export const WaveMonitor = memo(() => {
                         <stop offset="10%" stopColor="#10B981" stopOpacity="1" />
                         <stop offset="100%" stopColor="#10B981" stopOpacity="1" />
                     </linearGradient>
+                    <linearGradient id="alertGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#EF4444" stopOpacity="0" />
+                        <stop offset="10%" stopColor="#EF4444" stopOpacity="1" />
+                        <stop offset="100%" stopColor="#EF4444" stopOpacity="1" />
+                    </linearGradient>
                 </defs>
-                <path d={eegPath} fill="none" stroke="url(#waveGradient)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path 
+                    d={eegPath} 
+                    fill="none" 
+                    stroke={isAbnormal ? "url(#alertGradient)" : "url(#waveGradient)"} 
+                    strokeWidth="2" 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round"
+                    className="transition-colors duration-100"
+                />
             </svg>
             
             {/* 扫描线动画 */}
@@ -128,7 +147,7 @@ export const WaveMonitor = memo(() => {
         <div className="relative z-10 grid grid-cols-3 gap-4 border-t border-slate-800 pt-4">
             <div className="flex flex-col items-center">
                 <span className="text-[8px] font-black text-slate-500 uppercase mb-1">心率 (BPM)</span>
-                <span className="text-2xl font-black text-emerald-500 tracking-tighter">{stats.hr}</span>
+                <span className={`text-2xl font-black tracking-tighter ${isAbnormal ? 'text-red-500 animate-pulse' : 'text-emerald-500'}`}>{stats.hr}</span>
             </div>
             <div className="flex flex-col items-center border-l border-slate-800">
                 <span className="text-[8px] font-black text-slate-500 uppercase mb-1">血氧 (%)</span>
@@ -136,7 +155,7 @@ export const WaveMonitor = memo(() => {
             </div>
             <div className="flex flex-col items-center border-l border-slate-800">
                 <span className="text-[8px] font-black text-slate-500 uppercase mb-1">肌张力 (Hz)</span>
-                <span className="text-2xl font-black text-amber-500 tracking-tighter">{stats.tremor}</span>
+                <span className={`text-2xl font-black tracking-tighter ${isAbnormal ? 'text-amber-500' : 'text-amber-500'}`}>{stats.tremor}</span>
             </div>
         </div>
     </div>

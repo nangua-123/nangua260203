@@ -3,19 +3,28 @@ import React, { useState, useEffect } from 'react';
 import Layout from './Layout';
 import Button from './Button';
 import { AppView } from '../types';
+import { usePayment, AVAILABLE_COUPONS, RENTAL_PLANS } from '../hooks/usePayment';
 
 interface ServiceMarketplaceProps {
   onNavigate: (view: AppView) => void;
   onBack: () => void;
 }
 
-// --- HaaS 租赁结算流程 ---
+// --- HaaS 租赁结算流程 (重构：支持租期、押金、优惠券) ---
 export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => void }> = ({ onBack, onComplete }) => {
   const [step, setStep] = useState<'confirm' | 'form' | 'success'>('confirm');
   const [isFamilyPay, setIsFamilyPay] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isDataSynced, setIsDataSynced] = useState(false);
   
+  // New States for Commercial Logic
+  const [selectedPlanId, setSelectedPlanId] = useState('30d');
+  const [selectedCouponId, setSelectedCouponId] = useState<string | undefined>(undefined);
+  const { calculateRentalPrice, hasFeature } = usePayment();
+
+  // 计算最终价格
+  const pricing = calculateRentalPrice(selectedPlanId, selectedCouponId);
+
   // 表单状态
   const [formData, setFormData] = useState({
     name: '陈建国',
@@ -52,7 +61,9 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
           </div>
 
           <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">租赁申请已提交</h2>
-          <p className="text-slate-500 text-sm font-bold mb-8 uppercase tracking-widest">看护模式已开启 · 顺丰速运待揽件</p>
+          <p className="text-slate-500 text-sm font-bold mb-8 uppercase tracking-widest">
+              看护模式已开启 · 租期 {pricing.plan.days} 天
+          </p>
           
           {isDataSynced && (
             <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 w-full mb-8 text-center animate-slide-up" style={{animationDelay: '0.2s'}}>
@@ -92,7 +103,7 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
 
   return (
     <Layout headerTitle="租赁服务结算台" showBack onBack={onBack}>
-      <div className="p-5 pb-safe space-y-5 animate-slide-up">
+      <div className="p-5 pb-safe space-y-5 animate-slide-up pb-32">
         
         {/* 1. 医嘱确认卡 */}
         <div className="bg-gradient-to-br from-brand-50 to-white border border-brand-100 rounded-[24px] p-5 relative overflow-hidden">
@@ -107,33 +118,83 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
            </div>
         </div>
 
-        {/* 2. 商品详情 */}
+        {/* 2. 商品及租期选择 */}
         <div className="bg-white rounded-[24px] p-5 shadow-sm border border-slate-50">
-          <div className="flex gap-4 mb-4">
+          <div className="flex gap-4 mb-5">
             <div className="w-20 h-20 bg-slate-50 rounded-xl flex items-center justify-center text-4xl border border-slate-100">🧠</div>
             <div className="flex-1 py-1">
-              <h4 className="font-black text-slate-900 text-sm">癫痫生命守护包 (年卡)</h4>
+              <h4 className="font-black text-slate-900 text-sm">癫痫生命守护包 (硬件租赁)</h4>
               <div className="flex gap-2 mt-2">
-                 <span className="text-[9px] bg-brand-50 text-brand-600 px-2 py-0.5 rounded font-bold">含硬件租赁</span>
-                 <span className="text-[9px] bg-brand-50 text-brand-600 px-2 py-0.5 rounded font-bold">免押金</span>
-              </div>
-              <div className="mt-3 flex items-baseline gap-1">
-                <span className="text-xs font-bold text-red-500">¥</span>
-                <span className="text-xl font-black text-red-500">599</span>
-                <span className="text-[10px] text-slate-400 font-bold ml-1">/ 年</span>
+                 <span className="text-[9px] bg-brand-50 text-brand-600 px-2 py-0.5 rounded font-bold">医疗级监测</span>
+                 <span className="text-[9px] bg-brand-50 text-brand-600 px-2 py-0.5 rounded font-bold">坏件包赔</span>
               </div>
             </div>
           </div>
           
+          {/* 租期选择 */}
+          <div className="space-y-3 mb-4">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">选择租期</label>
+              <div className="grid grid-cols-3 gap-2">
+                  {RENTAL_PLANS.map(plan => (
+                      <button
+                        key={plan.id}
+                        onClick={() => setSelectedPlanId(plan.id)}
+                        className={`py-3 px-2 rounded-xl border transition-all flex flex-col items-center justify-center gap-1 ${
+                            selectedPlanId === plan.id 
+                            ? 'bg-brand-600 border-brand-600 text-white shadow-lg shadow-brand-500/30 scale-[1.02]' 
+                            : 'bg-white border-slate-200 text-slate-500 hover:border-brand-200'
+                        }`}
+                      >
+                          <span className="text-[10px] font-bold">{plan.days} 天</span>
+                          <span className={`text-sm font-black ${selectedPlanId === plan.id ? 'text-white' : 'text-slate-800'}`}>¥{plan.price}</span>
+                      </button>
+                  ))}
+              </div>
+          </div>
+
+          {/* 优惠券选择 */}
+          <div className="mb-4">
+               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">优惠券</label>
+               <div className="space-y-2">
+                   {AVAILABLE_COUPONS.filter(c => c.type === 'rental' || c.type === 'general').map(coupon => (
+                       <div 
+                         key={coupon.id}
+                         onClick={() => setSelectedCouponId(selectedCouponId === coupon.id ? undefined : coupon.id)}
+                         className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-colors ${
+                             selectedCouponId === coupon.id ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-100'
+                         }`}
+                       >
+                           <div className="flex items-center gap-3">
+                               <div className="w-4 h-4 rounded-full border border-slate-300 flex items-center justify-center bg-white">
+                                   {selectedCouponId === coupon.id && <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>}
+                               </div>
+                               <div>
+                                   <div className="text-[11px] font-bold text-slate-800">{coupon.name}</div>
+                                   <div className="text-[9px] text-slate-400">满 ¥{coupon.minSpend} 可用</div>
+                               </div>
+                           </div>
+                           <div className="text-red-500 font-black text-sm">-¥{coupon.value}</div>
+                       </div>
+                   ))}
+               </div>
+          </div>
+
+          {/* 价格明细 */}
           <div className="bg-slate-50 rounded-xl p-3 space-y-2">
             <div className="flex justify-between text-[11px] font-bold text-slate-600">
-               <span>硬件押金 (会员权益)</span>
-               <span className="line-through text-slate-400">¥ 1200</span>
+               <span>硬件押金 {pricing.deposit === 0 && <span className="text-amber-500">(VIP免押)</span>}</span>
+               <span className={`${pricing.deposit === 0 ? 'text-slate-400 line-through' : ''}`}>¥ 500</span>
             </div>
             <div className="flex justify-between text-[11px] font-bold text-slate-600">
-               <span>平台服务费</span>
-               <span>¥ 599</span>
+               <span>租赁费 ({pricing.plan.days}天)</span>
+               <span>¥ {pricing.plan.price}</span>
             </div>
+            {pricing.discount > 0 && (
+                <div className="flex justify-between text-[11px] font-bold text-red-500">
+                    <span>优惠抵扣</span>
+                    <span>-¥ {pricing.discount}</span>
+                </div>
+            )}
             <div className="flex justify-between text-[11px] font-bold text-slate-600">
                <span>顺丰物流费</span>
                <span className="text-emerald-500">包邮</span>
@@ -163,15 +224,6 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold text-slate-800 focus:border-brand-500 outline-none"
                  />
               </div>
-              <div className="relative">
-                 <label className="absolute -top-2 left-3 bg-white px-1 text-[9px] font-bold text-brand-500">详细地址</label>
-                 <textarea 
-                   rows={2}
-                   value={formData.address}
-                   onChange={e => setFormData({...formData, address: e.target.value})}
-                   className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold text-slate-800 focus:border-brand-500 outline-none resize-none"
-                 />
-              </div>
            </div>
         </div>
 
@@ -197,10 +249,10 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
       {/* 底部支付栏 */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 p-4 pb-safe z-50 flex items-center justify-between max-w-[430px] mx-auto shadow-[0_-5px_20px_rgba(0,0,0,0.02)]">
          <div>
-            <div className="text-[10px] text-slate-400 font-bold mb-0.5">实付金额</div>
+            <div className="text-[10px] text-slate-400 font-bold mb-0.5">实付金额 (含押金)</div>
             <div className="flex items-baseline gap-1 text-slate-900">
                <span className="text-xs font-bold">¥</span>
-               <span className="text-2xl font-black tracking-tighter">599.00</span>
+               <span className="text-2xl font-black tracking-tighter">{pricing.total}</span>
             </div>
          </div>
          <Button onClick={handlePay} disabled={isProcessing} className="w-[180px] shadow-xl shadow-brand-500/20">
