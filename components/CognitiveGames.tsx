@@ -5,13 +5,29 @@ import { useApp } from '../context/AppContext';
 import { generateCognitiveAssessment } from '../services/geminiService';
 import { CognitiveStats } from '../types';
 
-// --- Audio Helper for Cognitive Stimulation (Web Audio API) ---
-// 声音刺激是认知康复的重要一环，有助于强化多感官记忆回路
+// --- Audio Engine (Singleton Pattern) ---
+// 优化：单例管理 AudioContext，避免频繁创建导致的内存泄漏和浏览器限制
+let sharedAudioCtx: AudioContext | null = null;
+
+const getAudioContext = () => {
+    if (!sharedAudioCtx) {
+        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContext) {
+            sharedAudioCtx = new AudioContext();
+        }
+    }
+    // 浏览器自动播放策略适配：用户交互后恢复上下文
+    if (sharedAudioCtx && sharedAudioCtx.state === 'suspended') {
+        sharedAudioCtx.resume().catch(console.error);
+    }
+    return sharedAudioCtx;
+};
+
 const playSound = (type: 'correct' | 'wrong' | 'levelUp' | 'complete' | 'click') => {
     try {
-        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContext) return;
-        const ctx = new AudioContext();
+        const ctx = getAudioContext();
+        if (!ctx) return;
+
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         
@@ -123,7 +139,7 @@ export const CognitiveDashboard: React.FC<{ onStartGame: (type: 'memory' | 'atte
                  </div>
                  <Button 
                     fullWidth 
-                    onClick={() => onStartGame(recommendedGame)} 
+                    onClick={() => { playSound('click'); onStartGame(recommendedGame); }} 
                     className="bg-indigo-600 shadow-indigo-500/20"
                  >
                      <span className="mr-2">{recommendedGame === 'memory' ? '🧩' : '🔢'}</span> 
@@ -135,8 +151,8 @@ export const CognitiveDashboard: React.FC<{ onStartGame: (type: 'memory' | 'atte
              <div className="text-center">
                  <p className="text-[10px] text-slate-400 mb-2">或选择自由训练</p>
                  <div className="flex gap-3">
-                     <Button fullWidth variant="outline" onClick={() => onStartGame('memory')} disabled={recommendedGame === 'memory'}>视觉记忆</Button>
-                     <Button fullWidth variant="outline" onClick={() => onStartGame('attention')} disabled={recommendedGame === 'attention'}>专注力</Button>
+                     <Button fullWidth variant="outline" onClick={() => { playSound('click'); onStartGame('memory'); }} disabled={recommendedGame === 'memory'}>视觉记忆</Button>
+                     <Button fullWidth variant="outline" onClick={() => { playSound('click'); onStartGame('attention'); }} disabled={recommendedGame === 'attention'}>专注力</Button>
                  </div>
              </div>
         </div>
@@ -280,11 +296,6 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
 /** 
  * 游戏 2: 舒尔特方格 (Attention / Schulte Grid)
  * 锻炼注意力集中与视觉搜索速度
- * 
- * [Optimization] 针对 AD 患者的特殊优化：
- * 1. 智能提示：长时间未操作自动高亮下一目标。
- * 2. 错误反馈：点击错误时震动/变色。
- * 3. 顶部指引：常驻显示“当前目标”，降低认知负荷。
  */
 interface AttentionGameProps {
   onComplete: (score: number, metrics: number) => void;

@@ -29,6 +29,11 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
   const { getRecommendedPackage, hasFeature } = usePayment();
   const [showAlertModal, setShowAlertModal] = useState(false);
   
+  // [UX Polish] Modals State
+  const [showRecordModal, setShowRecordModal] = useState(false);
+  const [showSOSModal, setShowSOSModal] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
+  
   // --- IoT Simulation Logic ---
   const activeProfileId = user.currentProfileId || user.id;
   
@@ -86,6 +91,14 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
     return () => clearInterval(interval);
   }, [hasDevice, activeProfileId]);
 
+  // Toast Timer
+  useEffect(() => {
+      if (toastMsg) {
+          const t = setTimeout(() => setToastMsg(''), 3000);
+          return () => clearTimeout(t);
+      }
+  }, [toastMsg]);
+
   // 癫痫波形动画 (SVG Path Generator)
   useEffect(() => {
     let tick = 0;
@@ -105,23 +118,22 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
   }, []);
 
   // --- SOS Logic ---
-  const handleSOS = () => {
-      // 真实场景调用 navigator.geolocation 和 tel: 协议
-      if (window.confirm("确认呼叫 120 急救中心？\n系统将自动发送您的当前 GPS 定位给紧急联系人。")) {
-          window.location.href = "tel:120";
-      }
+  const handleSOSConfirm = () => {
+      window.location.href = "tel:120";
+      setShowSOSModal(false);
   };
 
   // --- Manual Record Logic ---
-  const handleManualRecord = () => {
-      const hr = prompt("请输入当前心率 (bpm):", "75");
-      if (hr) {
+  const handleRecordSubmit = (hr: string) => {
+      const val = parseInt(hr);
+      if (val > 0) {
           const stats: IoTStats = {
-            hr: parseInt(hr), bpSys: 120, bpDia: 80, spo2: 98,
+            hr: val, bpSys: 120, bpDia: 80, spo2: 98,
             isAbnormal: false, lastUpdated: Date.now()
           };
           dispatch({ type: 'UPDATE_IOT_STATS', payload: { id: activeProfileId, stats } });
-          alert("手动录入成功，AI 已更新风险评估");
+          setShowRecordModal(false);
+          setToastMsg('录入成功，AI 风险模型已更新');
       }
   };
 
@@ -311,7 +323,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
             </div>
             {!hasDevice && (
                 <button 
-                    onClick={(e) => { e.stopPropagation(); handleManualRecord(); }}
+                    onClick={(e) => { e.stopPropagation(); setShowRecordModal(true); }}
                     className="text-[10px] font-bold text-[#1677FF] bg-blue-50 px-3 py-1.5 rounded-full active:scale-95"
                 >
                     📝 手动录入
@@ -336,16 +348,92 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
       {/* [Safety] SOS 悬浮球 (仅高危/癫痫用户) */}
       {(isEpilepsy || isCritical) && (
           <button 
-            onClick={handleSOS}
+            onClick={() => setShowSOSModal(true)}
             className="fixed right-5 bottom-24 w-14 h-14 bg-red-600 rounded-full shadow-lg shadow-red-600/40 flex items-center justify-center text-2xl z-40 active:scale-90 transition-transform animate-pulse"
           >
             🆘
           </button>
       )}
 
+      {/* Modals */}
       {showAlertModal && <AlertModal />}
+      
+      {showRecordModal && (
+        <ManualRecordModal 
+            onClose={() => setShowRecordModal(false)} 
+            onSubmit={handleRecordSubmit} 
+        />
+      )}
+
+      {showSOSModal && (
+        <SOSConfirmModal 
+            onClose={() => setShowSOSModal(false)}
+            onConfirm={handleSOSConfirm}
+        />
+      )}
+
+      {/* Toast Feedback */}
+      {toastMsg && (
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[110] bg-slate-900/90 text-white px-4 py-2 rounded-full text-xs font-bold animate-fade-in shadow-lg backdrop-blur">
+            {toastMsg}
+        </div>
+      )}
+
     </div>
   );
+};
+
+// --- Sub-components for Modals ---
+
+const ManualRecordModal: React.FC<{ onClose: () => void; onSubmit: (hr: string) => void }> = ({ onClose, onSubmit }) => {
+    const [hr, setHr] = useState('');
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}></div>
+            <div className="bg-white w-full max-w-sm rounded-[24px] p-6 relative z-10 animate-slide-up shadow-2xl">
+                <h3 className="text-lg font-black text-slate-900 mb-4 text-center">手动录入生命体征</h3>
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 block mb-2">当前静息心率 (BPM)</label>
+                        <input 
+                            type="number" 
+                            autoFocus
+                            placeholder="75"
+                            className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 text-xl font-bold text-center focus:border-brand-500 outline-none"
+                            value={hr}
+                            onChange={e => setHr(e.target.value)}
+                        />
+                    </div>
+                    <Button fullWidth onClick={() => onSubmit(hr)} disabled={!hr}>确认提交</Button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const SOSConfirmModal: React.FC<{ onClose: () => void; onConfirm: () => void }> = ({ onClose, onConfirm }) => {
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <div className="absolute inset-0 bg-red-900/40 backdrop-blur-md" onClick={onClose}></div>
+            <div className="bg-white w-full max-w-sm rounded-[24px] p-8 relative z-10 animate-shake shadow-2xl border-2 border-red-500 text-center">
+                <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center text-4xl mx-auto mb-4 text-red-600">
+                    🚑
+                </div>
+                <h3 className="text-xl font-black text-slate-900 mb-2">确认呼叫 120 ?</h3>
+                <p className="text-sm text-slate-500 mb-8 px-2">
+                    系统将尝试获取您的 GPS 定位，并自动发送给紧急联系人。
+                </p>
+                <div className="space-y-3">
+                    <Button fullWidth className="bg-red-600 py-4 shadow-red-500/30" onClick={onConfirm}>
+                        立即拨打
+                    </Button>
+                    <button onClick={onClose} className="text-slate-400 text-xs font-bold py-2">
+                        取消
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 export default HomeView;

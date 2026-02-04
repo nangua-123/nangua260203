@@ -25,11 +25,9 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
   const [latestOptions, setLatestOptions] = useState<string[]>([]);
   const [apiError, setApiError] = useState(false);
   
-  // Progress & Feedback (Dynamic)
+  // Progress (Dynamic)
   const [currentStep, setCurrentStep] = useState(0);
   const [totalSteps, setTotalSteps] = useState(5); // Default, updated by AI session
-  const [showFeedbackToast, setShowFeedbackToast] = useState(false);
-  const [feedbackMsg, setFeedbackMsg] = useState('');
 
   // Assessment Offer State (Soft Offer)
   const [showAssessmentOffer, setShowAssessmentOffer] = useState(false);
@@ -67,14 +65,6 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
 
   useEffect(() => { scrollToBottom(); }, [messages, isLoading, showAssessmentOffer]);
 
-  // Toast Auto-Close (PRD Req: "3秒自动关闭")
-  useEffect(() => {
-      if (showFeedbackToast) {
-          const timer = setTimeout(() => setShowFeedbackToast(false), 3000);
-          return () => clearTimeout(timer);
-      }
-  }, [showFeedbackToast]);
-
   const parseResponse = (rawText: string) => {
     let cleanText = rawText;
     let options: string[] = [];
@@ -102,10 +92,6 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
         const newMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: text, timestamp: Date.now() };
         currentMsgs = [...messages, newMsg];
         setMessages(currentMsgs);
-        
-        // PRD Req: "信息已提交，正在分析" -> 3s auto close
-        setFeedbackMsg("信息已提交，正在分析...");
-        setShowFeedbackToast(true);
     }
     
     setInput('');
@@ -165,7 +151,10 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
 
   const handleSkip = () => {
       // [Compliance] 用户自愿选择免费基础服务
-      dispatch({ type: 'SET_RISK_SCORE', payload: { score: 0, type: activeDisease } });
+      // 修正逻辑：使用 AI 问诊过程中动态计算的风险评分，不再硬编码为 0
+      const currentRisk = chatSessionRef.current?.estimatedRisk || 15;
+      
+      dispatch({ type: 'SET_RISK_SCORE', payload: { score: currentRisk, type: activeDisease } });
       const event = new CustomEvent('navigate-to', { detail: 'report' }); // 直接看基础报告，不回首页
       window.dispatchEvent(event);
   };
@@ -212,14 +201,6 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                  <div className="w-4"></div>
             </div>
         </div>
-
-        {/* --- Feedback Toast (3s Auto Close) --- */}
-        {showFeedbackToast && (
-            <div className="absolute top-28 left-1/2 -translate-x-1/2 z-50 bg-slate-800/90 backdrop-blur text-white px-5 py-2.5 rounded-full shadow-xl flex items-center gap-2 animate-fade-in transition-opacity duration-300 pointer-events-none">
-                <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>
-                <span className="text-[12px] font-medium">{feedbackMsg}</span>
-            </div>
-        )}
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 scroll-smooth no-scrollbar">
           <div className="space-y-6 pb-32">

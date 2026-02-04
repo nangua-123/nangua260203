@@ -17,6 +17,7 @@ interface MockChatSession {
   totalSteps: number;  // 总节点数，用于前端进度条渲染
   diseaseType: DiseaseType; // 当前识别出的病种路径
   history: string[];   // 会话上下文快照
+  estimatedRisk: number; // [NEW] 实时动态风险评分
 }
 
 // --- Utils ---
@@ -46,7 +47,8 @@ export const createChatSession = (systemInstruction: string, diseaseType: Diseas
     step: 0,
     totalSteps: 5,
     diseaseType: diseaseType,
-    history: []
+    history: [],
+    estimatedRisk: 10 // 初始基线分
   } as MockChatSession;
 };
 
@@ -68,6 +70,24 @@ export const sendMessageToAI = async (session: MockChatSession, message: string,
   await new Promise(resolve => setTimeout(resolve, 800));
 
   const msg = message.trim();
+  
+  // --- [NEW] 动态风险评分逻辑 (Dynamic Risk Scoring) ---
+  // 基于用户回复的关键词调整 estimatedRisk
+  
+  // 1. 严重程度关键词
+  if (/剧烈|炸裂|难以忍受|丧失|抽搐|倒地/.test(msg)) session.estimatedRisk += 30;
+  else if (/搏动|电击|紧箍|麻木/.test(msg)) session.estimatedRisk += 15;
+  
+  // 2. 频率关键词
+  if (/每天|总是|频繁/.test(msg)) session.estimatedRisk += 25;
+  else if (/每周|经常/.test(msg)) session.estimatedRisk += 15;
+  else if (/每月|偶尔/.test(msg)) session.estimatedRisk += 5;
+  
+  // 3. 病史关键词
+  if (/已确诊|服药/.test(msg)) session.estimatedRisk += 10;
+  
+  // ----------------------------------------------------
+
   let response = "";
 
   // [Phase 0] 接诊阶段
@@ -83,22 +103,26 @@ export const sendMessageToAI = async (session: MockChatSession, message: string,
           // 规则引擎：关键词匹配 -> 路由至对应 CDSS 路径
           if (/头痛|头晕|偏头痛|胀痛/.test(msg)) {
               session.diseaseType = DiseaseType.MIGRAINE;
+              session.estimatedRisk = 30; // 偏头痛基线分
               response = `已为您匹配【华西头痛中心】路径。
 请点击选择疼痛的具体性质（无需输入）：
 <OPTIONS>搏动性跳痛|紧箍感/压迫感|电击样刺痛|炸裂样剧痛</OPTIONS>`;
           } else if (/抽搐|抖动|发作|意识丧失|愣神|倒地/.test(msg)) {
               session.diseaseType = DiseaseType.EPILEPSY;
+              session.estimatedRisk = 60; // 癫痫基线分 (高危)
               response = `已为您匹配【华西癫痫中心】路径。
 请选择最近一次发作时的目击表现：
 <OPTIONS>意识丧失+肢体抽搐|仅发呆/愣神|肢体麻木/无力|跌倒/尿失禁</OPTIONS>`;
           } else if (/记忆|忘|迷路|性格|变笨|糊涂/.test(msg)) {
               session.diseaseType = DiseaseType.COGNITIVE;
+              session.estimatedRisk = 40; // 认知障碍基线分
               response = `已为您匹配【认知记忆门诊】路径。
 除了记忆力问题，患者目前最明显的改变是？
 <OPTIONS>出门迷路/分不清方向|性格突变/多疑|算不清账/无法购物|近期事情记不住</OPTIONS>`;
           } else {
               // Fallback: 默认走头痛路径或通用路径
               session.diseaseType = DiseaseType.MIGRAINE;
+              session.estimatedRisk = 20;
               response = `症状已记录。为了更准确评估，请确认是否有以下情况：
 <OPTIONS>是否伴有剧烈头痛？|是否曾出现短暂意识丧失？|是否经常忘记近期发生的事？</OPTIONS>`;
           }
@@ -124,6 +148,9 @@ export const sendMessageToAI = async (session: MockChatSession, message: string,
           }
       }
   }
+
+  // 风险分值截断 (5-95)
+  session.estimatedRisk = Math.min(95, Math.max(5, session.estimatedRisk));
 
   session.history.push(`User: ${msg}`);
   session.history.push(`AI: ${sanitizeTerminology(response)}`);
