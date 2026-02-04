@@ -12,19 +12,47 @@ export enum DiseaseType {
 }
 
 export enum RiskLevel {
-  LOW = 'LOW', // Green
-  MODERATE = 'MODERATE', // Yellow
-  HIGH = 'HIGH', // Red
+  LOW = 'LOW', // 绿色
+  MODERATE = 'MODERATE', // 黄色
+  HIGH = 'HIGH', // 红色
 }
+
+// 具体权益标识符
+export type FeatureKey = 
+  | 'ICE_BREAKING_MIGRAINE'  // 1元破冰：偏头痛处方
+  | 'VIP_MIGRAINE'           // 偏头痛年卡
+  | 'VIP_EPILEPSY'           // 癫痫年卡
+  | 'VIP_COGNITIVE';         // 认知障碍年卡
 
 export interface User {
   id: string;
   name: string;
   phone: string;
   role: UserRole;
-  avatar?: string;
-  vipLevel: number; 
-  activeServices: ('MIGRAINE_VIP' | 'EPILEPSY_VIP' | 'COGNITIVE_VIP')[]; // Active subscriptions
+  vipLevel: number; // 0: 普通, 1: 会员
+  unlockedFeatures: FeatureKey[]; // 已解锁的原子权益列表
+  hasHardware: boolean; // 是否绑定了HaaS设备
+}
+
+// 转诊数据实体
+export interface ReferralData {
+  hospitalName: string;
+  distance: string;
+  address: string;
+  recommends: string[]; // 建议检查项，如 "3.0T MRI"
+  qrCodeValue: string; // 唯一就诊码
+}
+
+// 商业化服务包定义
+export interface ServicePackage {
+  id: string;
+  featureKey: FeatureKey; // 对应的权益Key
+  title: string;
+  price: number;
+  originalPrice?: number;
+  duration: string;
+  features: string[];
+  medicalValue: string; // 医疗价值主张
 }
 
 export interface ChatMessage {
@@ -36,91 +64,26 @@ export interface ChatMessage {
   suggestedOptions?: string[]; 
 }
 
-export interface AssessmentResult {
+// 临床记录实体
+export interface MedLog {
   id: string;
-  diseaseType: DiseaseType;
-  score: number;
-  riskLevel: RiskLevel;
-  date: string;
-  hospitalRecommendation?: {
-    name: string;
-    distance: string;
-    level: string; 
-  };
-}
-
-// --- Medical Records Types ---
-
-// Cognitive Training
-export interface TrainingRecord {
-  id: string;
-  gameId: 'memory' | 'attention';
-  score: number;
-  date: string; // ISO date
-  metrics: {
-    reactionTime?: number; // ms
-    accuracy?: number; // %
-  };
-}
-
-// Headache Diary (Clinical Standard)
-export interface HeadacheLog {
-  id: string;
-  startTime: string;
-  durationHours: number;
-  painLevel: number; // VAS 0-10
-  nature: string[]; // 性质：跳痛、胀痛等
-  triggers: string[];
-  medication: string; // 止痛药名称
-  medicationEffect: 'effective' | 'partial' | 'ineffective' | 'none';
-}
-
-// Epilepsy Care (Clinical Standard)
-export interface SeizureLog {
-  id: string;
-  timestamp: string;
-  durationSeconds: number;
-  type: 'generalized' | 'focal' | 'unknown'; // 强直阵挛、局灶性等
-  symptoms: string[]; // 抽搐、意识丧失、口吐白沫
-  postIctal: string[]; // 发作后状态：头痛、嗜睡
-}
-
-export interface MedicationTask {
-  id: string;
-  name: string;
+  timestamp: number;
+  drugName: string;
   dosage: string;
-  time: string; // "08:00"
-  taken: boolean;
-  takenTime?: string;
+  painLevel: number; // VAS 0-10
+  nature: string[]; // 疼痛性质
+  symptoms: string[]; // 伴随症状
 }
 
-export interface FamilyMember {
-  id: string;
-  name: string;
-  relation: string;
-  age: number;
-  condition: string;
-  lastUpdate: string;
-  deviceStatus?: 'offline' | 'online' | 'charging' | 'sos';
-  alertSettings?: {
-    lowBattery: boolean;
-    seizureDetected: boolean;
-    deviceOffline: boolean;
-  };
+export interface Prescription {
+  doctor: string;
+  hospital: string;
+  validUntil: string;
+  preventative: string;
+  acute: string;
 }
 
-// Device Status for HaaS
-export interface DeviceInfo {
-  id: string;
-  status: 'unbound' | 'shipping' | 'active';
-  battery: number;
-  lastSync: string;
-  model: string;
-  signalStrength?: 'weak' | 'moderate' | 'strong'; 
-  syncFrequency?: string; 
-  activeAlerts?: string[]; 
-  wearingQuality?: number; // 0-100
-}
-
-// Added specific health module views
-export type AppView = 'login' | 'home' | 'chat' | 'payment' | 'assessment' | 'report' | 'profile' | 'service-cognitive' | 'service-epilepsy' | 'service-headache' | 'service-family' | 'service-mall' | 'haas-checkout';
+export type AppView = 
+  | 'login' | 'home' | 'chat' | 'payment' | 'assessment' | 'report' | 'profile' 
+  | 'service-cognitive' | 'service-epilepsy' | 'service-headache' 
+  | 'service-family' | 'service-mall' | 'haas-checkout';

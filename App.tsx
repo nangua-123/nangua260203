@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, AppView, DiseaseType } from './types';
 
@@ -19,7 +18,8 @@ const INITIAL_USER: User = {
   phone: '13900000000',
   role: UserRole.PATIENT,
   vipLevel: 0,
-  activeServices: []
+  unlockedFeatures: [],
+  hasHardware: false
 };
 
 // --- Profile View Component (Refined) ---

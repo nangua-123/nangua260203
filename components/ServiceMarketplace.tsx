@@ -14,6 +14,7 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
   const [step, setStep] = useState<'confirm' | 'form' | 'success'>('confirm');
   const [isFamilyPay, setIsFamilyPay] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isDataSynced, setIsDataSynced] = useState(false);
   
   // 表单状态
   const [formData, setFormData] = useState({
@@ -27,6 +28,7 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
     setTimeout(() => {
       setIsProcessing(false);
       setStep('success');
+      setIsDataSynced(true); // 模拟数据下发
     }, 2000);
   };
 
@@ -52,11 +54,11 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
           <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">租赁申请已提交</h2>
           <p className="text-slate-500 text-sm font-bold mb-8 uppercase tracking-widest">看护模式已开启 · 顺丰速运待揽件</p>
           
-          {isFamilyPay && (
+          {isDataSynced && (
             <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 w-full mb-8 text-center animate-slide-up" style={{animationDelay: '0.2s'}}>
-              <span className="text-2xl mb-2 block">👨‍👩‍👧</span>
-              <div className="text-brand-700 font-black text-sm">亲情账号关联成功</div>
-              <div className="text-brand-600/70 text-[10px] font-bold mt-1">异常报警将同步推送至您的手机</div>
+              <span className="text-2xl mb-2 block">📡</span>
+              <div className="text-brand-700 font-black text-sm">亲情数据同步指令已下发</div>
+              <div className="text-brand-600/70 text-[10px] font-bold mt-1">设备激活后数据将实时传输至家属端</div>
             </div>
           )}
 

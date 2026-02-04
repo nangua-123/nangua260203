@@ -16,12 +16,6 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
   
   // Use passed risk score or default to safe if 0
   const displayScore = riskScore > 0 ? riskScore : 95;
-  const isHighRisk = displayScore < 60 || riskScore > 80; // Assuming specific logic: if using "RiskScore" as 0-100 risk probability
-  // Correction: Let's assume input is "Health Score". 
-  // If we assume input is "Risk Score" (from Triage): Higher is worse.
-  // If we assume input is "Health Score" (default): Higher is better.
-  // Let's standardise: If it came from Triage (85%), it's Risk. If it's default (0), we show Health 95.
-  
   const finalHealthScore = riskScore > 0 ? (100 - riskScore) : 95;
   
   const getRiskStatus = (score: number) => {
@@ -31,6 +25,10 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
   };
 
   const status = getRiskStatus(finalHealthScore);
+  
+  // 模拟：如果总分低于 60 (即风险分 > 40)，或者强制为了演示效果设定阈值
+  // 此处逻辑：riskScore 代表风险值(0-100)，>60 为高危
+  const isHeadacheCritical = riskScore > 60;
 
   useEffect(() => {
     let tick = 0;
@@ -129,13 +127,16 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
                   <span className="text-[8px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">未连接</span>
               )}
             </div>
-            <div className="h-[60px] bg-slate-50 rounded-xl flex items-center justify-center overflow-hidden border border-slate-100">
+            <div className="h-[60px] bg-slate-50 rounded-xl flex items-center justify-center overflow-hidden border border-slate-100 relative">
                {hasDevice ? (
                  <svg width="100%" height="40" viewBox="0 0 160 40">
                     <path d={wavePath} fill="none" stroke="#10B981" strokeWidth="2" strokeLinecap="round" />
                  </svg>
                ) : (
-                 <span className="text-[9px] text-slate-400">点击租赁设备</span>
+                 <div className="flex flex-col items-center">
+                    <span className="text-[9px] text-amber-500 font-black">上次发作: 3天前</span>
+                    <span className="text-[8px] text-slate-400 mt-1">点击查看日志</span>
+                 </div>
                )}
             </div>
             <p className="text-[9px] text-slate-400 mt-3 font-medium">
@@ -165,25 +166,68 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
             <p className="text-[9px] text-slate-400 mt-2 font-medium">累计康复 125 天</p>
           </div>
 
-          {/* 偏头痛卡片 */}
+          {/* 偏头痛卡片 (重构：支持 Normal/Critical 态) */}
           <div 
             onClick={() => onNavigate('service-headache')}
-            className="bg-white rounded-2xl p-4 shadow-card border border-slate-50 flex flex-col active:scale-[0.97] transition-all"
+            className={`rounded-2xl p-4 shadow-card border flex flex-col active:scale-[0.97] transition-all relative overflow-hidden ${
+                isHeadacheCritical 
+                ? 'bg-rose-50 border-rose-200' 
+                : 'bg-white border-slate-50'
+            }`}
           >
-            <h5 className="text-[12px] font-black text-slate-800 mb-3">诱因雷达 (头痛)</h5>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-[9px] text-slate-400">气压状态</span>
-                <span className="text-[9px] font-black text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded">稳定</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[9px] text-slate-400">生理期</span>
-                <span className="text-[9px] font-black text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded">安全期</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[9px] text-slate-400">诱因暴露</span>
-                <span className="text-[9px] font-black text-amber-500 bg-amber-50 px-1.5 py-0.5 rounded">低风险</span>
-              </div>
+            {/* Critical State Alert Light */}
+            {isHeadacheCritical && (
+                <div className="absolute top-0 right-0 w-24 h-24 bg-rose-500/10 rounded-full blur-2xl -translate-y-8 translate-x-8 animate-pulse"></div>
+            )}
+
+            <div className="flex justify-between items-start mb-2 relative z-10">
+                <h5 className={`text-[12px] font-black ${isHeadacheCritical ? 'text-rose-900' : 'text-slate-800'}`}>诱因雷达 (头痛)</h5>
+                {isHeadacheCritical ? (
+                    <span className="text-[14px] animate-bounce">⚠️</span>
+                ) : (
+                    <span className="text-[8px] font-bold text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">监测中</span>
+                )}
+            </div>
+
+            <div className="flex-1 flex flex-col justify-center relative z-10">
+                {isHeadacheCritical ? (
+                    // Critical Content
+                    <div className="space-y-2">
+                        <div>
+                             <div className="text-[10px] text-rose-600 font-bold mb-0.5">检测到高危诱因</div>
+                             <div className="text-[13px] text-rose-800 font-black tracking-tight">气压突变 (↓5hPa)</div>
+                        </div>
+                        
+                        {/* 一键对策按钮 */}
+                        <button 
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onNavigate('service-headache');
+                            }}
+                            className="bg-rose-500 hover:bg-rose-600 text-white text-[10px] font-bold w-full py-2 rounded-lg shadow-lg shadow-rose-500/20 flex items-center justify-center gap-1 active:scale-95 transition-all"
+                        >
+                            <span>⚡ 看对策</span>
+                            <span className="bg-white/20 px-1 rounded text-[8px]">SOS</span>
+                        </button>
+                    </div>
+                ) : (
+                    // Normal Content
+                    <div className="space-y-3">
+                        <div>
+                            <div className="flex justify-between items-end mb-1">
+                                <span className="text-[9px] text-slate-400 font-bold">诱因风险</span>
+                                <span className="text-[11px] font-black text-emerald-500">低</span>
+                            </div>
+                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                <div className="bg-emerald-400 h-full w-[20%] rounded-full"></div>
+                            </div>
+                        </div>
+                        <div className="flex justify-between items-center pt-1">
+                            <span className="text-[9px] text-slate-400">气压/睡眠</span>
+                            <span className="text-[9px] font-black text-slate-600">稳定</span>
+                        </div>
+                    </div>
+                )}
             </div>
           </div>
 
