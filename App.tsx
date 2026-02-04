@@ -66,7 +66,7 @@ const ProfileView: React.FC<{ user: User; hasDevice: boolean; onNavigate: (v: Ap
         {/* Dashboard Content */}
         <div className="px-5 -mt-16 relative z-20 space-y-4">
            
-           {/* Elderly Mode Toggle Card (New) */}
+           {/* Elderly Mode Toggle Card */}
            <div onClick={onToggleElderly} className="bg-white rounded-[24px] p-4 shadow-sm border border-slate-50 flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer">
               <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${user.isElderlyMode ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-400'}`}>👓</div>
@@ -111,7 +111,6 @@ const ProfileView: React.FC<{ user: User; hasDevice: boolean; onNavigate: (v: Ap
                 { label: '我的健康报告', icon: '📄', action: () => onNavigate('report') },
                 { label: '亲情账号管理', icon: '👨‍👩‍👧', action: () => onNavigate('service-family') },
                 { label: '服务订单中心', icon: '📦', action: () => onNavigate('service-mall') },
-                { label: '清除本地缓存', icon: '🗑️', action: onClearCache }
               ].map((item, i) => (
                  <button key={i} onClick={item.action} className="w-full flex items-center justify-between p-4 hover:bg-slate-50 rounded-2xl transition-colors group">
                     <div className="flex items-center gap-3">
@@ -121,6 +120,31 @@ const ProfileView: React.FC<{ user: User; hasDevice: boolean; onNavigate: (v: Ap
                     <span className="text-slate-300 text-lg">›</span>
                  </button>
               ))}
+              
+              {/* Privacy & Settings (New) */}
+              <div className="border-t border-slate-100 mx-4 my-2"></div>
+              
+              <button onClick={() => window.alert("隐私权限设置面板")} className="w-full flex items-center justify-between p-4 hover:bg-slate-50 rounded-2xl transition-colors group">
+                  <div className="flex items-center gap-3">
+                      <span className="text-lg group-hover:scale-110 transition-transform duration-300">🛡️</span>
+                      <div className="text-left">
+                          <div className="text-[13px] font-bold text-slate-700">隐私与授权管理</div>
+                          <div className="text-[9px] text-slate-400">管理敏感医疗数据共享权限</div>
+                      </div>
+                  </div>
+                  <span className="text-slate-300 text-lg">›</span>
+              </button>
+              
+              <button onClick={onClearCache} className="w-full flex items-center justify-between p-4 hover:bg-rose-50 rounded-2xl transition-colors group text-rose-500">
+                  <div className="flex items-center gap-3">
+                      <span className="text-lg group-hover:scale-110 transition-transform duration-300">🗑️</span>
+                      <span className="text-[13px] font-bold">清除本地缓存</span>
+                  </div>
+              </button>
+           </div>
+           
+           <div className="text-center py-4 opacity-30">
+               <p className="text-[9px] text-slate-500">Neuro-Link v1.2.0 · 华西数字健康中心</p>
            </div>
         </div>
       </div>

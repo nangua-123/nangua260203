@@ -49,7 +49,7 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
     doctor: "王德强 教授",
     title: "主任医师",
     hospital: "四川大学华西医院",
-    validUntil: "2024.12.31", // [COMPLIANCE] 故意设置一个可能过期的日期来测试逻辑，实际应动态生成
+    validUntil: "2024.12.31", 
     preventative: { 
         name: "盐酸氟桂利嗪胶囊", 
         dosage: "5mg / 晚1次 (华西标准)", 
@@ -63,14 +63,15 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
   };
 
   // [COMPLIANCE] 合规校验逻辑
-  // 1. 有效期校验 (模拟：假设处方有效期为生成后7天，此处简化为对比字符串日期)
   const isExpired = new Date(prescription.validUntil).getTime() < Date.now();
-  // 2. 医师资质校验
   const isAuthorized = AUTHORIZED_DOCTORS.includes(prescription.doctor);
-  
-  // 如果处方不合规，强制锁定或显示警告
   const isInvalid = isExpired || !isAuthorized;
 
+  // [Safety] MOH 药物过度使用预警逻辑
+  // 规则升级：压力指数 > 80 或 生理周期影响 > 70 均视为高危诱发频繁用药场景
+  const isStressRisk = (factors?.stress || 0) > 80;
+  const isCycleRisk = (factors?.cycle || 0) > 70;
+  const isMOHRisk = isStressRisk || isCycleRisk;
 
   // 基础生活方式建议库
   const lifestyleLibrary: LifestyleItem[] = [
@@ -149,6 +150,26 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
                     </div>
                 </div>
             </div>
+
+            {/* [Safety] MOH Warning Banner (Enhanced) */}
+            {isUnlocked && isMOHRisk && (
+                <div className="bg-amber-50 p-4 border-b border-amber-100 flex flex-col gap-2 animate-pulse rounded-t-[24px] -mt-2 relative z-10">
+                    <div className="flex items-center gap-2">
+                        <span className="text-amber-600 text-lg">⚠️</span>
+                        <div>
+                             <h4 className="text-xs font-black text-amber-800">MOH 药物过度使用预警</h4>
+                             <p className="text-[10px] text-amber-700 font-bold">
+                                 监测到{isStressRisk ? '压力指数' : '生理周期诱因'}处于高位，警惕药物依赖。
+                             </p>
+                        </div>
+                    </div>
+                    <div className="bg-white/60 p-2.5 rounded-lg text-[10px] text-amber-900 leading-relaxed font-medium space-y-1">
+                        <p>1. <span className="font-bold text-amber-700">限制频率：</span>单纯止痛药每月 &lt; 15 天。</p>
+                        <p>2. <span className="font-bold text-amber-700">严格控量：</span>曲普坦/复合制剂每月 &lt; 10 天。</p>
+                        <p>3. <span className="font-bold text-amber-700">避免混用：</span>请勿同时服用咖啡因类止痛药。</p>
+                    </div>
+                </div>
+            )}
 
             {/* Content Section (Drug Info) */}
             <div className="p-6 space-y-6">

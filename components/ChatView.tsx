@@ -25,21 +25,18 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
   const [latestOptions, setLatestOptions] = useState<string[]>([]);
   const [apiError, setApiError] = useState(false);
   
-  // Progress & Feedback (PRD Req: "问诊进度3/5")
+  // Progress & Feedback (Dynamic)
   const [currentStep, setCurrentStep] = useState(0);
-  const [totalSteps] = useState(5); 
+  const [totalSteps, setTotalSteps] = useState(5); // Default, updated by AI session
   const [showFeedbackToast, setShowFeedbackToast] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState('');
 
-  // Assessment Offer State
+  // Assessment Offer State (Soft Offer)
   const [showAssessmentOffer, setShowAssessmentOffer] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
   
   const chatSessionRef = useRef<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  // --- Context Caching Logic ---
-  const STORAGE_KEY = 'huaxi_chat_history_unified_v4';
 
   useEffect(() => {
     loadHistory();
@@ -54,6 +51,8 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
     setCurrentStep(0);
 
     chatSessionRef.current = createChatSession("系统初始化", DiseaseType.UNKNOWN);
+    // 更新动态步数
+    setTotalSteps(chatSessionRef.current.totalSteps || 5);
     // 直接开始分诊，AI 主动接诊
     handleSend("开始分诊", true);
   };
@@ -104,8 +103,8 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
         currentMsgs = [...messages, newMsg];
         setMessages(currentMsgs);
         
-        // PRD Req: "信息已提交，正在分析"
-        setFeedbackMsg("信息已提交，正在分析");
+        // PRD Req: "信息已提交，正在分析" -> 3s auto close
+        setFeedbackMsg("信息已提交，正在分析...");
         setShowFeedbackToast(true);
     }
     
@@ -121,8 +120,11 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
           setActiveDisease(chatSessionRef.current.diseaseType);
       }
       
-      // Update step for Progress Bar
+      // Update dynamic steps
       setCurrentStep(chatSessionRef.current.step);
+      if (chatSessionRef.current.totalSteps) {
+          setTotalSteps(chatSessionRef.current.totalSteps);
+      }
 
       const { cleanText, options, triggerOffer } = parseResponse(rawResponse);
       
@@ -152,27 +154,20 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
 
   // --- Handlers ---
   const handleUnlockAssessment = () => {
-      // 点击付费，弹出支付框
       setShowPayModal(true);
   };
 
   const handleAssessmentPaid = () => {
       // 支付成功，跳转到测评页
-      // 使用 window event 通知 App.tsx 跳转
       const event = new CustomEvent('navigate-to', { detail: 'assessment' });
       window.dispatchEvent(event);
   };
 
   const handleSkip = () => {
-      // PRD Req: "用户若不购买该深度测评，可正常享受线上基础免费功能"
-      // 这里跳过测评，直接去首页或简单的基础报告
-      // 我们设定 riskScore = 0 (表示未测评/基础) 并跳转首页
+      // [Compliance] 用户自愿选择免费基础服务
       dispatch({ type: 'SET_RISK_SCORE', payload: { score: 0, type: activeDisease } });
-      const event = new CustomEvent('navigate-to', { detail: 'home' });
+      const event = new CustomEvent('navigate-to', { detail: 'report' }); // 直接看基础报告，不回首页
       window.dispatchEvent(event);
-      
-      // 可以加个 Toast 提示进入基础模式
-      setTimeout(() => alert("已为您开启基础免费服务模式"), 500);
   };
 
   const getDiseaseLabel = (type: DiseaseType) => {
@@ -192,7 +187,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
     <Layout headerTitle="" showBack={false} hideHeader={true} disableScroll={true}>
       <div className="flex flex-col h-full bg-[#F7F8FA] w-full relative">
         
-        {/* --- 1. Custom Header with Progress Bar (PRD Req) --- */}
+        {/* --- 1. Custom Header with Dynamic Progress Bar --- */}
         <div className="bg-white/95 backdrop-blur-md sticky top-0 z-30 shadow-sm border-b border-slate-100 pt-[env(safe-area-inset-top)]">
             <div className="flex items-center px-2 h-14">
                  <button onClick={onBack} className="w-10 h-10 flex items-center justify-center text-slate-800 active:opacity-60">
@@ -204,12 +199,12 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                      <div className="flex justify-between items-end mb-1.5">
                          <span className="text-[12px] font-bold text-slate-900">{getDiseaseLabel(activeDisease)}</span>
                          <span className="text-[10px] text-brand-600 font-bold">
-                             问诊进度 {Math.min(currentStep, totalSteps)}/{totalSteps} (剩余{Math.max(0, totalSteps - currentStep)}步)
+                             {currentStep >= totalSteps ? '问诊完成' : `进度 ${currentStep}/${totalSteps}`}
                          </span>
                      </div>
                      <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                          <div 
-                            className="bg-brand-500 h-full rounded-full transition-all duration-500 ease-out" 
+                            className={`h-full rounded-full transition-all duration-500 ease-out ${currentStep >= totalSteps ? 'bg-emerald-500' : 'bg-brand-500'}`}
                             style={{ width: `${Math.min((currentStep / totalSteps) * 100, 100)}%` }}
                          ></div>
                      </div>
@@ -218,9 +213,9 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
             </div>
         </div>
 
-        {/* --- Feedback Toast (PRD Req: 3s auto close) --- */}
+        {/* --- Feedback Toast (3s Auto Close) --- */}
         {showFeedbackToast && (
-            <div className="absolute top-28 left-1/2 -translate-x-1/2 z-50 bg-slate-800/90 backdrop-blur text-white px-5 py-2.5 rounded-full shadow-xl flex items-center gap-2 animate-fade-in transition-opacity duration-300">
+            <div className="absolute top-28 left-1/2 -translate-x-1/2 z-50 bg-slate-800/90 backdrop-blur text-white px-5 py-2.5 rounded-full shadow-xl flex items-center gap-2 animate-fade-in transition-opacity duration-300 pointer-events-none">
                 <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>
                 <span className="text-[12px] font-medium">{feedbackMsg}</span>
             </div>
@@ -244,7 +239,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                             {msg.text}
                         </div>
                     </div>
-                    {/* Render Options: Only for the last AI message if offers exist and not showing assessment */}
+                    {/* Render Options: Only if no assessment offer is showing */}
                     {index === messages.length - 1 && msg.role === 'model' && latestOptions.length > 0 && !showAssessmentOffer && (
                         <div className="pl-14 pr-2 space-y-2.5 w-full animate-fade-in">
                             {latestOptions.map((opt, idx) => (
@@ -274,39 +269,43 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                 </div>
             )}
 
-            {/* --- 2. Assessment Offer Card (End of Flow) --- */}
-            {/* PRD Req: "仅在初步信息采集完成页面清晰标注测评入口及费用，尊重用户自主选择" */}
+            {/* --- 2. Assessment Offer Card (Soft Offer) --- */}
+            {/* [Optimization] 非强制弹窗，改为信息流末尾的卡片，提供明确的免费选项 */}
             {showAssessmentOffer && (
-                <div className="bg-gradient-to-b from-brand-50 to-white border border-brand-100 rounded-[24px] p-6 text-center animate-slide-up shadow-xl mx-2 mb-10">
-                    <div className="w-16 h-16 bg-brand-100 rounded-full flex items-center justify-center text-4xl mx-auto mb-4 shadow-inner">
-                        📋
+                <div className="bg-white border border-slate-100 rounded-[24px] p-6 text-center animate-slide-up shadow-lg mx-2 mb-10 overflow-hidden relative">
+                    <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-brand-300 to-brand-600"></div>
+                    <div className="w-14 h-14 bg-brand-50 rounded-full flex items-center justify-center text-3xl mx-auto mb-4 border border-brand-100">
+                        📊
                     </div>
-                    <h3 className="text-lg font-black text-slate-900 mb-2">基础信息采集完毕</h3>
-                    <p className="text-xs text-slate-500 mb-8 leading-relaxed px-4">
-                        为了给您提供精准的医疗分级建议，建议进行华西标准量表深度测评。
+                    <h3 className="text-lg font-black text-slate-900 mb-2">问诊基础采集已完成</h3>
+                    <p className="text-xs text-slate-500 mb-6 leading-relaxed px-2">
+                        您可以选择生成<span className="text-slate-900 font-bold">免费基础报告</span>，或进行深度医疗分级测评。
                     </p>
                     
-                    <div className="space-y-4">
-                        {/* 1元付费入口 */}
+                    <div className="space-y-3">
+                        {/* 1元付费入口 - 视觉强调但非唯一 */}
                         <Button fullWidth onClick={handleUnlockAssessment} className="shadow-lg shadow-brand-500/20 py-4 h-auto flex items-center justify-center gap-2">
-                            <span>开始深度测评</span>
-                            <span className="bg-white/20 text-white text-[10px] px-1.5 py-0.5 rounded">¥1.00</span>
+                            <span className="text-sm">深度分级测评 (含MIDAS量表)</span>
+                            <span className="bg-white/20 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">¥1.00</span>
                         </Button>
 
-                        {/* 免费跳过入口 (PRD Req: "可正常享受线上基础免费功能") */}
-                        <button 
+                        {/* 免费跳过入口 - 按钮形式，而非隐蔽的文字链接 */}
+                        <Button 
+                            fullWidth 
+                            variant="outline" 
                             onClick={handleSkip}
-                            className="text-slate-400 text-xs font-bold underline decoration-slate-300 p-2 hover:text-slate-600 transition-colors"
+                            className="border-slate-200 text-slate-600 bg-slate-50 hover:bg-slate-100 py-3"
                         >
-                            暂不测评，直接享受基础免费服务
-                        </button>
+                            跳过，查看免费基础建议
+                        </Button>
                     </div>
+                    <p className="text-[9px] text-slate-300 mt-4">依据《互联网诊疗监管细则》，您拥有完全的自主选择权</p>
                 </div>
             )}
           </div>
         </div>
 
-        {/* Input Area (Manual Fallback) */}
+        {/* Input Area */}
         {!showAssessmentOffer && !isLoading && latestOptions.length === 0 && (
             <div className="flex-none bg-white border-t border-slate-100 p-3 pb-safe z-20 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
                 <div className="flex items-center gap-3">

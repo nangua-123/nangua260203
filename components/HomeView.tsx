@@ -29,7 +29,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
   const { getRecommendedPackage, hasFeature } = usePayment();
   const [showAlertModal, setShowAlertModal] = useState(false);
   
-  // --- IoT Simulation Logic (设备数据模拟) ---
+  // --- IoT Simulation Logic ---
   const activeProfileId = user.currentProfileId || user.id;
   
   // 获取当前选中 Profile 的设备数据
@@ -38,23 +38,22 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
      return user.familyMembers?.find(m => m.id === activeProfileId)?.iotStats;
   }, [user, activeProfileId]);
 
-  // 获取推荐套餐 (Marketing)
   const recommendedPkg = getRecommendedPackage();
   const isPkgUnlocked = hasFeature(recommendedPkg.featureKey);
 
-  // 计算显示分数与主题色
   const displayScore = riskScore > 0 ? riskScore : 95;
   const finalHealthScore = riskScore > 0 ? (100 - riskScore) : 95;
   const isCritical = finalHealthScore < 60; // 阈值：低于60分为高危
 
-  const themeColor = isCritical ? 'bg-rose-600' : 'bg-[#1677FF]';
+  // [Compliance] 高危或癫痫用户，显示红色主题
+  const isEpilepsy = primaryCondition === DiseaseType.EPILEPSY;
+  const themeColor = isCritical || isEpilepsy ? 'bg-rose-600' : 'bg-[#1677FF]';
 
   // 模拟设备数据流 (Heartbeat)
   useEffect(() => {
     if (!hasDevice) return;
 
     const interval = setInterval(() => {
-        // 随机生成生命体征
         const isAnomaly = Math.random() > 0.9;
         let hr = 75 + Math.floor(Math.random() * 20 - 10);
         if (isAnomaly) hr = Math.random() > 0.5 ? 135 : 55;
@@ -69,13 +68,11 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
             lastUpdated: Date.now()
         };
 
-        // 更新状态
         dispatch({
             type: 'UPDATE_IOT_STATS',
             payload: { id: activeProfileId, stats }
         });
 
-        // 触发异常弹窗 (Simulation)
         if (stats.isAbnormal) {
             setShowAlertModal(true);
             dispatch({
@@ -107,6 +104,27 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
     return () => cancelAnimationFrame(anim);
   }, []);
 
+  // --- SOS Logic ---
+  const handleSOS = () => {
+      // 真实场景调用 navigator.geolocation 和 tel: 协议
+      if (window.confirm("确认呼叫 120 急救中心？\n系统将自动发送您的当前 GPS 定位给紧急联系人。")) {
+          window.location.href = "tel:120";
+      }
+  };
+
+  // --- Manual Record Logic ---
+  const handleManualRecord = () => {
+      const hr = prompt("请输入当前心率 (bpm):", "75");
+      if (hr) {
+          const stats: IoTStats = {
+            hr: parseInt(hr), bpSys: 120, bpDia: 80, spo2: 98,
+            isAbnormal: false, lastUpdated: Date.now()
+          };
+          dispatch({ type: 'UPDATE_IOT_STATS', payload: { id: activeProfileId, stats } });
+          alert("手动录入成功，AI 已更新风险评估");
+      }
+  };
+
   // --- Alert Modal (三级熔断预警) ---
   const AlertModal = () => (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-md animate-fade-in">
@@ -127,7 +145,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
               </p>
               
               <div className="space-y-3">
-                  <Button fullWidth className="bg-red-600 hover:bg-red-700 shadow-lg shadow-red-500/40 py-4 h-auto flex flex-col items-center justify-center gap-1" onClick={() => window.alert("模拟拨打 120 急救电话")}>
+                  <Button fullWidth className="bg-red-600 hover:bg-red-700 shadow-lg shadow-red-500/40 py-4 h-auto flex flex-col items-center justify-center gap-1" onClick={() => window.location.href = "tel:120"}>
                       <span className="text-base font-black">📞 一键拨打 120</span>
                       <span className="text-[10px] opacity-80 font-normal">系统将自动播报患者位置</span>
                   </Button>
@@ -148,14 +166,12 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
   );
 
   return (
-    <div className="bg-[#F5F5F5] min-h-screen flex flex-col max-w-[430px] mx-auto overflow-x-hidden pb-safe select-none">
+    <div className="bg-[#F5F5F5] min-h-screen flex flex-col max-w-[430px] mx-auto overflow-x-hidden pb-safe select-none relative">
       
-      {/* 1. 沉浸式顶栏 (Immersion Header) */}
+      {/* 1. 沉浸式顶栏 */}
       <div className={`${themeColor} pt-[calc(1rem+env(safe-area-inset-top))] pb-16 px-5 transition-colors duration-500 relative`}>
-        {/* 背景纹理 */}
         <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 100% 0%, white 10%, transparent 20%)' }}></div>
         
-        {/* User Info Row */}
         <div className="flex justify-between items-start relative z-10 mb-6">
             <div className="flex items-center gap-3" onClick={() => onNavigate('profile')}>
                 <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white border border-white/30 text-lg shadow-sm">
@@ -173,7 +189,6 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
                 </div>
             </div>
             
-            {/* Risk Ring (健康分圆环) */}
             <div className="relative w-14 h-14 flex items-center justify-center">
                 <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
                     <circle cx="50" cy="50" r="44" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="6" />
@@ -192,7 +207,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
         </div>
       </div>
 
-      {/* 2. 金刚区 (King Kong District) */}
+      {/* 2. 金刚区 */}
       <div className="px-3 -mt-10 relative z-20 mb-2">
           <div className="bg-white rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.05)] p-4 flex justify-between items-center">
               {[
@@ -211,10 +226,9 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
           </div>
       </div>
 
-      {/* 3. 核心业务流 (Main Feed) */}
+      {/* 3. 核心业务流 */}
       <div className="px-3 space-y-3 pb-24">
         
-        {/* 高风险提示条 (Critical Alert) */}
         {isCritical && (
             <div onClick={() => onNavigate('report')} className="bg-rose-50 border border-rose-100 rounded-xl p-3 flex items-center gap-3 animate-pulse">
                 <div className="w-8 h-8 bg-rose-100 rounded-full flex items-center justify-center text-rose-600 font-bold">!</div>
@@ -226,7 +240,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
             </div>
         )}
 
-        {/* 智能推荐卡片 (Marketing Placement) */}
+        {/* 智能推荐卡片 */}
         {!isPkgUnlocked && (
             <div className="bg-white rounded-xl p-4 shadow-sm relative overflow-hidden group" onClick={() => onNavigate('service-mall')}>
                 <div className="absolute top-0 right-0 w-24 h-24 bg-amber-50 rounded-full blur-2xl -translate-y-8 translate-x-8"></div>
@@ -244,9 +258,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
             </div>
         )}
 
-        {/* 专病管理卡片组 (Disease Modules) */}
         <div className="grid grid-cols-2 gap-3">
-            {/* 左列：癫痫监控 */}
             <div onClick={() => onNavigate('service-epilepsy')} className="bg-white rounded-xl p-4 shadow-sm flex flex-col justify-between min-h-[140px] border border-slate-50 active:scale-[0.98] transition-transform">
                 <div>
                     <div className="flex justify-between items-start mb-2">
@@ -263,7 +275,6 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
                 </div>
             </div>
 
-            {/* 右列：包含 头痛 和 认知 两个小卡 */}
             <div className="flex flex-col gap-3">
                 <div onClick={() => onNavigate('service-headache')} className="bg-white rounded-xl p-3 shadow-sm flex items-center gap-3 border border-slate-50 active:scale-[0.98] transition-transform flex-1">
                     <div className="w-8 h-8 rounded-full bg-sky-50 flex items-center justify-center text-sky-500 text-lg">⚡</div>
@@ -282,9 +293,9 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
             </div>
         </div>
 
-        {/* 底部设备栏 (Device Status Card) */}
-        <div onClick={() => onNavigate(hasDevice ? 'profile' : 'haas-checkout')} className="bg-white rounded-xl p-4 shadow-sm border border-slate-50 flex items-center justify-between active:scale-[0.98] transition-transform">
-            <div className="flex items-center gap-3">
+        {/* [Optimization] 设备状态与手动录入降级交互 */}
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-50 flex items-center justify-between">
+            <div className="flex items-center gap-3" onClick={() => onNavigate(hasDevice ? 'profile' : 'haas-checkout')}>
                 <div className="w-10 h-10 rounded-lg bg-slate-50 flex items-center justify-center text-2xl">⌚</div>
                 <div>
                     <h4 className="text-[12px] font-black text-slate-800">我的智能装备</h4>
@@ -298,10 +309,39 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
                     )}
                 </div>
             </div>
-            {!hasDevice && <span className="text-[11px] font-bold text-[#1677FF]">去申请 ›</span>}
+            {!hasDevice && (
+                <button 
+                    onClick={(e) => { e.stopPropagation(); handleManualRecord(); }}
+                    className="text-[10px] font-bold text-[#1677FF] bg-blue-50 px-3 py-1.5 rounded-full active:scale-95"
+                >
+                    📝 手动录入
+                </button>
+            )}
+        </div>
+
+        {/* [Compliance] 医疗免责声明 */}
+        <div className="text-center px-4 pt-4 opacity-50">
+            <p className="text-[9px] text-slate-400 leading-tight">
+                医疗声明：本应用基于 AI 算法提供辅助建议，不能替代线下医疗诊断。<br/>
+                如遇紧急医疗状况，请立即拨打 120 急救电话。
+            </p>
+            <div className="flex justify-center gap-4 mt-2">
+                <span className="text-[9px] text-slate-300 underline" onClick={() => onNavigate('profile')}>隐私协议</span>
+                <span className="text-[9px] text-slate-300 underline" onClick={() => onNavigate('profile')}>数据授权</span>
+            </div>
         </div>
 
       </div>
+
+      {/* [Safety] SOS 悬浮球 (仅高危/癫痫用户) */}
+      {(isEpilepsy || isCritical) && (
+          <button 
+            onClick={handleSOS}
+            className="fixed right-5 bottom-24 w-14 h-14 bg-red-600 rounded-full shadow-lg shadow-red-600/40 flex items-center justify-center text-2xl z-40 active:scale-90 transition-transform animate-pulse"
+          >
+            🆘
+          </button>
+      )}
 
       {showAlertModal && <AlertModal />}
     </div>

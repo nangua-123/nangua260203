@@ -5,6 +5,76 @@ import { useApp } from '../context/AppContext';
 import { generateCognitiveAssessment } from '../services/geminiService';
 import { CognitiveStats } from '../types';
 
+// --- Audio Helper for Cognitive Stimulation (Web Audio API) ---
+// 声音刺激是认知康复的重要一环，有助于强化多感官记忆回路
+const playSound = (type: 'correct' | 'wrong' | 'levelUp' | 'complete' | 'click') => {
+    try {
+        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioContext) return;
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        
+        gain.connect(ctx.destination);
+        const now = ctx.currentTime;
+        
+        switch (type) {
+            case 'click':
+                osc.frequency.setValueAtTime(400, now);
+                osc.frequency.exponentialRampToValueAtTime(200, now + 0.05);
+                gain.gain.setValueAtTime(0.05, now);
+                gain.gain.linearRampToValueAtTime(0.001, now + 0.05);
+                osc.start(now);
+                osc.stop(now + 0.05);
+                break;
+            case 'correct':
+                // 愉悦的高频正弦波
+                osc.frequency.setValueAtTime(660, now);
+                osc.frequency.exponentialRampToValueAtTime(880, now + 0.1);
+                gain.gain.setValueAtTime(0.08, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+                osc.start(now);
+                osc.stop(now + 0.15);
+                break;
+            case 'wrong':
+                // 低频锯齿波，提示错误
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.linearRampToValueAtTime(100, now + 0.2);
+                gain.gain.setValueAtTime(0.08, now);
+                gain.gain.linearRampToValueAtTime(0.001, now + 0.2);
+                osc.start(now);
+                osc.stop(now + 0.2);
+                break;
+            case 'levelUp':
+                // 升级音效三连音
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(440, now);
+                osc.frequency.setValueAtTime(554, now + 0.1);
+                osc.frequency.setValueAtTime(659, now + 0.2);
+                gain.gain.setValueAtTime(0.08, now);
+                gain.gain.linearRampToValueAtTime(0.001, now + 0.4);
+                osc.start(now);
+                osc.stop(now + 0.4);
+                break;
+            case 'complete':
+                 // 胜利和弦
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(523.25, now);
+                osc.frequency.setValueAtTime(659.25, now + 0.15);
+                osc.frequency.setValueAtTime(783.99, now + 0.3);
+                osc.frequency.setValueAtTime(1046.50, now + 0.45);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 2);
+                osc.start(now);
+                osc.stop(now + 2);
+                break;
+        }
+    } catch (e) {
+        console.error("Audio playback failed", e);
+    }
+};
+
 /** 
  * 认知训练控制台 (Dashboard)
  * 负责展示进度、统计数据及智能推荐
@@ -104,6 +174,8 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
         newTargets.add(Math.floor(Math.random() * (size * size)));
       }
       setTargets(Array.from(newTargets));
+      
+      if (level > 1) playSound('levelUp');
 
       // 预览模式持续 1.5 秒后开始
       const timer = setTimeout(() => {
@@ -115,11 +187,13 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
 
   const handleTileClick = (index: number) => {
     if (gameState !== 'playing') return;
+    playSound('click');
 
     if (targets.includes(index)) {
       if (!userSelection.includes(index)) {
         const newSelection = [...userSelection, index];
         setUserSelection(newSelection);
+        playSound('correct');
         
         // 本关完成
         if (newSelection.length === targets.length) {
@@ -133,12 +207,12 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
       }
     } else {
       // 点击错误，扣除生命
+      playSound('wrong');
       if (lives > 1) {
         setLives(l => l - 1);
       } else {
         // 游戏结束，进入结算
         setGameState('result');
-        // 注意：这里不直接调用 onComplete 关闭游戏，而是展示 GameResult
       }
     }
   };
@@ -206,6 +280,11 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
 /** 
  * 游戏 2: 舒尔特方格 (Attention / Schulte Grid)
  * 锻炼注意力集中与视觉搜索速度
+ * 
+ * [Optimization] 针对 AD 患者的特殊优化：
+ * 1. 智能提示：长时间未操作自动高亮下一目标。
+ * 2. 错误反馈：点击错误时震动/变色。
+ * 3. 顶部指引：常驻显示“当前目标”，降低认知负荷。
  */
 interface AttentionGameProps {
   onComplete: (score: number, metrics: number) => void;
@@ -219,7 +298,22 @@ export const AttentionGame: React.FC<AttentionGameProps> = ({ onComplete, onExit
     const [elapsed, setElapsed] = useState(0);
     const [isGameOver, setIsGameOver] = useState(false);
     
+    // Hint System
+    const [hintTarget, setHintTarget] = useState<number | null>(null);
+    const [shakeTarget, setShakeTarget] = useState<number | null>(null);
+    const hintTimerRef = useRef<any>(null);
     const timerRef = useRef<any>(null);
+
+    // 重置提示计时器 (AD 抗挫败机制)
+    const resetHintTimer = (next: number) => {
+        if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
+        setHintTarget(null);
+        
+        // 5秒无操作，触发提示
+        hintTimerRef.current = setTimeout(() => {
+            setHintTarget(next);
+        }, 5000);
+    };
 
     // 初始化打乱数字
     useEffect(() => {
@@ -230,10 +324,15 @@ export const AttentionGame: React.FC<AttentionGameProps> = ({ onComplete, onExit
         }
         setNumbers(nums);
         setStartTime(Date.now());
-        return () => clearInterval(timerRef.current);
+        resetHintTimer(1);
+        
+        return () => {
+            clearInterval(timerRef.current);
+            clearTimeout(hintTimerRef.current);
+        };
     }, []);
 
-    // 计时器
+    // 游戏主计时器
     useEffect(() => {
         if (startTime > 0 && !isGameOver) {
              timerRef.current = setInterval(() => {
@@ -245,21 +344,31 @@ export const AttentionGame: React.FC<AttentionGameProps> = ({ onComplete, onExit
 
     const handleTap = (num: number) => {
         if (num === nextNum) {
+            // Correct
+            playSound('correct');
             if (num === 16) {
-                // 完成所有数字
                 setIsGameOver(true);
+                playSound('complete');
                 clearInterval(timerRef.current);
+                clearTimeout(hintTimerRef.current);
             } else {
-                setNextNum(n => n + 1);
+                const next = nextNum + 1;
+                setNextNum(next);
+                resetHintTimer(next);
             }
+        } else {
+            // Wrong
+            playSound('wrong');
+            setShakeTarget(num);
+            setTimeout(() => setShakeTarget(null), 400); // 震动动画持续时间
         }
     };
 
     if (isGameOver) {
         const finalTime = Date.now() - startTime;
         const seconds = finalTime / 1000;
-        // 计算得分：基准 20秒，每快1秒加分
-        const calculatedScore = Math.max(10, Math.floor(100 - (seconds - 15) * 5));
+        // 计算得分：基准 25秒，每快1秒加分
+        const calculatedScore = Math.max(10, Math.floor(100 - (seconds - 25) * 4));
         
         return (
             <GameResult 
@@ -273,25 +382,38 @@ export const AttentionGame: React.FC<AttentionGameProps> = ({ onComplete, onExit
 
     return (
         <div className="flex flex-col h-screen bg-slate-50 relative max-w-[430px] mx-auto overflow-hidden animate-fade-in">
-             <div className="p-6 flex justify-between items-center bg-white shadow-soft z-10 pt-[calc(1.5rem+env(safe-area-inset-top))]">
-                 <div className="text-[11px] font-black text-slate-400 uppercase tracking-widest">寻找目标: <span className="text-brand-600 font-black text-2xl ml-2">{nextNum}</span></div>
-                 <div className="font-mono text-xl font-black text-slate-900">{(elapsed/1000).toFixed(1)} 秒</div>
+             {/* 顶部目标指引 - 减轻工作记忆负荷 */}
+             <div className="p-6 flex justify-between items-center bg-white shadow-sm border-b border-slate-100 z-10 pt-[calc(1.5rem+env(safe-area-inset-top))]">
+                 <div className="flex items-center gap-3">
+                     <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">当前目标</div>
+                     <div className="w-10 h-10 bg-brand-500 rounded-lg flex items-center justify-center text-white text-xl font-black shadow-lg shadow-brand-500/30 animate-pulse-fast">
+                        {nextNum}
+                     </div>
+                 </div>
+                 <div className="font-mono text-xl font-black text-slate-900 tabular-nums">
+                    {(elapsed/1000).toFixed(1)} <span className="text-xs text-slate-400">s</span>
+                 </div>
              </div>
 
-             <div className="flex-1 flex items-center justify-center p-6">
+             <div className="flex-1 flex items-center justify-center p-6 bg-[#F8FAFC]">
                  <div className="grid grid-cols-4 gap-3 w-full max-w-sm aspect-square">
                      {numbers.map((num) => {
-                         const isClicked = num < nextNum;
+                         const isFound = num < nextNum;
+                         const isHint = num === hintTarget;
+                         const isShake = num === shakeTarget;
+
+                         // 动态样式计算
+                         let btnClass = "bg-white text-slate-800 border-b-4 border-slate-200 active:border-b-0 active:translate-y-[4px]";
+                         if (isFound) btnClass = "bg-slate-100 text-slate-300 border-none shadow-none scale-95 opacity-50";
+                         else if (isHint) btnClass = "bg-amber-50 text-amber-600 border-b-4 border-amber-200 animate-pulse shadow-[0_0_15px_rgba(245,158,11,0.4)] relative z-10 scale-105";
+                         else if (isShake) btnClass = "bg-red-50 text-red-500 border-b-4 border-red-200 animate-shake";
+
                          return (
                              <button
                                 key={num}
-                                disabled={isClicked}
+                                disabled={isFound}
                                 onClick={() => handleTap(num)}
-                                className={`rounded-2xl text-2xl font-black shadow-sm transition-all active:scale-95 flex items-center justify-center min-h-[70px]
-                                    ${isClicked 
-                                        ? 'bg-slate-100 text-slate-300 border-none shadow-none scale-90' 
-                                        : 'bg-white text-slate-800 border-b-4 border-slate-200 active:border-b-0 active:translate-y-[4px]'}
-                                `}
+                                className={`rounded-2xl text-2xl font-black shadow-sm transition-all duration-200 flex items-center justify-center min-h-[70px] ${btnClass}`}
                              >
                                  {num}
                              </button>
@@ -300,10 +422,23 @@ export const AttentionGame: React.FC<AttentionGameProps> = ({ onComplete, onExit
                  </div>
              </div>
              
-             <div className="p-8 text-center text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] pb-[calc(2.5rem+env(safe-area-inset-bottom))]">
-                 请按从 1 到 16 的顺序点击数字
-                 <br/>
-                 <button onClick={onExit} className="mt-6 text-slate-400 underline decoration-slate-200">退出强化训练</button>
+             {/* 底部操作区 */}
+             <div className="p-8 text-center pb-[calc(2.5rem+env(safe-area-inset-bottom))] bg-white border-t border-slate-50">
+                 <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-4">
+                     请按顺序点击数字 1 - 16
+                 </p>
+                 
+                 {/* 进度条 */}
+                 <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mb-6">
+                     <div 
+                        className="bg-brand-500 h-full rounded-full transition-all duration-300 ease-out"
+                        style={{ width: `${((nextNum - 1) / 16) * 100}%` }}
+                     ></div>
+                 </div>
+
+                 <button onClick={onExit} className="text-slate-400 text-xs font-bold underline decoration-slate-200 active:text-slate-600">
+                     结束训练
+                 </button>
              </div>
         </div>
     );
@@ -392,7 +527,9 @@ const GameResult: React.FC<{ score: number; accuracy: number; type: 'memory' | '
             </p>
         </div>
 
-        <Button fullWidth onClick={onExit} className="py-4 shadow-lg shadow-brand-500/20">保存并返回</Button>
+        <Button fullWidth onClick={() => { playSound('click'); onExit(); }} className="py-4 shadow-lg shadow-brand-500/20">
+            保存并返回
+        </Button>
       </div>
     );
 };
