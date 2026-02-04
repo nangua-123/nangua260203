@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChatMessage } from '../types';
+import { ChatMessage, HeadacheProfile } from '../types';
 import { createChatSession, sendMessageToAI, getTriageAnalysis } from '../services/geminiService';
+import { useApp } from '../context/AppContext';
 import Layout from './Layout';
 
 interface ChatViewProps {
@@ -10,10 +11,14 @@ interface ChatViewProps {
 }
 
 const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
+  const { state, dispatch } = useApp();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalysing, setIsAnalysing] = useState(false);
+  
+  // New State for Archive Animation
+  const [showArchiveGen, setShowArchiveGen] = useState(false);
   
   const [latestOptions, setLatestOptions] = useState<string[]>([]);
   
@@ -120,7 +125,27 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
         try {
             const analysisJson = await getTriageAnalysis(fullHistory);
             const summary = JSON.parse(analysisJson);
-            onPaymentGate(summary);
+            
+            // 触发档案生成动画
+            setShowArchiveGen(true);
+            
+            // 模拟 3秒 的建档过程，然后写入 Context 并跳转
+            setTimeout(() => {
+                if (summary.extractedProfile) {
+                     dispatch({
+                         type: 'UPDATE_PROFILE',
+                         payload: {
+                             id: state.user.id, // 默认更新当前用户，实际逻辑可由 Chat 确定为谁咨询
+                             profile: summary.extractedProfile as HeadacheProfile
+                         }
+                     });
+                }
+                
+                // 跳转
+                onPaymentGate(summary);
+                
+            }, 3000);
+
         } catch (e) {
             console.error("分析失败", e);
             onPaymentGate({ risk: 50, disease: 'UNKNOWN', summary: '建议进一步完善专业量表。' });
@@ -139,7 +164,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
           <div className="space-y-6 pb-4">
             {messages.map((msg, index) => {
                 const isLast = index === messages.length - 1;
-                const showOptions = isLast && msg.role === 'model' && latestOptions.length > 0 && !isLoading && !isAnalysing;
+                const showOptions = isLast && msg.role === 'model' && latestOptions.length > 0 && !isLoading && !isAnalysing && !showArchiveGen;
 
                 return (
                     <div key={msg.id} className="flex flex-col gap-3 animate-slide-up">
@@ -200,7 +225,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
             )}
 
             {/* 系统分析指示器 */}
-            {isAnalysing && (
+            {isAnalysing && !showArchiveGen && (
                 <div className="flex justify-center py-4 animate-fade-in">
                     <div className="bg-brand-50 border border-brand-100 text-brand-700 px-6 py-3 rounded-full shadow-sm flex items-center gap-3 text-sm font-bold">
                         <div className="w-4 h-4 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin"></div>
@@ -210,9 +235,47 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
             )}
           </div>
         </div>
+        
+        {/* --- 档案生成全屏覆盖动画 --- */}
+        {showArchiveGen && (
+            <div className="absolute inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex flex-col items-center justify-center p-8 text-center animate-fade-in">
+                <div className="w-24 h-24 relative mb-8">
+                     {/* 旋转的光环 */}
+                     <div className="absolute inset-0 border-4 border-brand-500/30 rounded-full"></div>
+                     <div className="absolute inset-0 border-4 border-t-brand-500 border-l-brand-500 rounded-full animate-spin"></div>
+                     <div className="absolute inset-4 bg-slate-800 rounded-full flex items-center justify-center border border-white/10 shadow-inner">
+                         <span className="text-3xl">📋</span>
+                     </div>
+                </div>
+                
+                <h3 className="text-2xl font-black text-white mb-2 tracking-tight">华西标准数字档案生成中</h3>
+                <p className="text-brand-300 text-xs font-bold uppercase tracking-[0.2em] animate-pulse">
+                    AI 正在提取临床特征向量...
+                </p>
+                
+                {/* 模拟进度条 */}
+                <div className="w-64 h-1.5 bg-slate-800 rounded-full mt-8 overflow-hidden">
+                    <div className="h-full bg-brand-500 w-full animate-[loading_3s_ease-in-out_forwards] origin-left scale-x-0"></div>
+                </div>
+                
+                {/* 滚动的数据流文字 */}
+                <div className="mt-8 text-[10px] text-slate-500 font-mono space-y-1 opacity-60">
+                    <div className="animate-slide-up" style={{animationDelay:'0.5s'}}>Extracting Symptoms: [跳痛, 畏光]... OK</div>
+                    <div className="animate-slide-up" style={{animationDelay:'1.2s'}}>Mapping ICD-10 Code: G43.0... OK</div>
+                    <div className="animate-slide-up" style={{animationDelay:'2.0s'}}>Encrypting User Profile... OK</div>
+                </div>
+
+                <style>{`
+                    @keyframes loading {
+                        0% { transform: scaleX(0); }
+                        100% { transform: scaleX(1); }
+                    }
+                `}</style>
+            </div>
+        )}
 
         {/* 输入控制区 */}
-        {!isAnalysing && (
+        {!isAnalysing && !showArchiveGen && (
             <div className="flex-none bg-white border-t border-slate-100 p-3 pb-safe z-20 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
                 <div className="flex items-center gap-3">
                     <input

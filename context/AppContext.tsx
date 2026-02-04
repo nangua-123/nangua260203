@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useReducer, ReactNode } from 'react';
-import { User, UserRole, FeatureKey, DiseaseType, ReferralData } from '../types';
+import { User, UserRole, FeatureKey, DiseaseType, ReferralData, HeadacheProfile } from '../types';
 
 // --- State Definition ---
 interface AppState {
@@ -21,6 +21,12 @@ const INITIAL_STATE: AppState = {
     vipLevel: 0,
     unlockedFeatures: [], // 初始无任何权益
     hasHardware: false,
+    // 初始化一些家庭成员用于演示
+    familyMembers: [
+       { id: 'family_001', name: '陈大强', relation: '父亲', avatar: '👨‍🦳' },
+       { id: 'family_002', name: '李淑芬', relation: '母亲', avatar: '👵' }
+    ],
+    currentProfileId: 'user_001'
   },
   riskScore: 0, // 0 表示未评估
   primaryCondition: DiseaseType.MIGRAINE,
@@ -35,7 +41,10 @@ type Action =
   | { type: 'UNLOCK_FEATURE'; payload: FeatureKey }
   | { type: 'BIND_HARDWARE'; payload: boolean }
   | { type: 'SET_LOADING'; payload: boolean }
-  | { type: 'RESET_USER' };
+  | { type: 'RESET_USER' }
+  // 修复类型错误：新增档案相关动作
+  | { type: 'UPDATE_PROFILE'; payload: { id: string; profile: HeadacheProfile } }
+  | { type: 'SWITCH_PATIENT'; payload: string };
 
 // --- Reducer ---
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -77,6 +86,34 @@ const appReducer = (state: AppState, action: Action): AppState => {
       return { ...state, isLoading: action.payload };
     case 'RESET_USER':
       return INITIAL_STATE;
+      
+    // 新增：处理档案更新
+    case 'UPDATE_PROFILE': {
+        const { id, profile } = action.payload;
+        // 如果是更新本人
+        if (state.user.id === id) {
+            return {
+                ...state,
+                user: { ...state.user, headacheProfile: profile }
+            };
+        }
+        // 更新家庭成员
+        const updatedFamily = state.user.familyMembers?.map(m => 
+            m.id === id ? { ...m, headacheProfile: profile } : m
+        ) || [];
+        return {
+            ...state,
+            user: { ...state.user, familyMembers: updatedFamily }
+        };
+    }
+
+    // 新增：切换当前视角
+    case 'SWITCH_PATIENT':
+        return {
+            ...state,
+            user: { ...state.user, currentProfileId: action.payload }
+        };
+        
     default:
       return state;
   }

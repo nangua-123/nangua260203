@@ -5,6 +5,7 @@ import Button from './Button';
 import { usePayment } from '../hooks/usePayment';
 import { useApp } from '../context/AppContext';
 import { VisualMemoryGame, AttentionGame } from './CognitiveGames';
+import { HeadacheProfile } from '../types';
 
 // 引入拆分后的核心业务组件
 import { DigitalPrescription } from './business/headache/DigitalPrescription';
@@ -33,27 +34,47 @@ const TRIGGER_OPTIONS = [
  * 专病子模块: 偏头痛全周期管理
  */
 export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+    const { state, dispatch } = useApp();
     const { PACKAGES, hasFeature } = usePayment();
     const [showVipPay, setShowVipPay] = useState(false);
     const [showReferral, setShowReferral] = useState(false);
     
+    // --- 档案管理状态 ---
+    const [showProfileForm, setShowProfileForm] = useState(false);
+    const [isSwitchingUser, setIsSwitchingUser] = useState(false);
+    const [showProfileDetails, setShowProfileDetails] = useState(false); // 控制 AI 档案详情展开
+
+    // 获取当前展示的患者信息 (自己 or 家属)
+    const activePatient = useMemo(() => {
+        if (!state.user.currentProfileId || state.user.currentProfileId === state.user.id) {
+            return {
+                id: state.user.id,
+                name: state.user.name,
+                relation: '本人',
+                avatar: state.user.name[0],
+                profile: state.user.headacheProfile
+            };
+        }
+        const family = state.user.familyMembers?.find(m => m.id === state.user.currentProfileId);
+        return family ? { ...family, profile: family.headacheProfile } : { 
+            id: 'unknown', name: '未知', relation: '未知', avatar: '?', profile: undefined 
+        };
+    }, [state.user, state.user.currentProfileId]);
+
     // 用户选中的诱因 ID 列表
     const [activeTriggers, setActiveTriggers] = useState<string[]>([]);
 
     // --- 诱因数据模型 (基线数据 + 动态叠加) ---
-    // 0 = 理想状态, 100 = 极高风险
     const baseFactors = {
-        pressure: 65, // 气压波动 (外界不可控)
-        cycle: 20,    // 生理周期 (内源性)
-        sleep: 30,    // 睡眠质量 (基线)
-        diet: 15,     // 饮食刺激 (基线)
-        stress: 40    // 压力指数 (基线)
+        pressure: 65, 
+        cycle: 20,    
+        sleep: 30,    
+        diet: 15,     
+        stress: 40    
     };
 
-    // 动态计算当前的 Factors
     const factors = useMemo(() => {
         const current = { ...baseFactors };
-        
         activeTriggers.forEach(tid => {
             const trigger = TRIGGER_OPTIONS.find(t => t.id === tid);
             if (trigger) {
@@ -62,7 +83,6 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                 if (trigger.impact.stress) current.stress = Math.min(100, current.stress + trigger.impact.stress);
             }
         });
-
         return current;
     }, [activeTriggers]);
 
@@ -75,7 +95,7 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
         { key: 'stress', label: '压力', weight: 0.2 },
     ];
 
-    // --- 核心医学算法：风险评分计算 ---
+    // --- 风险评分计算 ---
     const riskAnalysis = useMemo(() => {
         let totalScore = 0;
         let maxTrigger = { key: '', val: 0, label: '' };
@@ -106,11 +126,8 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
         return { score, maxTrigger, advice, alertLevel };
     }, [factors]);
 
-    // 处理诱因点击
     const toggleTrigger = (id: string) => {
-        setActiveTriggers(prev => 
-            prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
-        );
+        setActiveTriggers(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
     };
 
     // SVG 绘图参数
@@ -118,7 +135,6 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
     const center = size / 2;
     const radius = 90;
     
-    // 生成雷达图路径
     const getPath = (data: typeof factors, scale = 1) => {
         const points = axes.map((axis, i) => {
             const angle = (360 / 5) * i;
@@ -130,7 +146,6 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
         return points.join(' ');
     };
 
-    // 生成背景网格
     const renderGrid = () => {
         return [0.25, 0.5, 0.75, 1.0].map((level, i) => {
             const points = axes.map((_, idx) => {
@@ -144,11 +159,183 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
         });
     };
 
+    // --- 档案表单提交 (Manual) ---
+    const handleProfileSubmit = (formData: any) => {
+        let diagnosis = '无先兆偏头痛';
+        if (formData.familyHistory) diagnosis = '家族性偏头痛';
+        if (formData.frequency === '>15天/月') diagnosis = '慢性偏头痛';
+        
+        const newProfile: HeadacheProfile = {
+            isComplete: true,
+            source: 'USER_INPUT',
+            onsetAge: parseInt(formData.age),
+            frequency: formData.frequency,
+            familyHistory: formData.familyHistory,
+            medicationHistory: formData.meds,
+            diagnosisType: diagnosis,
+            symptomsTags: [], // 手动录入暂时没有 AI tags
+            lastUpdated: Date.now()
+        };
+
+        dispatch({
+            type: 'UPDATE_PROFILE',
+            payload: {
+                id: activePatient.id,
+                profile: newProfile
+            }
+        });
+        setShowProfileForm(false);
+    };
+
     return (
         <Layout headerTitle="偏头痛全周期管理" showBack onBack={onBack}>
             <div className="p-5 space-y-5 pb-24">
+
+                {/* --- 0. 患者管理与数字化档案 --- */}
+                <div className="space-y-3">
+                    {/* 患者切换器 */}
+                    <div className="flex justify-between items-center px-1">
+                        <div 
+                            className="flex items-center gap-2 bg-white rounded-full px-3 py-1.5 shadow-sm border border-slate-100 cursor-pointer active:scale-95 transition-transform"
+                            onClick={() => setIsSwitchingUser(!isSwitchingUser)}
+                        >
+                            <div className="w-6 h-6 bg-brand-100 rounded-full flex items-center justify-center text-[10px] font-bold text-brand-700">
+                                {activePatient.relation === '本人' ? activePatient.avatar : '👪'}
+                            </div>
+                            <span className="text-xs font-bold text-slate-800">{activePatient.name}</span>
+                            <span className="text-[10px] text-slate-400 bg-slate-50 px-1 rounded">{activePatient.relation}</span>
+                            <svg className="w-3 h-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                        </div>
+                        
+                        {/* 切换菜单 */}
+                        {isSwitchingUser && (
+                            <div className="absolute top-16 left-5 z-50 bg-white rounded-xl shadow-xl border border-slate-100 p-2 w-48 animate-slide-up">
+                                <div className="text-[9px] text-slate-400 px-2 py-1 mb-1 font-bold">切换档案</div>
+                                <div 
+                                    onClick={() => { dispatch({type: 'SWITCH_PATIENT', payload: state.user.id}); setIsSwitchingUser(false); }}
+                                    className={`flex items-center gap-2 p-2 rounded-lg ${state.user.id === activePatient.id ? 'bg-brand-50' : 'hover:bg-slate-50'}`}
+                                >
+                                    <span className="text-sm">👨</span>
+                                    <span className="text-xs font-bold">本人 ({state.user.name})</span>
+                                </div>
+                                {state.user.familyMembers?.map(m => (
+                                    <div 
+                                        key={m.id}
+                                        onClick={() => { dispatch({type: 'SWITCH_PATIENT', payload: m.id}); setIsSwitchingUser(false); }}
+                                        className={`flex items-center gap-2 p-2 rounded-lg ${m.id === activePatient.id ? 'bg-brand-50' : 'hover:bg-slate-50'}`}
+                                    >
+                                        <span className="text-sm">{m.avatar}</span>
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-bold">{m.name}</span>
+                                            <span className="text-[9px] text-slate-400">{m.relation}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* 数字化病历卡 */}
+                    {activePatient.profile?.isComplete ? (
+                        <div 
+                            className="bg-gradient-to-r from-brand-600 to-brand-800 rounded-[24px] p-5 text-white shadow-xl shadow-brand-500/20 relative overflow-hidden group transition-all"
+                            onClick={() => setShowProfileDetails(!showProfileDetails)}
+                        >
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -translate-y-10 translate-x-10"></div>
+                            <div className="relative z-10">
+                                {/* Header */}
+                                <div className="flex justify-between items-start mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-lg shadow-sm border-2 border-brand-200">
+                                            {activePatient.relation === '本人' ? '👨' : activePatient.avatar}
+                                        </div>
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <h3 className="text-sm font-black">{activePatient.name}</h3>
+                                                {/* 显示 AI 认证徽章 */}
+                                                {activePatient.profile.source === 'AI_GENERATED' && (
+                                                    <span className="bg-emerald-400/20 text-emerald-100 border border-emerald-400/30 px-1.5 py-0.5 rounded text-[8px] font-bold shadow-sm flex items-center gap-1">
+                                                        <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                                                        华西 AI 归档
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="text-[10px] text-brand-200 font-mono">ID: {activePatient.id.split('_')[1] || '8829'} · 神经内科</p>
+                                        </div>
+                                    </div>
+                                    <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center backdrop-blur-sm">
+                                        <span className="text-sm">🏥</span>
+                                    </div>
+                                </div>
+
+                                {/* Diagnosis Info */}
+                                <div className="grid grid-cols-2 gap-3 mb-4">
+                                    <div className="bg-white/10 rounded-xl p-2 backdrop-blur-sm">
+                                        <div className="text-[8px] text-brand-200 uppercase tracking-widest mb-0.5">确诊类型</div>
+                                        <div className="text-xs font-black">{activePatient.profile.diagnosisType}</div>
+                                    </div>
+                                    <div className="bg-white/10 rounded-xl p-2 backdrop-blur-sm">
+                                        <div className="text-[8px] text-brand-200 uppercase tracking-widest mb-0.5">发作频率</div>
+                                        <div className="text-xs font-black">{activePatient.profile.frequency}</div>
+                                    </div>
+                                </div>
+                                
+                                {/* Expanded Details for AI Profile */}
+                                {showProfileDetails && activePatient.profile.source === 'AI_GENERATED' && (
+                                    <div className="mt-2 pt-3 border-t border-white/10 animate-fade-in">
+                                        <div className="text-[9px] text-brand-200 uppercase tracking-widest mb-2">AI 提取临床特征</div>
+                                        <div className="flex flex-wrap gap-1.5 mb-3">
+                                            {activePatient.profile.symptomsTags?.map((tag, idx) => (
+                                                <span key={idx} className="bg-white/10 px-2 py-1 rounded text-[9px] font-medium border border-white/5">{tag}</span>
+                                            ))}
+                                        </div>
+                                        <div className="flex justify-between text-[9px] text-brand-200">
+                                            <span>首发年龄: {activePatient.profile.onsetAge}岁</span>
+                                            <span>家族史: {activePatient.profile.familyHistory ? '有' : '无'}</span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Footer & Commercial Hook */}
+                                <div className="flex justify-between items-end border-t border-white/10 pt-3 mt-2">
+                                    <div className="text-[9px] text-brand-300">
+                                        {showProfileDetails ? '点击收起档案' : '点击查看 AI 提取详情'}
+                                    </div>
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); setShowVipPay(true); }}
+                                        className="flex items-center gap-1 bg-amber-400 hover:bg-amber-300 text-amber-900 px-2.5 py-1 rounded-lg text-[9px] font-black transition-colors shadow-sm"
+                                    >
+                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                        导出病历 PDF
+                                        <span className="bg-black/10 px-1 rounded text-[8px]">VIP</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        // 档案补全引导卡片
+                        <div className="bg-white rounded-[24px] p-5 shadow-sm border border-brand-100 relative overflow-hidden">
+                            <div className="flex justify-between items-center mb-3">
+                                <h4 className="text-[13px] font-black text-slate-800">完善头痛基础画像</h4>
+                                <span className="text-[9px] font-bold text-slate-400">档案完整度 30%</span>
+                            </div>
+                            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden mb-4">
+                                <div className="bg-brand-500 h-full w-[30%] rounded-full animate-pulse"></div>
+                            </div>
+                            <div className="flex items-start gap-3 mb-4">
+                                <div className="text-2xl">📋</div>
+                                <p className="text-[10px] text-slate-500 leading-relaxed">
+                                    建立多维医疗档案可大幅提升 AI 诱因分析准确率，并为医生提供诊断依据。
+                                </p>
+                            </div>
+                            <Button size="sm" fullWidth onClick={() => setShowProfileForm(true)}>
+                                立即完善 (预计1分钟)
+                            </Button>
+                        </div>
+                    )}
+                </div>
                 
-                {/* 1. 数字处方看板 (闭环核心：接收 factors 驱动排序) */}
+                {/* 1. 数字处方看板 (联动高风险状态) */}
                 <DigitalPrescription highlight={riskAnalysis.alertLevel === 'high'} factors={factors} />
 
                 {/* 2. 动态诱因雷达 */}
@@ -296,6 +483,15 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                      <Button size="sm" className="bg-rose-600 text-[10px]" onClick={() => setShowReferral(true)}>生成通行证</Button>
                 </div>
 
+                {/* --- Form Modal --- */}
+                {showProfileForm && (
+                    <ProfileForm 
+                        onClose={() => setShowProfileForm(false)} 
+                        onSubmit={handleProfileSubmit}
+                        userRelation={activePatient.relation}
+                    />
+                )}
+
                 {/* Modals */}
                 {showReferral && <ReferralSystem onClose={() => setShowReferral(false)} />}
                 <PaywallModal visible={showVipPay} pkg={PACKAGES.VIP_MIGRAINE} onClose={() => setShowVipPay(false)} />
@@ -304,261 +500,232 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
     );
 };
 
-// [AUDIT_FIX] 扩展日志数据接口
-interface EpilepsyLog {
-    id: number;
-    date: string;
-    time: string;
-    duration: string;
-    type: string;
-    risk: 'High' | 'Medium' | 'Low';
-    prodrome: string; // 前驱症状
-    manifestation: string; // 肢体表现
-}
-
-/** 
- * 专病子模块: 癫痫生命守护
- */
-export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+// --- Cognitive Service View (Games) ---
+export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+    const [game, setGame] = useState<'none' | 'memory' | 'attention'>('none');
     const { PACKAGES } = usePayment();
-    const [activeTab, setActiveTab] = useState<'monitor' | 'log'>('monitor');
     const [showPay, setShowPay] = useState(false);
-    const [selectedLog, setSelectedLog] = useState<EpilepsyLog | null>(null); 
-    
-    // SOS Logic Status Machine
-    const [sosState, setSosState] = useState<'idle' | 'calling' | 'sent'>('idle');
 
-    const handleSOS = () => {
-        setSosState('calling');
-        
-        if ((window as any).ReactNativeWebView) {
-            (window as any).ReactNativeWebView.postMessage(JSON.stringify({ 
-                type: 'EMERGENCY_CALL', 
-                phone: '120',
-                meta: { reason: 'Epilepsy SOS', timestamp: Date.now() }
-            }));
-        } else {
-            console.log("模拟调用原生拨号: 120");
-        }
+    if (game === 'memory') return <VisualMemoryGame onComplete={() => setGame('none')} onExit={() => setGame('none')} />;
+    if (game === 'attention') return <AttentionGame onComplete={() => setGame('none')} onExit={() => setGame('none')} />;
 
-        setTimeout(() => {
-            setSosState('sent');
-            setTimeout(() => setSosState('idle'), 3000);
-        }, 2000);
-    };
+    return (
+        <Layout headerTitle="认知康复训练" showBack onBack={onBack}>
+            <div className="p-5 space-y-4">
+                 <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-50">
+                    <h3 className="font-black text-slate-800 mb-4">今日训练处方</h3>
+                    <Button fullWidth onClick={() => setGame('memory')} className="mb-4">
+                        <span className="mr-2">🧩</span> 开始视觉记忆训练
+                    </Button>
+                    <Button fullWidth variant="outline" onClick={() => setGame('attention')}>
+                        <span className="mr-2">🔢</span> 开始舒尔特方格
+                    </Button>
+                 </div>
+                 
+                 {/* VIP Promote */}
+                 <div onClick={() => setShowPay(true)} className="bg-gradient-to-r from-purple-50 to-white p-5 rounded-2xl border border-purple-100 cursor-pointer active:scale-[0.98] transition-all">
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <div className="font-black text-purple-800 text-sm">解锁高阶认知训练</div>
+                            <div className="text-[10px] text-purple-600 mt-1">包含：听觉工作记忆、执行功能训练</div>
+                        </div>
+                        <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center text-purple-600">🔒</div>
+                    </div>
+                 </div>
+                 <PaywallModal visible={showPay} pkg={PACKAGES.VIP_COGNITIVE} onClose={() => setShowPay(false)} />
+            </div>
+        </Layout>
+    );
+};
 
-    const logs: EpilepsyLog[] = [
-        { 
-            id: 1, date: '今日', time: '09:42', duration: '35s', type: '强直阵挛发作', risk: 'High',
-            prodrome: '患者自述突发眩晕，伴有强烈金属味幻嗅。',
-            manifestation: '双眼上翻，牙关紧闭，四肢呈现强直性抽搐，持续约15秒后转为阵挛。'
-        },
-        { 
-            id: 2, date: '昨日', time: '21:15', duration: '12s', type: '失神发作', risk: 'Low',
-            prodrome: '无明显先兆，正在进食。',
-            manifestation: '动作突然停止，目光呆滞凝视前方，呼之不应，手中餐具掉落。'
-        },
-        { 
-            id: 3, date: '10月24日', time: '14:30', duration: '1min 05s', type: '复杂部分性发作', risk: 'Medium',
-            prodrome: '感到胃气上升，胸闷不适。',
-            manifestation: '出现无意识的摸索动作，伴有咂嘴、咀嚼等自动症，意识模糊。'
-        },
-    ];
+// --- Epilepsy Service View (Wave Monitor) ---
+export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+    const { hasFeature, PACKAGES } = usePayment();
+    const [showPay, setShowPay] = useState(false);
+    const isVip = hasFeature('VIP_EPILEPSY');
 
     return (
         <Layout headerTitle="癫痫生命守护" showBack onBack={onBack}>
-            <div className="flex flex-col h-full pb-safe">
-                {/* 顶部导航 */}
-                <div className="px-5 py-2 bg-[#F7F9FA]">
-                    <div className="flex bg-slate-200/50 p-1 rounded-xl">
-                        {['monitor', 'log'].map((tab) => (
-                            <button 
-                                key={tab} 
-                                onClick={() => setActiveTab(tab as any)} 
-                                className={`flex-1 py-2 text-[11px] font-black rounded-lg transition-all ${activeTab === tab ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}
-                            >
-                                {tab === 'monitor' ? '实时监测' : '发作日志'}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="p-5 space-y-5 overflow-y-auto no-scrollbar flex-1">
-                    {activeTab === 'monitor' ? (
-                        <>
-                            {/* 1. 脑电波监测 */}
-                            <WaveMonitor />
-                            
-                            {/* 2. 紧急呼叫卡片 */}
-                            <div className="bg-white rounded-[32px] p-6 shadow-sm border border-slate-50 text-center relative overflow-hidden transition-all">
-                                {sosState === 'idle' && (
-                                    <>
-                                        <h4 className="text-[13px] font-black text-slate-900 mb-4">安全应急演练</h4>
-                                        <Button 
-                                            fullWidth 
-                                            onClick={handleSOS}
-                                            className="bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 shadow-none py-4"
-                                        >
-                                            <span className="flex items-center gap-2">
-                                                <span className="relative flex h-3 w-3">
-                                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                                                  <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-                                                </span>
-                                                模拟异常发作呼救 (SOS)
-                                            </span>
-                                        </Button>
-                                    </>
-                                )}
-
-                                {sosState === 'calling' && (
-                                    <div className="py-2 animate-pulse flex flex-col items-center">
-                                        <div className="text-4xl mb-2">📡</div>
-                                        <h3 className="text-sm font-black text-slate-900">正在接入华西急救中心...</h3>
-                                        <p className="text-[10px] text-slate-400 mt-1">同步定位与生命体征数据</p>
-                                    </div>
-                                )}
-
-                                {sosState === 'sent' && (
-                                    <div className="py-2 animate-fade-in flex flex-col items-center">
-                                        <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center text-2xl mx-auto mb-3">✓</div>
-                                        <h3 className="text-sm font-black text-slate-900">求救信号已发出</h3>
-                                        <p className="text-[10px] text-slate-400 mt-1">已通知 2 位紧急联系人</p>
-                                    </div>
-                                )}
+            <div className="p-5 space-y-5">
+                <WaveMonitor />
+                
+                <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-50">
+                    <h3 className="font-black text-slate-800 text-sm mb-3">最近24小时监测日志</h3>
+                    {isVip ? (
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between text-xs p-3 bg-slate-50 rounded-lg">
+                                <span className="text-slate-500">02:14 AM</span>
+                                <span className="font-bold text-slate-800">睡眠期慢波活动</span>
+                                <span className="text-emerald-500 font-bold">正常</span>
                             </div>
-
-                            {/* 3. VIP Upsell Banner */}
-                            <div onClick={() => setShowPay(true)} className="bg-gradient-to-r from-brand-600 to-brand-500 rounded-[28px] p-5 text-white shadow-lg active:scale-95 transition-transform cursor-pointer relative overflow-hidden">
-                                <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -translate-y-10 translate-x-10"></div>
-                                <div className="flex justify-between items-center relative z-10">
-                                    <div>
-                                        <h4 className="text-[13px] font-black flex items-center gap-2">
-                                            升级生命守护会员
-                                            <span className="bg-amber-400 text-amber-900 text-[8px] px-1.5 py-0.5 rounded font-bold">Pro</span>
-                                        </h4>
-                                        <p className="text-[10px] opacity-80 mt-1">含 7x24h 亲情预警同步</p>
-                                    </div>
-                                    <div className="flex flex-col items-end">
-                                        <span className="bg-white/20 px-3 py-1 rounded-full text-[10px] font-bold backdrop-blur-sm">¥599/年</span>
-                                        <span className="text-[8px] opacity-60 mt-1 line-through">原价 ¥1200</span>
-                                    </div>
-                                </div>
+                            <div className="flex items-center justify-between text-xs p-3 bg-slate-50 rounded-lg">
+                                <span className="text-slate-500">Yesterday</span>
+                                <span className="font-bold text-slate-800">无异常放电记录</span>
+                                <span className="text-emerald-500 font-bold">--</span>
                             </div>
-                        </>
-                    ) : (
-                        /* Log Tab Implementation */
-                        <div className="space-y-3 animate-fade-in">
-                             {logs.map((log) => (
-                                 <div key={log.id} className="bg-white p-4 rounded-2xl border border-slate-50 shadow-sm flex items-center justify-between">
-                                     <div>
-                                         <div className="flex items-center gap-2 mb-1">
-                                             <span className="text-[13px] font-black text-slate-800">{log.type}</span>
-                                             {log.risk === 'High' && <span className="text-[8px] bg-red-50 text-red-500 px-1.5 py-0.5 rounded font-bold">高危</span>}
-                                         </div>
-                                         <div className="text-[10px] text-slate-400 font-medium">
-                                             {log.date} {log.time} · 持续 {log.duration}
-                                         </div>
-                                     </div>
-                                     <button 
-                                        onClick={() => setSelectedLog(log)} 
-                                        className="text-brand-600 text-[10px] font-black bg-brand-50 px-3 py-1.5 rounded-lg active:scale-90 transition-transform"
-                                     >
-                                         详情
-                                     </button>
-                                 </div>
-                             ))}
-                             <div className="text-center py-4 text-[10px] text-slate-300 font-bold uppercase tracking-widest">
-                                 仅展示最近3条记录
-                             </div>
                         </div>
+                    ) : (
+                         <div className="text-center py-6 text-slate-400 text-xs">
+                             <p>历史监测数据需订阅会员服务</p>
+                         </div>
                     )}
                 </div>
 
-                {/* 日志详情弹窗 */}
-                {selectedLog && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 animate-fade-in">
-                        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setSelectedLog(null)}></div>
-                        <div className="bg-white w-full max-w-sm rounded-[32px] p-6 relative z-10 shadow-2xl animate-slide-up">
-                            <div className="flex justify-between items-start mb-6">
-                                <div>
-                                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">{selectedLog.date} {selectedLog.time}</div>
-                                    <h3 className="text-xl font-black text-slate-900">{selectedLog.type}</h3>
-                                </div>
-                                <span className="bg-red-50 text-red-500 text-[10px] font-black px-2 py-1 rounded-lg border border-red-100">
-                                    {selectedLog.duration}
-                                </span>
+                {!isVip && (
+                    <div onClick={() => setShowPay(true)} className="bg-emerald-50 p-5 rounded-2xl border border-emerald-100 cursor-pointer active:scale-[0.98] transition-all">
+                        <div className="flex justify-between items-center">
+                            <div>
+                                <h3 className="font-black text-emerald-800 text-sm">开启 24h 实时异常预警</h3>
+                                <p className="text-[10px] text-emerald-600 mt-1">亲情账号同步通知 · 异常波形专家解读</p>
                             </div>
-                            
-                            <div className="space-y-4">
-                                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                                    <div className="text-[10px] font-black text-slate-400 mb-1">🧠 前驱症状 (Prodrome)</div>
-                                    <p className="text-sm font-medium text-slate-700 leading-relaxed">{selectedLog.prodrome}</p>
-                                </div>
-                                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                                    <div className="text-[10px] font-black text-slate-400 mb-1">⚡ 肢体表现 (Manifestation)</div>
-                                    <p className="text-sm font-medium text-slate-700 leading-relaxed">{selectedLog.manifestation}</p>
-                                </div>
-                            </div>
-
-                            <Button fullWidth className="mt-6" onClick={() => setSelectedLog(null)}>
-                                关闭详情
-                            </Button>
+                            <Button size="sm" className="bg-emerald-600">订阅</Button>
                         </div>
                     </div>
                 )}
-
                 <PaywallModal visible={showPay} pkg={PACKAGES.VIP_EPILEPSY} onClose={() => setShowPay(false)} />
             </div>
         </Layout>
     );
 };
 
-/** 
- * 专病子模块: 认知康复
- */
-export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    const { PACKAGES } = usePayment();
-    const [game, setGame] = useState<'memory' | 'attention' | null>(null);
-    const [showPay, setShowPay] = useState(false);
-
-    if (game === 'memory') return <VisualMemoryGame onComplete={() => setGame(null)} onExit={() => setGame(null)} />;
-    if (game === 'attention') return <AttentionGame onComplete={() => setGame(null)} onExit={() => setGame(null)} />;
-
+// --- Family Service View ---
+export const FamilyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+    const { state } = useApp();
     return (
-        <Layout headerTitle="认知康复中心" showBack onBack={onBack}>
-            <div className="p-5 space-y-4">
-                <div className="bg-slate-900 rounded-[32px] p-6 text-white shadow-xl relative overflow-hidden">
-                    <div className="relative z-10">
-                        <div className="flex items-center gap-2 mb-4"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span><span className="text-[10px] font-black text-emerald-400 uppercase">脑机接口已就绪</span></div>
-                        <h2 className="text-2xl font-black">今日训练处方</h2>
-                        <p className="text-[11px] text-slate-400 mt-1">华西神经心理实验室 · 定制方案</p>
+        <Layout headerTitle="亲情账号管理" showBack onBack={onBack}>
+             <div className="p-5">
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">已绑定的家庭成员</h3>
+                
+                {state.user.familyMembers?.map(m => (
+                    <div key={m.id} className="bg-white p-4 rounded-2xl mb-3 shadow-sm border border-slate-50 flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-2xl">
+                                {m.avatar}
+                            </div>
+                            <div>
+                                <div className="font-black text-slate-800 text-sm">{m.name}</div>
+                                <div className="text-[10px] text-slate-400 font-bold bg-slate-50 px-2 py-0.5 rounded mt-1 inline-block">{m.relation}</div>
+                            </div>
+                        </div>
+                        <div className="text-emerald-500 font-bold text-xs">
+                            已关联
+                        </div>
                     </div>
+                ))}
+                
+                <div className="mt-6 p-6 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 hover:bg-slate-50 transition-colors cursor-pointer">
+                    <span className="text-2xl mb-2">+</span>
+                    <span className="text-xs font-bold">添加新的家庭成员</span>
                 </div>
-
-                <div onClick={() => setGame('memory')} className="bg-white p-5 rounded-[24px] shadow-sm border border-slate-50 flex gap-4 active:scale-95 transition-all">
-                    <div className="w-12 h-12 bg-purple-50 text-purple-500 rounded-2xl flex items-center justify-center text-2xl">🧠</div>
-                    <div><h4 className="font-black text-slate-900 text-sm">海马体激活训练</h4><p className="text-[10px] text-slate-400 mt-1">强化短时记忆与空间导航能力</p></div>
-                </div>
-
-                <div onClick={() => setShowPay(true)} className="bg-white p-5 rounded-[24px] shadow-sm border border-slate-50 flex gap-4 opacity-80">
-                    <div className="w-12 h-12 bg-orange-50 text-orange-500 rounded-2xl flex items-center justify-center text-2xl">👁️</div>
-                    <div className="flex-1">
-                        <div className="flex justify-between"><h4 className="font-black text-slate-900 text-sm">舒尔特专注力训练</h4><span className="text-[9px] bg-brand-50 text-brand-600 px-1.5 py-0.5 rounded font-bold">VIP</span></div>
-                        <p className="text-[10px] text-slate-400 mt-1">提升视觉搜索与抗干扰能力</p>
-                    </div>
-                </div>
-
-                <PaywallModal visible={showPay} pkg={PACKAGES.VIP_COGNITIVE} onClose={() => setShowPay(false)} />
-            </div>
+             </div>
         </Layout>
     );
 };
 
-export const FamilyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => (
-    <Layout headerTitle="亲情账号" showBack onBack={onBack}>
-        <div className="p-10 text-center text-slate-300">
-            <div className="text-5xl mb-4">👨‍👩‍👧</div>
-            <p className="font-black text-xs uppercase tracking-widest">亲情数据链路建设中...</p>
+// --- Internal Component: Profile Form ---
+const ProfileForm: React.FC<{ onClose: () => void; onSubmit: (data: any) => void; userRelation: string }> = ({ onClose, onSubmit, userRelation }) => {
+    const [formData, setFormData] = useState({
+        age: '',
+        frequency: '',
+        familyHistory: false,
+        meds: [] as string[]
+    });
+
+    const medsList = ['布洛芬', '对乙酰氨基酚', '散利痛', '佐米曲普坦', '氟桂利嗪'];
+
+    const toggleMed = (med: string) => {
+        setFormData(prev => ({
+            ...prev,
+            meds: prev.meds.includes(med) ? prev.meds.filter(m => m !== med) : [...prev.meds, med]
+        }));
+    };
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-end justify-center">
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}></div>
+            <div className="bg-white w-full rounded-t-[32px] p-6 animate-slide-up relative z-10 max-w-[430px] mx-auto min-h-[500px]">
+                <div className="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 className="text-lg font-black text-slate-900">建立专病档案</h3>
+                        <p className="text-[11px] text-slate-400 font-bold mt-1">
+                            {userRelation !== '本人' && <span className="bg-orange-100 text-orange-600 px-1 rounded mr-1">代录: {userRelation}</span>}
+                            仅用于华西 AI 诊断分析
+                        </p>
+                    </div>
+                    <button onClick={onClose} className="bg-slate-50 p-2 rounded-full text-slate-400">✕</button>
+                </div>
+
+                <div className="space-y-6">
+                    {/* Age */}
+                    <div>
+                        <label className="text-xs font-bold text-slate-600 mb-2 block">首次发作年龄</label>
+                        <input 
+                            type="number" 
+                            placeholder="例如: 25"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold focus:border-brand-500 outline-none"
+                            value={formData.age}
+                            onChange={e => setFormData({...formData, age: e.target.value})}
+                        />
+                    </div>
+
+                    {/* Frequency */}
+                    <div>
+                        <label className="text-xs font-bold text-slate-600 mb-2 block">近3个月发作频率 (MIDAS简版)</label>
+                        <div className="grid grid-cols-2 gap-3">
+                            {['<1天/月', '1-4天/月', '5-14天/月', '>15天/月'].map(opt => (
+                                <button
+                                    key={opt}
+                                    onClick={() => setFormData({...formData, frequency: opt})}
+                                    className={`py-3 rounded-xl text-xs font-bold border transition-all ${formData.frequency === opt ? 'bg-brand-600 text-white border-brand-600 shadow-lg shadow-brand-500/30' : 'bg-white border-slate-200 text-slate-500'}`}
+                                >
+                                    {opt}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Family History */}
+                    <div>
+                        <label className="text-xs font-bold text-slate-600 mb-2 block">直系亲属是否有头痛史？</label>
+                        <div className="flex gap-4">
+                            <button 
+                                onClick={() => setFormData({...formData, familyHistory: true})}
+                                className={`flex-1 py-3 rounded-xl text-xs font-bold border ${formData.familyHistory ? 'bg-brand-50 border-brand-500 text-brand-700' : 'bg-slate-50 border-transparent text-slate-400'}`}
+                            >
+                                是，有家族史
+                            </button>
+                            <button 
+                                onClick={() => setFormData({...formData, familyHistory: false})}
+                                className={`flex-1 py-3 rounded-xl text-xs font-bold border ${!formData.familyHistory ? 'bg-brand-50 border-brand-500 text-brand-700' : 'bg-slate-50 border-transparent text-slate-400'}`}
+                            >
+                                否 / 不清楚
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Meds */}
+                    <div>
+                        <label className="text-xs font-bold text-slate-600 mb-2 block">既往用药史 (多选)</label>
+                        <div className="flex flex-wrap gap-2">
+                            {medsList.map(med => (
+                                <button
+                                    key={med}
+                                    onClick={() => toggleMed(med)}
+                                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${formData.meds.includes(med) ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-white border-slate-200 text-slate-500'}`}
+                                >
+                                    {med}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="mt-8">
+                    <Button fullWidth onClick={() => onSubmit(formData)} disabled={!formData.age || !formData.frequency}>
+                        生成数字化病历卡
+                    </Button>
+                </div>
+            </div>
         </div>
-    </Layout>
-);
+    );
+};

@@ -24,6 +24,28 @@ export type FeatureKey =
   | 'VIP_EPILEPSY'           // 癫痫年卡
   | 'VIP_COGNITIVE';         // 认知障碍年卡
 
+// --- 新增：头痛专病档案 ---
+export interface HeadacheProfile {
+  isComplete: boolean;
+  source: 'USER_INPUT' | 'AI_GENERATED'; // 档案来源
+  onsetAge: number; // 首发年龄
+  frequency: string; // 发作频率
+  familyHistory: boolean; // 家族史
+  medicationHistory: string[]; // 用药史
+  diagnosisType: string; // 诊断类型 (e.g. 无先兆偏头痛)
+  symptomsTags: string[]; // 伴随症状标签 (AI 提取) e.g. ["畏光", "搏动性跳痛"]
+  lastUpdated: number;
+}
+
+// --- 新增：家庭成员 ---
+export interface FamilyMember {
+  id: string;
+  name: string;
+  relation: string; // e.g. "父亲"
+  avatar: string;
+  headacheProfile?: HeadacheProfile;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -32,6 +54,11 @@ export interface User {
   vipLevel: number; // 0: 普通, 1: 会员
   unlockedFeatures: FeatureKey[]; // 已解锁的原子权益列表
   hasHardware: boolean; // 是否绑定了HaaS设备
+  
+  // 扩展字段
+  headacheProfile?: HeadacheProfile;
+  familyMembers?: FamilyMember[];
+  currentProfileId?: string; // 当前选中的患者ID (自身或家属)
 }
 
 // 转诊数据实体

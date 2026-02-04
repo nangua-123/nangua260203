@@ -1,5 +1,5 @@
 
-import { ChatMessage } from "../types";
+import { ChatMessage, HeadacheProfile } from "../types";
 
 // MOCK SERVICE
 // 模拟华西医院分诊逻辑
@@ -98,7 +98,7 @@ export const sendMessageToAI = async (session: MockChatSession, message: string)
   return response;
 };
 
-// 生成模拟报告数据
+// 生成模拟报告数据 + 结构化病历
 export const getTriageAnalysis = async (conversationHistory: ChatMessage[]): Promise<string> => {
     // Simulate thinking
     await new Promise(resolve => setTimeout(resolve, 1500));
@@ -107,12 +107,36 @@ export const getTriageAnalysis = async (conversationHistory: ChatMessage[]): Pro
     let disease = "UNKNOWN";
     let risk = 30;
     let summary = "建议进行常规神经内科检查。";
+    
+    // Default extracted profile
+    let extractedProfile: Partial<HeadacheProfile> = {
+        isComplete: true,
+        source: 'AI_GENERATED',
+        lastUpdated: Date.now(),
+        onsetAge: 35, // default guess
+        frequency: '1-4天/月',
+        familyHistory: false,
+        medicationHistory: [],
+        symptomsTags: [],
+        diagnosisType: '未分类头痛'
+    };
 
-    // 简单的关键词匹配逻辑
+    // 简单的关键词匹配逻辑 (NLP Simulation)
     if (historyStr.includes("头痛")) {
         disease = "MIGRAINE";
         risk = historyStr.includes("每天") || historyStr.includes("炸痛") ? 85 : 45;
-        summary = "患者主诉头痛，症状特征符合血管性头痛/偏头痛表现。建议进行疼痛评估与诱因筛查。";
+        summary = "患者主诉头痛，症状特征符合血管性头痛/偏头痛表现。AI 已提取发作特征，建议进行疼痛评估与诱因筛查。";
+        
+        // 模拟 NLP 提取
+        extractedProfile.diagnosisType = historyStr.includes("跳痛") ? '典型偏头痛' : '紧张性头痛';
+        extractedProfile.frequency = historyStr.includes("每天") ? '>15天/月' : '1-4天/月';
+        
+        const tags = [];
+        if (historyStr.includes("跳痛")) tags.push("搏动性跳痛");
+        if (historyStr.includes("眼眶")) tags.push("眼周放射痛");
+        if (historyStr.includes("炸痛")) tags.push("剧烈炸痛");
+        extractedProfile.symptomsTags = tags;
+
     } else if (historyStr.includes("记忆") || historyStr.includes("迷路")) {
         disease = "COGNITIVE";
         risk = historyStr.includes("性格突变") ? 75 : 40;
@@ -126,6 +150,7 @@ export const getTriageAnalysis = async (conversationHistory: ChatMessage[]): Pro
     return JSON.stringify({
         risk,
         disease,
-        summary
+        summary,
+        extractedProfile
     });
 };
