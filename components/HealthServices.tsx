@@ -6,7 +6,7 @@ import { usePayment } from '../hooks/usePayment';
 import { useApp } from '../context/AppContext';
 // 引入完整的认知游戏组件集合
 import { VisualMemoryGame, AttentionGame, CognitiveDashboard } from './CognitiveGames';
-import { HeadacheProfile } from '../types';
+import { HeadacheProfile, FamilyMember } from '../types';
 
 // 引入拆分后的核心业务组件
 import { DigitalPrescription } from './business/headache/DigitalPrescription';
@@ -585,18 +585,53 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
     );
 };
 
-// --- Family Service View ---
+// --- Family Service View (CRUD Enhanced) ---
 export const FamilyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    const { state } = useApp();
+    const { state, dispatch } = useApp();
+    const [showForm, setShowForm] = useState(false);
+    const [editingMember, setEditingMember] = useState<FamilyMember | null>(null);
+
+    const handleEdit = (member: FamilyMember) => {
+        setEditingMember(member);
+        setShowForm(true);
+    };
+
+    const handleCreate = () => {
+        setEditingMember(null);
+        setShowForm(true);
+    };
+
+    const handleFormSubmit = (data: any) => {
+        if (editingMember) {
+            dispatch({
+                type: 'EDIT_FAMILY_MEMBER',
+                payload: { id: editingMember.id, updates: data }
+            });
+        } else {
+            dispatch({
+                type: 'ADD_FAMILY_MEMBER',
+                payload: data
+            });
+        }
+        setShowForm(false);
+    };
+
+    const handleDelete = (id: string) => {
+        if (window.confirm("确定要解绑该家庭成员吗？解绑后所有监测数据将无法恢复。")) {
+            dispatch({ type: 'REMOVE_FAMILY_MEMBER', payload: id });
+            setShowForm(false);
+        }
+    };
+
     return (
         <Layout headerTitle="亲情账号管理" showBack onBack={onBack}>
              <div className="p-5">
                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">已绑定的家庭成员</h3>
                 
                 {state.user.familyMembers?.map(m => (
-                    <div key={m.id} className="bg-white p-4 rounded-2xl mb-3 shadow-sm border border-slate-50 flex items-center justify-between">
+                    <div key={m.id} onClick={() => handleEdit(m)} className="bg-white p-4 rounded-2xl mb-3 shadow-sm border border-slate-50 flex items-center justify-between active:scale-[0.99] transition-transform">
                         <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-2xl">
+                            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-2xl border border-slate-200">
                                 {m.avatar}
                             </div>
                             <div>
@@ -604,18 +639,119 @@ export const FamilyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) 
                                 <div className="text-[10px] text-slate-400 font-bold bg-slate-50 px-2 py-0.5 rounded mt-1 inline-block">{m.relation}</div>
                             </div>
                         </div>
-                        <div className="text-emerald-500 font-bold text-xs">
-                            已关联
+                        <div className="flex items-center gap-2">
+                             <div className="text-slate-300 text-sm">编辑</div>
+                             <span className="text-slate-300">›</span>
                         </div>
                     </div>
                 ))}
                 
-                <div className="mt-6 p-6 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 hover:bg-slate-50 transition-colors cursor-pointer">
-                    <span className="text-2xl mb-2">+</span>
-                    <span className="text-xs font-bold">添加新的家庭成员</span>
+                <div onClick={handleCreate} className="mt-6 p-6 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 hover:bg-slate-50 transition-colors cursor-pointer active:scale-[0.98]">
+                    <span className="text-2xl mb-2 text-brand-500">+</span>
+                    <span className="text-xs font-bold text-slate-500">添加新的家庭成员</span>
                 </div>
+
+                {/* Form Modal */}
+                {showForm && (
+                    <FamilyMemberForm 
+                        initialData={editingMember}
+                        onClose={() => setShowForm(false)}
+                        onSubmit={handleFormSubmit}
+                        onDelete={editingMember ? () => handleDelete(editingMember.id) : undefined}
+                    />
+                )}
              </div>
         </Layout>
+    );
+};
+
+// --- Family Member Form Component ---
+const FamilyMemberForm: React.FC<{ 
+    initialData: FamilyMember | null; 
+    onClose: () => void; 
+    onSubmit: (data: any) => void;
+    onDelete?: () => void;
+}> = ({ initialData, onClose, onSubmit, onDelete }) => {
+    const [formData, setFormData] = useState({
+        name: initialData?.name || '',
+        relation: initialData?.relation || '父亲',
+        avatar: initialData?.avatar || '👨‍🦳'
+    });
+
+    const relations = ['父亲', '母亲', '配偶', '子女', '其他'];
+    const avatars = ['👨‍🦳', '👵', '👨', '👩', '👦', '👧', '👶'];
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-end justify-center">
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}></div>
+            <div className="bg-white w-full rounded-t-[32px] p-6 animate-slide-up relative z-10 max-w-[430px] mx-auto min-h-[500px]">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-lg font-black text-slate-900">{initialData ? '编辑成员信息' : '添加家庭成员'}</h3>
+                    <button onClick={onClose} className="bg-slate-50 p-2 rounded-full text-slate-400">✕</button>
+                </div>
+
+                <div className="space-y-6">
+                    {/* Avatar Selector */}
+                    <div>
+                        <label className="text-xs font-bold text-slate-600 mb-3 block">选择头像</label>
+                        <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+                            {avatars.map(av => (
+                                <button
+                                    key={av}
+                                    onClick={() => setFormData({...formData, avatar: av})}
+                                    className={`w-12 h-12 rounded-full text-2xl flex items-center justify-center transition-all ${formData.avatar === av ? 'bg-brand-100 border-2 border-brand-500 scale-110' : 'bg-slate-50 border border-slate-200'}`}
+                                >
+                                    {av}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Relation Selector */}
+                    <div>
+                        <label className="text-xs font-bold text-slate-600 mb-3 block">亲属关系</label>
+                        <div className="flex flex-wrap gap-2">
+                            {relations.map(rel => (
+                                <button
+                                    key={rel}
+                                    onClick={() => setFormData({...formData, relation: rel})}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${formData.relation === rel ? 'bg-brand-600 text-white border-brand-600 shadow-md' : 'bg-white border-slate-200 text-slate-500'}`}
+                                >
+                                    {rel}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Name Input */}
+                    <div>
+                        <label className="text-xs font-bold text-slate-600 mb-2 block">真实姓名</label>
+                        <input 
+                            type="text" 
+                            placeholder="请输入姓名 (用于病历归档)"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold focus:border-brand-500 outline-none"
+                            value={formData.name}
+                            onChange={e => setFormData({...formData, name: e.target.value})}
+                        />
+                    </div>
+                </div>
+
+                <div className="mt-8 space-y-3">
+                    <Button fullWidth onClick={() => onSubmit(formData)} disabled={!formData.name}>
+                        {initialData ? '保存修改' : '确认添加'}
+                    </Button>
+                    
+                    {initialData && onDelete && (
+                        <button 
+                            onClick={onDelete}
+                            className="w-full py-3 text-rose-500 text-xs font-bold bg-rose-50 rounded-full hover:bg-rose-100 transition-colors"
+                        >
+                            解绑该成员
+                        </button>
+                    )}
+                </div>
+            </div>
+        </div>
     );
 };
 

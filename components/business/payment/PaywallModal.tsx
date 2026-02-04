@@ -13,13 +13,15 @@ interface PaywallModalProps {
 
 export const PaywallModal: React.FC<PaywallModalProps> = ({ visible, pkg, onClose, onSuccess }) => {
   const { handlePay } = usePayment();
-  const [step, setStep] = useState<'info' | 'paying' | 'success'>('info');
+  const [step, setStep] = useState<'info' | 'paying' | 'success' | 'error'>('info');
+  const [errorMsg, setErrorMsg] = useState('');
   const [selectedCouponId, setSelectedCouponId] = useState<string | undefined>(undefined);
 
   // 当弹窗重新打开时，重置状态
   useEffect(() => {
     if (visible) {
         setStep('info');
+        setErrorMsg('');
         setSelectedCouponId(undefined);
     }
   }, [visible]);
@@ -28,16 +30,23 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({ visible, pkg, onClos
 
   const performPayment = async () => {
     setStep('paying');
+    setErrorMsg('');
     
-    // 调用 Hook 中的支付逻辑
-    await handlePay(pkg.featureKey, () => {
-        setStep('success');
-        // 成功动画展示 2秒后 关闭
-        setTimeout(() => {
-            if (onSuccess) onSuccess();
-            onClose();
-        }, 2000);
-    });
+    // 调用 Hook 中的支付逻辑，并处理成功/失败回调
+    await handlePay(
+        pkg.featureKey, 
+        () => {
+            setStep('success');
+            setTimeout(() => {
+                if (onSuccess) onSuccess();
+                onClose();
+            }, 2000);
+        },
+        (msg) => {
+            setErrorMsg(msg);
+            setStep('error');
+        }
+    );
   };
 
   const isVipMigraine = pkg.featureKey === 'VIP_MIGRAINE';
@@ -164,6 +173,25 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({ visible, pkg, onClos
             <div className="py-16 flex flex-col items-center justify-center text-center h-full">
                 <div className="w-12 h-12 border-[5px] border-slate-100 border-t-brand-500 rounded-full animate-spin mb-6"></div>
                 <h3 className="font-black text-slate-900 uppercase tracking-widest text-sm">安全支付中...</h3>
+            </div>
+        )}
+
+        {step === 'error' && (
+            <div className="py-10 flex flex-col items-center justify-center text-center h-full animate-shake">
+                <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-4 shadow-soft border border-red-100">
+                   <span className="text-3xl">✕</span>
+                </div>
+                <h3 className="font-black text-xl text-slate-900 mb-2">支付失败</h3>
+                <p className="text-xs text-slate-500 mb-8 max-w-[200px]">{errorMsg}</p>
+                
+                <div className="w-full space-y-3">
+                    <Button fullWidth onClick={performPayment} className="bg-brand-600 shadow-lg shadow-brand-500/20">
+                        重新支付
+                    </Button>
+                    <button onClick={() => setStep('info')} className="text-slate-400 text-xs font-bold underline decoration-slate-200">
+                        返回选择优惠券
+                    </button>
+                </div>
             </div>
         )}
 

@@ -1,15 +1,29 @@
 
+/**
+ * @file usePayment.ts
+ * @description 商业化核心逻辑 Hook
+ * @author Neuro-Link Architect
+ * 
+ * 职责:
+ * 1. 定义 SKU (服务包) 与 Pricing (价格体系)。
+ * 2. 优惠券 (Coupon) 核销逻辑。
+ * 3. 硬件租赁 (HaaS) 复杂计费逻辑。
+ * 4. 模拟支付网关 (Mock Gateway)，含随机故障注入以测试系统健壮性。
+ */
+
 import { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { ServicePackage, FeatureKey, DiseaseType } from '../types';
 
-// 定义标准服务包
+// --- Commercial Configuration (商业化配置) ---
+
+// 标准服务包定义
 export const PACKAGES: Record<string, ServicePackage> = {
   ICE_BREAKING_MIGRAINE: {
     id: 'pkg_ice_migraine',
     featureKey: 'ICE_BREAKING_MIGRAINE',
     title: 'MIDAS 深度评估与建档',
-    price: 1,
+    price: 1, // 破冰价
     duration: '永久',
     features: ['解锁数字处方看板', '生成近7日发作趋势', '建立华西专病档案'],
     medicalValue: '依据国际标准建立基线数据'
@@ -74,14 +88,15 @@ export const usePayment = () => {
   const [status, setStatus] = useState<PaymentStatus>('idle');
 
   /**
-   * 检查是否已拥有某项权益
+   * 检查是否已拥有某项权益 (Feature Gating)
    */
   const hasFeature = (key: FeatureKey): boolean => {
     return state.user.unlockedFeatures.includes(key);
   };
 
   /**
-   * 个性化推荐算法
+   * 个性化推荐算法 (Recommendation Engine)
+   * 基于用户的风险评分和主诉病种，动态推荐最适合的 SKU。
    */
   const getRecommendedPackage = (): ServicePackage => {
     const { riskScore, primaryCondition } = state;
@@ -104,10 +119,11 @@ export const usePayment = () => {
 
   /**
    * 计算硬件租赁费用
+   * 处理押金(VIP免押)、优惠券抵扣、套餐基础价。
    */
   const calculateRentalPrice = (planId: string, applyCouponId?: string) => {
     const plan = RENTAL_PLANS.find(p => p.id === planId) || RENTAL_PLANS[1];
-    const deposit = state.user.vipLevel > 0 ? 0 : 500; // VIP 免押金
+    const deposit = state.user.vipLevel > 0 ? 0 : 500; // 核心商业规则：VIP 免押金
     
     let discount = 0;
     if (applyCouponId) {
@@ -127,9 +143,15 @@ export const usePayment = () => {
   };
 
   /**
-   * 处理支付核心逻辑
+   * 处理支付核心逻辑 (Mock Gateway with Random Failures)
+   * 包含模拟网络延迟、随机故障注入及成功后的权益下发。
+   * 
+   * @param featureKey 待解锁的权益 Key
+   * @param onSuccess 成功回调
+   * @param onError 失败回调
    */
-  const handlePay = async (featureKey: FeatureKey, onSuccess?: () => void) => {
+  const handlePay = async (featureKey: FeatureKey, onSuccess?: () => void, onError?: (msg: string) => void) => {
+    // 幂等校验
     if (hasFeature(featureKey)) {
       if (onSuccess) onSuccess();
       return;
@@ -138,10 +160,23 @@ export const usePayment = () => {
     setStatus('processing');
 
     try {
-      // 模拟支付网关交互 (1.5秒延迟)
+      // 1. 模拟网络延迟 (1.5秒 RTT)
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
-      // 支付成功，下发权益
+      // 2. 模拟随机支付异常 (20% 概率失败) - 用于测试前端健壮性 (Retry Logic)
+      const isFailure = Math.random() < 0.2;
+      
+      if (isFailure) {
+          // 模拟不同的错误类型
+          const errorType = Math.random();
+          let errorMsg = "支付网关响应超时";
+          if (errorType > 0.6) errorMsg = "银行卡余额不足";
+          else if (errorType > 0.3) errorMsg = "安全验证失败，请重试";
+          
+          throw new Error(errorMsg);
+      }
+
+      // 3. 支付成功，下发权益 (License Provisioning)
       dispatch({ type: 'UNLOCK_FEATURE', payload: featureKey });
       setStatus('success');
       
@@ -150,18 +185,21 @@ export const usePayment = () => {
         setTimeout(onSuccess, 800);
       }
 
-      // 重置状态
+      // 自动重置状态
       setTimeout(() => setStatus('idle'), 2500);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Payment failed', error);
       setStatus('error');
-      setTimeout(() => setStatus('idle'), 2000);
+      
+      // 触发错误回调，供 UI 层展示 Toast 或 Error Page
+      if (onError) onError(error.message || "未知支付错误");
     }
   };
 
   return {
     status,
+    setStatus,
     hasFeature,
     handlePay,
     getRecommendedPackage,

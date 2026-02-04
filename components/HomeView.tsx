@@ -1,5 +1,15 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+/**
+ * @file HomeView.tsx
+ * @description 应用首页 (Dashboard)
+ * 
+ * 视觉架构:
+ * 1. 沉浸式顶栏 (Immersion Header): 展示用户信息、健康分环及会员状态。
+ * 2. 金刚区 (King Kong District): 4个核心功能入口 (问诊/报告/家庭/设备)。
+ * 3. 信息流 (Feed): 包含风险预警、智能推荐卡片及专病管理入口。
+ */
+
+import React, { useState, useEffect, useMemo } from 'react';
 import { User, AppView, DiseaseType, IoTStats } from '../types';
 import Button from './Button';
 import { usePayment } from '../hooks/usePayment';
@@ -19,40 +29,33 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
   const { getRecommendedPackage, hasFeature } = usePayment();
   const [showAlertModal, setShowAlertModal] = useState(false);
   
-  // IoT Simulation State
+  // --- IoT Simulation Logic (设备数据模拟) ---
   const activeProfileId = user.currentProfileId || user.id;
   
-  // Helper to get stats for current active profile
+  // 获取当前选中 Profile 的设备数据
   const currentIoTStats = useMemo(() => {
      if (user.id === activeProfileId) return user.iotStats;
      return user.familyMembers?.find(m => m.id === activeProfileId)?.iotStats;
   }, [user, activeProfileId]);
 
-  // 获取推荐套餐
+  // 获取推荐套餐 (Marketing)
   const recommendedPkg = getRecommendedPackage();
   const isPkgUnlocked = hasFeature(recommendedPkg.featureKey);
 
-  // Use passed risk score or default to safe if 0
+  // 计算显示分数与主题色
   const displayScore = riskScore > 0 ? riskScore : 95;
   const finalHealthScore = riskScore > 0 ? (100 - riskScore) : 95;
-  
-  const getRiskStatus = (score: number) => {
-    if (score >= 80) return { color: 'text-emerald-500', bg: 'bg-emerald-50', border: 'border-emerald-100', text: '健康', ring: 'stroke-emerald-500' };
-    if (score >= 60) return { color: 'text-amber-500', bg: 'bg-amber-50', border: 'border-amber-100', text: '亚健康', ring: 'stroke-amber-500' };
-    return { color: 'text-rose-500', bg: 'bg-rose-50', border: 'border-rose-100', text: '高风险', ring: 'stroke-rose-500' };
-  };
+  const isCritical = finalHealthScore < 60; // 阈值：低于60分为高危
 
-  const status = getRiskStatus(finalHealthScore);
-  const isHeadacheCritical = riskScore > 60;
+  const themeColor = isCritical ? 'bg-rose-600' : 'bg-[#1677FF]';
 
-  // --- IoT Simulation Logic ---
+  // 模拟设备数据流 (Heartbeat)
   useEffect(() => {
     if (!hasDevice) return;
 
     const interval = setInterval(() => {
-        // Generate random vitals
-        // HR: 正常 60-100, 偶发异常 <60 或 >120
-        const isAnomaly = Math.random() > 0.9; // 10% chance of anomaly
+        // 随机生成生命体征
+        const isAnomaly = Math.random() > 0.9;
         let hr = 75 + Math.floor(Math.random() * 20 - 10);
         if (isAnomaly) hr = Math.random() > 0.5 ? 135 : 55;
 
@@ -66,28 +69,27 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
             lastUpdated: Date.now()
         };
 
-        // Dispatch to Global State
+        // 更新状态
         dispatch({
             type: 'UPDATE_IOT_STATS',
             payload: { id: activeProfileId, stats }
         });
 
-        // Trigger Alert Logic
+        // 触发异常弹窗 (Simulation)
         if (stats.isAbnormal) {
             setShowAlertModal(true);
-            // 自动提升癫痫/健康风险评分
             dispatch({
                 type: 'SET_RISK_SCORE',
                 payload: { score: 85, type: DiseaseType.EPILEPSY }
             });
         }
 
-    }, 5000); // 5 seconds update
+    }, 5000); 
 
     return () => clearInterval(interval);
   }, [hasDevice, activeProfileId]);
 
-
+  // 癫痫波形动画 (SVG Path Generator)
   useEffect(() => {
     let tick = 0;
     const generateWave = () => {
@@ -105,7 +107,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
     return () => cancelAnimationFrame(anim);
   }, []);
 
-  // --- Alert Modal Component (Updated to Level 3 Meltdown) ---
+  // --- Alert Modal (三级熔断预警) ---
   const AlertModal = () => (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-md animate-fade-in">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl border-2 border-red-500 relative overflow-hidden">
@@ -132,7 +134,6 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
                   
                   <Button fullWidth variant="outline" className="border-slate-300 text-slate-700 h-auto py-3 flex flex-col gap-1" onClick={() => window.alert("已向紧急联系人发送 GPS 定位: 北纬30.67, 东经104.06")}>
                       <span className="text-sm font-black">📍 发送 GPS 定位</span>
-                      <span className="text-[10px] text-slate-400">已自动通知 2 位紧急联系人</span>
                   </Button>
 
                   <button 
@@ -147,300 +148,162 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
   );
 
   return (
-    <div className="bg-[#F7F8FA] min-h-screen flex flex-col max-w-[430px] mx-auto overflow-x-hidden pb-safe select-none">
+    <div className="bg-[#F5F5F5] min-h-screen flex flex-col max-w-[430px] mx-auto overflow-x-hidden pb-safe select-none">
       
-      {/* 顶部看板 Dashboard */}
-      <div className={`bg-white rounded-b-[32px] px-5 pt-[calc(1.2rem+env(safe-area-inset-top))] pb-6 shadow-sm transition-colors duration-500 ${finalHealthScore < 60 ? 'bg-red-50/50' : ''}`}>
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-3">
-            <div className={`w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold text-lg border-[2.5px] shadow-sm ${user.vipLevel > 0 ? 'border-amber-400 text-amber-600' : 'border-white'}`}>
-              {user.name[0]}
+      {/* 1. 沉浸式顶栏 (Immersion Header) */}
+      <div className={`${themeColor} pt-[calc(1rem+env(safe-area-inset-top))] pb-16 px-5 transition-colors duration-500 relative`}>
+        {/* 背景纹理 */}
+        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 100% 0%, white 10%, transparent 20%)' }}></div>
+        
+        {/* User Info Row */}
+        <div className="flex justify-between items-start relative z-10 mb-6">
+            <div className="flex items-center gap-3" onClick={() => onNavigate('profile')}>
+                <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white border border-white/30 text-lg shadow-sm">
+                    {user.name[0]}
+                </div>
+                <div>
+                    <div className="flex items-center gap-2">
+                        <h2 className="text-base font-bold text-white">{user.name}</h2>
+                        <span className="bg-black/20 text-white/90 text-[9px] px-1.5 py-0.5 rounded font-bold backdrop-blur-sm flex items-center gap-1">
+                            {user.vipLevel > 0 ? '👑 尊享会员' : '未认证'}
+                            <span className="opacity-60">›</span>
+                        </span>
+                    </div>
+                    <p className="text-[10px] text-white/70 mt-0.5">华西数字医疗档案 ID: {user.id.split('_')[1] || '8829'}</p>
+                </div>
             </div>
-            <div>
-              <h2 className="text-[16px] font-bold text-slate-900">你好，{user.name}</h2>
-              <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border mt-1 ${status.bg} ${status.border} ${status.color}`}>
-                <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
-                <span className="text-[10px] font-bold">状态：{status.text}</span>
-              </div>
+            
+            {/* Risk Ring (健康分圆环) */}
+            <div className="relative w-14 h-14 flex items-center justify-center">
+                <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="44" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="6" />
+                    <circle 
+                        cx="50" cy="50" r="44" fill="none" stroke="white" strokeWidth="6" strokeLinecap="round" 
+                        strokeDasharray="276.4" 
+                        strokeDashoffset={276.4 - (276.4 * finalHealthScore) / 100} 
+                        className="transition-all duration-1000"
+                    />
+                </svg>
+                <div className="absolute flex flex-col items-center">
+                    <span className="text-sm font-black text-white">{finalHealthScore}</span>
+                    <span className="text-[7px] text-white/80 uppercase">健康分</span>
+                </div>
             </div>
-          </div>
-          <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
-            <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-              <circle cx="50" cy="50" r="44" fill="none" stroke="#F1F5F9" strokeWidth="8" />
-              <circle cx="50" cy="50" r="44" fill="none" className={`transition-all duration-1000 ${status.ring}`} strokeWidth="10" strokeDasharray="276.4" strokeDashoffset={276.4 - (276.4 * finalHealthScore) / 100} strokeLinecap="round" />
-            </svg>
-            <div className="absolute flex flex-col items-center">
-              <span className={`text-[18px] font-black ${finalHealthScore < 60 ? 'text-rose-600' : 'text-slate-900'}`}>{finalHealthScore}</span>
-              <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">健康分</span>
-            </div>
-          </div>
         </div>
+      </div>
 
-        {/* 1元解锁高亮转化金条 (高风险且未付费) */}
-        {finalHealthScore < 80 && user.vipLevel === 0 ? (
-          <div 
-            onClick={() => onNavigate('payment')}
-            className="bg-gradient-to-r from-rose-500 to-rose-600 rounded-2xl p-3 flex items-center justify-between shadow-lg shadow-rose-500/20 active:scale-[0.98] transition-all cursor-pointer animate-pulse-fast"
-          >
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center text-white font-bold">!</div>
-              <div>
-                <p className="text-white font-black text-[12px]">检测到健康风险异常</p>
-                <p className="text-white/80 text-[9px] font-medium">专家建议立即进行深度评估</p>
-              </div>
-            </div>
-            <div className="bg-white px-3 py-1 rounded-full text-rose-600 text-[11px] font-black">¥1 解锁</div>
+      {/* 2. 金刚区 (King Kong District) */}
+      <div className="px-3 -mt-10 relative z-20 mb-2">
+          <div className="bg-white rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.05)] p-4 flex justify-between items-center">
+              {[
+                  { label: 'AI 问诊', icon: '🩺', color: 'text-[#1677FF]', bg: 'bg-blue-50', nav: 'chat' },
+                  { label: '查报告', icon: '📄', color: 'text-emerald-500', bg: 'bg-emerald-50', nav: 'report' },
+                  { label: '亲情号', icon: '👨‍👩‍👧', color: 'text-orange-500', bg: 'bg-orange-50', nav: 'service-family' },
+                  { label: '租设备', icon: '⌚', color: 'text-purple-500', bg: 'bg-purple-50', nav: 'service-mall' },
+              ].map((item, i) => (
+                  <button key={i} onClick={() => onNavigate(item.nav as AppView)} className="flex flex-col items-center gap-2 active:opacity-70 transition-opacity">
+                      <div className={`w-11 h-11 rounded-full ${item.bg} flex items-center justify-center text-xl shadow-sm ${item.color}`}>
+                          {item.icon}
+                      </div>
+                      <span className="text-[11px] font-bold text-slate-700">{item.label}</span>
+                  </button>
+              ))}
           </div>
-        ) : (
-          <div 
-            onClick={() => onNavigate('chat')}
-            className="bg-white border border-brand-100 rounded-2xl p-3 flex items-center justify-between shadow-sm active:scale-[0.98] transition-all"
-          >
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-brand-50 rounded-full flex items-center justify-center text-brand-500 text-lg">🩺</div>
-              <div>
-                <p className="text-slate-800 font-black text-[12px]">AI 每日健康自查</p>
-                <p className="text-slate-400 text-[9px]">更新今日体征数据</p>
-              </div>
+      </div>
+
+      {/* 3. 核心业务流 (Main Feed) */}
+      <div className="px-3 space-y-3 pb-24">
+        
+        {/* 高风险提示条 (Critical Alert) */}
+        {isCritical && (
+            <div onClick={() => onNavigate('report')} className="bg-rose-50 border border-rose-100 rounded-xl p-3 flex items-center gap-3 animate-pulse">
+                <div className="w-8 h-8 bg-rose-100 rounded-full flex items-center justify-center text-rose-600 font-bold">!</div>
+                <div className="flex-1">
+                    <div className="text-xs font-black text-rose-700">检测到健康风险异常</div>
+                    <div className="text-[10px] text-rose-500">建议立即进行深度评估</div>
+                </div>
+                <button className="bg-rose-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-full">去处理</button>
             </div>
-            <span className="text-slate-300">›</span>
-          </div>
         )}
-      </div>
 
-      {/* 智能推荐卡片 (NEW) */}
-      {!isPkgUnlocked && (
-        <div className="px-5 mt-5">
-            <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-[24px] p-5 shadow-lg relative overflow-hidden text-white" onClick={() => onNavigate('service-mall')}>
-                <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -translate-y-8 translate-x-8"></div>
-                <div className="flex justify-between items-start mb-3 relative z-10">
+        {/* 智能推荐卡片 (Marketing Placement) */}
+        {!isPkgUnlocked && (
+            <div className="bg-white rounded-xl p-4 shadow-sm relative overflow-hidden group" onClick={() => onNavigate('service-mall')}>
+                <div className="absolute top-0 right-0 w-24 h-24 bg-amber-50 rounded-full blur-2xl -translate-y-8 translate-x-8"></div>
+                <div className="flex justify-between items-start relative z-10">
                     <div>
-                        <div className="flex items-center gap-2 mb-1">
-                            <span className="bg-amber-500 text-[9px] font-black px-1.5 py-0.5 rounded text-white">AI 推荐</span>
-                            <span className="text-[11px] text-slate-300 font-bold">为您定制方案</span>
-                        </div>
-                        <h3 className="text-[15px] font-black">{recommendedPkg.title}</h3>
+                        <div className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1">为您推荐</div>
+                        <h3 className="text-sm font-black text-slate-900 mb-1">{recommendedPkg.title}</h3>
+                        <p className="text-[10px] text-slate-400">{recommendedPkg.features[0]} · {recommendedPkg.features[1]}</p>
                     </div>
-                    <div className="bg-white/10 backdrop-blur-md rounded-xl p-2 flex flex-col items-center min-w-[60px]">
-                        <span className="text-[10px] line-through text-slate-400">¥{recommendedPkg.originalPrice || recommendedPkg.price * 1.5}</span>
-                        <span className="text-lg font-black text-amber-400">¥{recommendedPkg.price}</span>
+                    <div className="text-right">
+                        <span className="block text-lg font-black text-rose-500">¥{recommendedPkg.price}</span>
+                        <span className="text-[9px] text-slate-300 line-through">¥{recommendedPkg.originalPrice || 999}</span>
                     </div>
                 </div>
-                <div className="space-y-1.5 relative z-10">
-                    {recommendedPkg.features.slice(0, 2).map((feat, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                            <span className="text-emerald-400 text-[10px]">✓</span>
-                            <span className="text-[11px] text-slate-300">{feat}</span>
-                        </div>
-                    ))}
+            </div>
+        )}
+
+        {/* 专病管理卡片组 (Disease Modules) */}
+        <div className="grid grid-cols-2 gap-3">
+            {/* 左列：癫痫监控 */}
+            <div onClick={() => onNavigate('service-epilepsy')} className="bg-white rounded-xl p-4 shadow-sm flex flex-col justify-between min-h-[140px] border border-slate-50 active:scale-[0.98] transition-transform">
+                <div>
+                    <div className="flex justify-between items-start mb-2">
+                        <span className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-500 text-lg">🧠</span>
+                        {hasDevice && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
+                    </div>
+                    <h4 className="text-[13px] font-black text-slate-800">生命守护</h4>
+                    <p className="text-[10px] text-slate-400 mt-0.5">癫痫发作实时监测</p>
+                </div>
+                <div className="mt-2 h-10 w-full opacity-50">
+                     <svg width="100%" height="100%" viewBox="0 0 160 40">
+                        <path d={wavePath} fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" />
+                     </svg>
+                </div>
+            </div>
+
+            {/* 右列：包含 头痛 和 认知 两个小卡 */}
+            <div className="flex flex-col gap-3">
+                <div onClick={() => onNavigate('service-headache')} className="bg-white rounded-xl p-3 shadow-sm flex items-center gap-3 border border-slate-50 active:scale-[0.98] transition-transform flex-1">
+                    <div className="w-8 h-8 rounded-full bg-sky-50 flex items-center justify-center text-sky-500 text-lg">⚡</div>
+                    <div>
+                        <h4 className="text-[12px] font-black text-slate-800">诱因雷达</h4>
+                        <p className="text-[9px] text-slate-400">偏头痛气象预警</p>
+                    </div>
+                </div>
+                <div onClick={() => onNavigate('service-cognitive')} className="bg-white rounded-xl p-3 shadow-sm flex items-center gap-3 border border-slate-50 active:scale-[0.98] transition-transform flex-1">
+                    <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center text-purple-500 text-lg">🧩</div>
+                    <div>
+                        <h4 className="text-[12px] font-black text-slate-800">记忆训练</h4>
+                        <p className="text-[9px] text-slate-400">AD 认知康复</p>
+                    </div>
                 </div>
             </div>
         </div>
-      )}
 
-      {/* 核心业务区 */}
-      <div className="px-5 mt-5 space-y-4">
-        <h4 className="text-[13px] font-black text-slate-900 tracking-wider">专病管理工具箱</h4>
-        <div className="grid grid-cols-2 gap-4">
-          
-          {/* 癫痫卡片 */}
-          <div 
-            onClick={() => onNavigate('service-epilepsy')}
-            className="bg-white rounded-2xl p-4 shadow-card border border-slate-50 flex flex-col active:scale-[0.97] transition-all"
-          >
-            <div className="flex justify-between items-start mb-3">
-              <h5 className="text-[12px] font-black text-slate-800">生命守护 (癫痫)</h5>
-              {hasDevice ? (
-                  <span className="text-[8px] font-bold text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">监测中</span>
-              ) : (
-                  <span className="text-[8px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">未连接</span>
-              )}
-            </div>
-            <div className="h-[60px] bg-slate-50 rounded-xl flex items-center justify-center overflow-hidden border border-slate-100 relative">
-               {hasDevice ? (
-                 <svg width="100%" height="40" viewBox="0 0 160 40">
-                    <path d={wavePath} fill="none" stroke="#10B981" strokeWidth="2" strokeLinecap="round" />
-                 </svg>
-               ) : (
-                 <div className="flex flex-col items-center">
-                    <span className="text-[9px] text-amber-500 font-black">上次发作: 3天前</span>
-                    <span className="text-[8px] text-slate-400 mt-1">点击查看日志</span>
-                 </div>
-               )}
-            </div>
-            <p className="text-[9px] text-slate-400 mt-3 font-medium">
-                {hasDevice ? '实时脑电稳定性：极佳' : '全天候发作预警'}
-            </p>
-          </div>
-
-          {/* AD卡片 */}
-          <div 
-            onClick={() => onNavigate('service-cognitive')}
-            className="bg-white rounded-2xl p-4 shadow-card border border-slate-50 flex flex-col active:scale-[0.97] transition-all"
-          >
-            <div className="flex justify-between items-start mb-3">
-              <h5 className="text-[12px] font-black text-slate-800">大脑4S店 (AD)</h5>
-              <span className="text-[8px] font-black text-brand-500 bg-brand-50 px-1.5 py-0.5 rounded">进阶级</span>
-            </div>
-            <div className="flex-1 flex flex-col justify-center py-2">
-              <p className="text-[9px] font-bold text-slate-500 mb-1.5 tracking-tight">今日认知训练任务</p>
-              <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                <div className="bg-brand-500 h-full w-[30%] rounded-full transition-all duration-700"></div>
-              </div>
-              <div className="flex justify-between mt-1 text-[8px] font-black text-brand-500">
-                <span>30%</span>
-                <span>目标 15分钟</span>
-              </div>
-            </div>
-            <p className="text-[9px] text-slate-400 mt-2 font-medium">累计康复 125 天</p>
-          </div>
-
-          {/* 偏头痛卡片 (重构：支持 Normal/Critical 态) */}
-          <div 
-            onClick={() => onNavigate('service-headache')}
-            className={`rounded-2xl p-4 shadow-card border flex flex-col active:scale-[0.97] transition-all relative overflow-hidden ${
-                isHeadacheCritical 
-                ? 'bg-rose-50 border-rose-200' 
-                : 'bg-white border-slate-50'
-            }`}
-          >
-            {/* Critical State Alert Light */}
-            {isHeadacheCritical && (
-                <div className="absolute top-0 right-0 w-24 h-24 bg-rose-500/10 rounded-full blur-2xl -translate-y-8 translate-x-8 animate-pulse"></div>
-            )}
-
-            <div className="flex justify-between items-start mb-2 relative z-10">
-                <h5 className={`text-[12px] font-black ${isHeadacheCritical ? 'text-rose-900' : 'text-slate-800'}`}>诱因雷达 (头痛)</h5>
-                {isHeadacheCritical ? (
-                    <span className="text-[14px] animate-bounce">⚠️</span>
-                ) : (
-                    <span className="text-[8px] font-bold text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">监测中</span>
-                )}
-            </div>
-
-            <div className="flex-1 flex flex-col justify-center relative z-10">
-                {isHeadacheCritical ? (
-                    // Critical Content
-                    <div className="space-y-2">
-                        <div>
-                             <div className="text-[10px] text-rose-600 font-bold mb-0.5">检测到高危诱因</div>
-                             <div className="text-[13px] text-rose-800 font-black tracking-tight">气压突变 (↓5hPa)</div>
+        {/* 底部设备栏 (Device Status Card) */}
+        <div onClick={() => onNavigate(hasDevice ? 'profile' : 'haas-checkout')} className="bg-white rounded-xl p-4 shadow-sm border border-slate-50 flex items-center justify-between active:scale-[0.98] transition-transform">
+            <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-slate-50 flex items-center justify-center text-2xl">⌚</div>
+                <div>
+                    <h4 className="text-[12px] font-black text-slate-800">我的智能装备</h4>
+                    {hasDevice ? (
+                        <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] font-bold text-slate-500">HR: {currentIoTStats?.hr || '--'}</span>
+                            <span className="text-[10px] text-emerald-500 bg-emerald-50 px-1 rounded">已连接</span>
                         </div>
-                        
-                        {/* 一键对策按钮 */}
-                        <button 
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onNavigate('service-headache');
-                            }}
-                            className="bg-rose-500 hover:bg-rose-600 text-white text-[10px] font-bold w-full py-2 rounded-lg shadow-lg shadow-rose-500/20 flex items-center justify-center gap-1 active:scale-95 transition-all"
-                        >
-                            <span>⚡ 看对策</span>
-                            <span className="bg-white/20 px-1 rounded text-[8px]">SOS</span>
-                        </button>
-                    </div>
-                ) : (
-                    // Normal Content
-                    <div className="space-y-3">
-                        <div>
-                            <div className="flex justify-between items-end mb-1">
-                                <span className="text-[9px] text-slate-400 font-bold">诱因风险</span>
-                                <span className="text-[11px] font-black text-emerald-500">低</span>
-                            </div>
-                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                <div className="bg-emerald-400 h-full w-[20%] rounded-full"></div>
-                            </div>
-                        </div>
-                        <div className="flex justify-between items-center pt-1">
-                            <span className="text-[9px] text-slate-400">气压/睡眠</span>
-                            <span className="text-[9px] font-black text-slate-600">稳定</span>
-                        </div>
-                    </div>
-                )}
+                    ) : (
+                        <p className="text-[10px] text-slate-400 mt-0.5">暂无设备，点击租赁</p>
+                    )}
+                </div>
             </div>
-          </div>
-
-          {/* 亲情账号 */}
-          <div 
-            onClick={() => onNavigate('service-family')}
-            className="bg-white rounded-2xl p-4 shadow-card border border-slate-50 flex flex-col active:scale-[0.97] transition-all justify-between"
-          >
-            <h5 className="text-[12px] font-black text-slate-800">亲情账户中心</h5>
-            <div className="flex items-center gap-2.5 mt-2 p-1.5 bg-slate-50 rounded-xl">
-              <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-sm shadow-sm">👨‍🦳</div>
-              <div className="flex-1 overflow-hidden">
-                <div className="text-[9px] font-black truncate">父亲 (陈大强)</div>
-                <div className="text-[8px] text-emerald-500 font-bold">健康监护中</div>
-              </div>
-            </div>
-            <p className="text-[9px] text-slate-400 mt-2 font-medium">查看 2 位关联亲友</p>
-          </div>
+            {!hasDevice && <span className="text-[11px] font-bold text-[#1677FF]">去申请 ›</span>}
         </div>
-      </div>
 
-      {/* 设备中心 IoT Hub - Enhanced with Real Data */}
-      <div className="px-5 mt-6 space-y-3 mb-24">
-        <div className="flex items-center justify-between">
-          <h4 className="text-[13px] font-black text-slate-900 tracking-wider">我的智能装备</h4>
-          <button onClick={() => onNavigate('service-mall')} className="text-brand-500 text-[10px] font-black bg-brand-50 px-3 py-1 rounded-lg active:scale-95 transition-all">租赁管理</button>
-        </div>
-        <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-          {/* 脑电卡片 */}
-          <div className="min-w-[180px] bg-white rounded-2xl p-3 border border-slate-100 flex items-center gap-3 shadow-soft">
-            <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-lg">🧠</div>
-            <div className="flex-1">
-              <div className="text-[11px] font-black text-slate-800">脑电头带 Pro</div>
-              <div className="flex items-center justify-between mt-1">
-                <span className="text-[9px] text-slate-400 font-bold">未连接</span>
-              </div>
-            </div>
-          </div>
-
-          {/* 手环卡片 (Real-time Updated) */}
-          <div 
-             onClick={() => onNavigate('haas-checkout')}
-             className={`min-w-[180px] rounded-2xl p-3 border transition-all flex items-center gap-3 shadow-soft ${
-                 hasDevice 
-                 ? (currentIoTStats?.isAbnormal ? 'bg-red-50 border-red-200' : 'bg-emerald-50/30 border-emerald-200')
-                 : 'bg-white border-slate-100'
-             }`}
-          >
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${hasDevice && currentIoTStats?.isAbnormal ? 'bg-red-100 animate-pulse' : 'bg-slate-50'}`}>⌚</div>
-            <div className="flex-1">
-              <div className="text-[11px] font-black text-slate-800">生命监测手环</div>
-              {hasDevice && currentIoTStats ? (
-                  <div className="mt-1">
-                      <div className="flex items-center gap-2 text-[9px] font-bold">
-                          <span className={currentIoTStats.isAbnormal ? 'text-red-600' : 'text-slate-600'}>
-                              HR: {currentIoTStats.hr}
-                          </span>
-                          <span className="text-slate-400">BP: {currentIoTStats.bpSys}/{currentIoTStats.bpDia}</span>
-                      </div>
-                      <div className="text-[8px] text-emerald-500 mt-0.5 flex items-center gap-1">
-                          <span className={`w-1.5 h-1.5 rounded-full ${currentIoTStats.isAbnormal ? 'bg-red-500 animate-ping' : 'bg-emerald-500'}`}></span>
-                          {currentIoTStats.isAbnormal ? '异常数据' : '实时同步中'}
-                      </div>
-                  </div>
-              ) : (
-                  <div className="flex items-center justify-between mt-1">
-                     <span className="text-[9px] text-brand-500 font-bold">申请租赁 ›</span>
-                  </div>
-              )}
-            </div>
-          </div>
-        </div>
       </div>
 
       {showAlertModal && <AlertModal />}
-
-      {/* 合规标注页脚 */}
-      <div className="mt-auto px-10 pb-[calc(80px+env(safe-area-inset-bottom))] pt-8 text-center opacity-30 pointer-events-none">
-        <p className="text-[9px] text-slate-500 leading-relaxed font-bold tracking-tight">
-          所有建议均为辅助决策 (CDSS)，仅供医学参考<br/>
-          最终处方权及诊断结论归线下接诊医生所有<br/>
-          四川大学华西医院神经内科医联体 · 官方数字科室
-        </p>
-      </div>
     </div>
   );
 };

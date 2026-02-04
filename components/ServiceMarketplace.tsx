@@ -10,12 +10,13 @@ interface ServiceMarketplaceProps {
   onBack: () => void;
 }
 
-// --- HaaS 租赁结算流程 (重构：支持租期、押金、优惠券) ---
+// --- HaaS 租赁结算流程 (Ant Style Refactor) ---
 export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => void }> = ({ onBack, onComplete }) => {
-  const [step, setStep] = useState<'confirm' | 'form' | 'success'>('confirm');
+  const [step, setStep] = useState<'confirm' | 'form' | 'success' | 'error'>('confirm');
   const [isFamilyPay, setIsFamilyPay] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isDataSynced, setIsDataSynced] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
   
   // New States for Commercial Logic
   const [selectedPlanId, setSelectedPlanId] = useState('30d');
@@ -34,7 +35,17 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
 
   const handlePay = () => {
     setIsProcessing(true);
+    setStep('confirm'); // reset if coming from error
+    
     setTimeout(() => {
+      // [NEW] 模拟随机失败 (20%)
+      if (Math.random() < 0.2) {
+          setIsProcessing(false);
+          setErrorMsg("支付系统繁忙 (Code: 503)，请稍后重试");
+          setStep('error');
+          return;
+      }
+
       setIsProcessing(false);
       setStep('success');
       setIsDataSynced(true); // 模拟数据下发
@@ -43,220 +54,158 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
 
   if (step === 'success') {
     return (
-      <div className="flex flex-col h-screen bg-slate-50 max-w-[430px] mx-auto overflow-hidden">
+      <div className="flex flex-col h-screen bg-white max-w-[430px] mx-auto overflow-hidden">
         <div className="flex-1 flex flex-col items-center justify-center p-8 animate-fade-in relative">
           
-          {/* 3D Checkmark Animation */}
-          <div className="w-32 h-32 relative mb-8">
-             <svg className="w-full h-full text-emerald-500" viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" strokeWidth="5" className="opacity-20" />
-                <path fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" 
-                      d="M25 50 L45 70 L75 30"
-                      className="origin-center animate-[draw_0.6s_ease-out_forwards]"
-                      strokeDasharray="100" strokeDashoffset="100">
-                      <style>{`@keyframes draw { to { stroke-dashoffset: 0; } }`}</style>
-                </path>
-             </svg>
-             <div className="absolute inset-0 bg-emerald-500/10 rounded-full blur-2xl animate-pulse"></div>
+          <div className="w-20 h-20 bg-[#1677FF] rounded-full flex items-center justify-center text-white mb-6 shadow-xl shadow-blue-200">
+             <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
           </div>
 
-          <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">租赁申请已提交</h2>
-          <p className="text-slate-500 text-sm font-bold mb-8 uppercase tracking-widest">
-              看护模式已开启 · 租期 {pricing.plan.days} 天
+          <h2 className="text-xl font-black text-slate-900 mb-2">支付成功</h2>
+          <p className="text-slate-500 text-xs font-medium mb-8">
+              华西物联网中心已接单 · 预计明日送达
           </p>
           
-          {isDataSynced && (
-            <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 w-full mb-8 text-center animate-slide-up" style={{animationDelay: '0.2s'}}>
-              <span className="text-2xl mb-2 block">📡</span>
-              <div className="text-brand-700 font-black text-sm">亲情数据同步指令已下发</div>
-              <div className="text-brand-600/70 text-[10px] font-bold mt-1">设备激活后数据将实时传输至家属端</div>
-            </div>
-          )}
-
-          <div className="bg-white rounded-2xl p-5 w-full shadow-sm border border-slate-100 space-y-4 animate-slide-up" style={{animationDelay: '0.4s'}}>
-            <div className="flex items-start gap-3">
-              <div className="flex flex-col items-center gap-1">
-                <div className="w-2.5 h-2.5 bg-brand-500 rounded-full shadow-[0_0_10px_#3b82f6]"></div>
-                <div className="w-0.5 h-10 bg-slate-100"></div>
-              </div>
-              <div className="flex-1 pb-4 border-b border-slate-50">
-                <div className="text-[11px] font-black text-brand-600">正在出库</div>
-                <div className="text-[10px] text-slate-400 mt-0.5">华西神经内科物联网中心库房 · 已接单</div>
-                <div className="text-[9px] text-slate-300 mt-1">{new Date().toLocaleString()}</div>
-              </div>
-            </div>
-            <div className="flex items-start gap-3 opacity-50">
-              <div className="w-2.5 h-2.5 bg-slate-200 rounded-full"></div>
-              <div className="flex-1">
-                <div className="text-[11px] font-black text-slate-500">等待揽收</div>
-                <div className="text-[10px] text-slate-400 mt-0.5">顺丰速运 快递员 [刘师傅 139****1234]</div>
-              </div>
-            </div>
+          <div className="bg-slate-50 rounded-xl p-4 w-full mb-8 text-center border border-slate-100">
+             <div className="text-[11px] text-slate-400 mb-1">同步状态</div>
+             <div className="flex items-center justify-center gap-2 text-[#1677FF] font-bold text-sm">
+                <span className="w-2 h-2 rounded-full bg-[#1677FF] animate-pulse"></span>
+                亲情数据链路已激活
+             </div>
           </div>
         </div>
-        <div className="p-6 pb-safe animate-fade-in" style={{animationDelay: '0.8s'}}>
-          <Button fullWidth onClick={onComplete} className="shadow-lg shadow-emerald-500/20">返回首页</Button>
+        <div className="p-6 pb-safe animate-fade-in">
+          <Button fullWidth onClick={onComplete} className="bg-[#1677FF] py-4">完成</Button>
         </div>
       </div>
     );
   }
 
-  return (
-    <Layout headerTitle="租赁服务结算台" showBack onBack={onBack}>
-      <div className="p-5 pb-safe space-y-5 animate-slide-up pb-32">
-        
-        {/* 1. 医嘱确认卡 */}
-        <div className="bg-gradient-to-br from-brand-50 to-white border border-brand-100 rounded-[24px] p-5 relative overflow-hidden">
-           <div className="flex gap-4">
-             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-2xl shadow-sm border border-brand-50">🩺</div>
-             <div className="flex-1">
-               <h3 className="text-[13px] font-black text-brand-800 mb-1">医嘱处方建议</h3>
-               <p className="text-[11px] text-brand-700 leading-relaxed font-bold">
-                 经华西协作医院医生评估，建议患者佩戴 <span className="underline">长程脑电监测贴</span> 进行 24小时 居家体征与发作监测。
-               </p>
-             </div>
-           </div>
-        </div>
-
-        {/* 2. 商品及租期选择 */}
-        <div className="bg-white rounded-[24px] p-5 shadow-sm border border-slate-50">
-          <div className="flex gap-4 mb-5">
-            <div className="w-20 h-20 bg-slate-50 rounded-xl flex items-center justify-center text-4xl border border-slate-100">🧠</div>
-            <div className="flex-1 py-1">
-              <h4 className="font-black text-slate-900 text-sm">癫痫生命守护包 (硬件租赁)</h4>
-              <div className="flex gap-2 mt-2">
-                 <span className="text-[9px] bg-brand-50 text-brand-600 px-2 py-0.5 rounded font-bold">医疗级监测</span>
-                 <span className="text-[9px] bg-brand-50 text-brand-600 px-2 py-0.5 rounded font-bold">坏件包赔</span>
-              </div>
-            </div>
-          </div>
-          
-          {/* 租期选择 */}
-          <div className="space-y-3 mb-4">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">选择租期</label>
-              <div className="grid grid-cols-3 gap-2">
-                  {RENTAL_PLANS.map(plan => (
-                      <button
-                        key={plan.id}
-                        onClick={() => setSelectedPlanId(plan.id)}
-                        className={`py-3 px-2 rounded-xl border transition-all flex flex-col items-center justify-center gap-1 ${
-                            selectedPlanId === plan.id 
-                            ? 'bg-brand-600 border-brand-600 text-white shadow-lg shadow-brand-500/30 scale-[1.02]' 
-                            : 'bg-white border-slate-200 text-slate-500 hover:border-brand-200'
-                        }`}
-                      >
-                          <span className="text-[10px] font-bold">{plan.days} 天</span>
-                          <span className={`text-sm font-black ${selectedPlanId === plan.id ? 'text-white' : 'text-slate-800'}`}>¥{plan.price}</span>
-                      </button>
-                  ))}
-              </div>
-          </div>
-
-          {/* 优惠券选择 */}
-          <div className="mb-4">
-               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">优惠券</label>
-               <div className="space-y-2">
-                   {AVAILABLE_COUPONS.filter(c => c.type === 'rental' || c.type === 'general').map(coupon => (
-                       <div 
-                         key={coupon.id}
-                         onClick={() => setSelectedCouponId(selectedCouponId === coupon.id ? undefined : coupon.id)}
-                         className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-colors ${
-                             selectedCouponId === coupon.id ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-100'
-                         }`}
-                       >
-                           <div className="flex items-center gap-3">
-                               <div className="w-4 h-4 rounded-full border border-slate-300 flex items-center justify-center bg-white">
-                                   {selectedCouponId === coupon.id && <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>}
-                               </div>
-                               <div>
-                                   <div className="text-[11px] font-bold text-slate-800">{coupon.name}</div>
-                                   <div className="text-[9px] text-slate-400">满 ¥{coupon.minSpend} 可用</div>
-                               </div>
-                           </div>
-                           <div className="text-red-500 font-black text-sm">-¥{coupon.value}</div>
-                       </div>
-                   ))}
-               </div>
-          </div>
-
-          {/* 价格明细 */}
-          <div className="bg-slate-50 rounded-xl p-3 space-y-2">
-            <div className="flex justify-between text-[11px] font-bold text-slate-600">
-               <span>硬件押金 {pricing.deposit === 0 && <span className="text-amber-500">(VIP免押)</span>}</span>
-               <span className={`${pricing.deposit === 0 ? 'text-slate-400 line-through' : ''}`}>¥ 500</span>
-            </div>
-            <div className="flex justify-between text-[11px] font-bold text-slate-600">
-               <span>租赁费 ({pricing.plan.days}天)</span>
-               <span>¥ {pricing.plan.price}</span>
-            </div>
-            {pricing.discount > 0 && (
-                <div className="flex justify-between text-[11px] font-bold text-red-500">
-                    <span>优惠抵扣</span>
-                    <span>-¥ {pricing.discount}</span>
+  // [NEW] 错误状态视图
+  if (step === 'error') {
+      return (
+        <Layout headerTitle="支付失败" showBack onBack={() => setStep('confirm')}>
+            <div className="flex flex-col h-full bg-white items-center justify-center p-8 text-center animate-shake">
+                <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-6 border border-red-100">
+                   <span className="text-4xl">✕</span>
                 </div>
-            )}
-            <div className="flex justify-between text-[11px] font-bold text-slate-600">
-               <span>顺丰物流费</span>
-               <span className="text-emerald-500">包邮</span>
+                <h3 className="text-xl font-black text-slate-900 mb-2">订单支付失败</h3>
+                <p className="text-xs text-slate-500 mb-10">{errorMsg}</p>
+                <Button fullWidth onClick={handlePay} className="bg-brand-600 shadow-lg shadow-brand-500/20 py-4">
+                    重新提交订单
+                </Button>
             </div>
-          </div>
+        </Layout>
+      );
+  }
+
+  return (
+    <Layout headerTitle="确认订单" showBack onBack={onBack}>
+      <div className="p-4 pb-safe space-y-3 animate-slide-up pb-32 bg-[#F5F5F5] min-h-screen">
+        
+        {/* 1. 地址卡片 (Ant Style) */}
+        <div className="bg-white rounded-xl p-4 flex items-center gap-3 shadow-sm active:opacity-70 transition-opacity">
+           <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-[#1677FF]">
+               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 103 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 002.273 1.765 11.842 11.842 0 00.976.544l.062.029.018.008.006.003zM10 11.25a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5z" clipRule="evenodd" /></svg>
+           </div>
+           <div className="flex-1">
+               <div className="text-[13px] font-bold text-slate-800 flex items-center gap-2">
+                   {formData.name} <span className="text-slate-400 font-normal">{formData.phone}</span>
+               </div>
+               <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">{formData.address}</div>
+           </div>
+           <span className="text-slate-300">›</span>
         </div>
 
-        {/* 3. 收货信息 */}
-        <div className="bg-white rounded-[24px] p-5 shadow-sm border border-slate-50">
-           <h4 className="text-[12px] font-black text-slate-900 mb-4 tracking-wider">收货信息</h4>
-           <div className="space-y-4">
-              <div className="relative">
-                 <label className="absolute -top-2 left-3 bg-white px-1 text-[9px] font-bold text-brand-500">收件人姓名</label>
-                 <input 
-                   type="text" 
-                   value={formData.name}
-                   onChange={e => setFormData({...formData, name: e.target.value})}
-                   className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold text-slate-800 focus:border-brand-500 outline-none"
-                 />
-              </div>
-              <div className="relative">
-                 <label className="absolute -top-2 left-3 bg-white px-1 text-[9px] font-bold text-brand-500">联系电话</label>
-                 <input 
-                   type="tel" 
-                   value={formData.phone}
-                   onChange={e => setFormData({...formData, phone: e.target.value})}
-                   className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold text-slate-800 focus:border-brand-500 outline-none"
-                 />
-              </div>
-           </div>
+        {/* 2. 商品卡片 */}
+        <div className="bg-white rounded-xl p-4 shadow-sm">
+            <div className="flex gap-3 mb-4 border-b border-slate-50 pb-4">
+                <div className="w-20 h-20 bg-slate-50 rounded-lg flex items-center justify-center text-4xl border border-slate-100 shrink-0">
+                    ⌚
+                </div>
+                <div className="flex-1 py-0.5">
+                    <div className="text-[13px] font-bold text-slate-900 mb-1">癫痫生命守护包 (年卡)</div>
+                    <div className="flex flex-wrap gap-1 mb-2">
+                        <span className="bg-slate-50 text-slate-500 text-[9px] px-1.5 py-0.5 rounded">医疗级监测</span>
+                        <span className="bg-slate-50 text-slate-500 text-[9px] px-1.5 py-0.5 rounded">坏件包赔</span>
+                    </div>
+                    <div className="text-[#1677FF] font-bold text-[13px]">
+                        ¥ {pricing.plan.price} <span className="text-slate-300 font-normal text-[10px]">/ {pricing.plan.days}天</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* SKU Selector */}
+            <div className="space-y-3">
+                 <div className="text-[11px] font-bold text-slate-700">租期选择</div>
+                 <div className="flex gap-2">
+                      {RENTAL_PLANS.map(plan => (
+                          <button
+                            key={plan.id}
+                            onClick={() => setSelectedPlanId(plan.id)}
+                            className={`flex-1 py-2 rounded-lg text-[10px] font-bold border transition-all ${
+                                selectedPlanId === plan.id 
+                                ? 'bg-blue-50 border-[#1677FF] text-[#1677FF]' 
+                                : 'bg-white border-slate-200 text-slate-600'
+                            }`}
+                          >
+                              {plan.days}天
+                          </button>
+                      ))}
+                 </div>
+            </div>
+        </div>
+
+        {/* 3. 优惠与金额 */}
+        <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
+            <div className="flex justify-between items-center text-[12px]">
+                <span className="text-slate-600">设备押金</span>
+                <span className={pricing.deposit === 0 ? 'text-[#1677FF] font-bold' : 'text-slate-900 font-bold'}>
+                    {pricing.deposit === 0 ? '免押金 (VIP)' : `¥${pricing.deposit}`}
+                </span>
+            </div>
+            <div className="flex justify-between items-center text-[12px]">
+                <span className="text-slate-600">优惠券</span>
+                <div className="flex items-center gap-1 text-slate-400">
+                    {AVAILABLE_COUPONS.length > 0 ? (
+                         <span className="text-red-500 font-bold bg-red-50 px-1 rounded text-[10px]">-¥20</span>
+                    ) : '无可用'}
+                    <span>›</span>
+                </div>
+            </div>
+            <div className="flex justify-between items-center text-[12px]">
+                <span className="text-slate-600">配送方式</span>
+                <span className="text-slate-900 font-bold">顺丰包邮</span>
+            </div>
         </div>
 
         {/* 4. 亲情代付开关 */}
         <div 
           onClick={() => setIsFamilyPay(!isFamilyPay)}
-          className={`rounded-[24px] p-4 border flex items-center justify-between transition-all cursor-pointer ${isFamilyPay ? 'bg-brand-50 border-brand-200' : 'bg-white border-slate-50 shadow-sm'}`}
+          className="bg-white rounded-xl p-4 shadow-sm flex items-center justify-between active:bg-slate-50 transition-colors"
         >
-           <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg transition-colors ${isFamilyPay ? 'bg-white text-brand-500' : 'bg-slate-50 text-slate-400'}`}>👪</div>
-              <div>
-                 <div className={`text-[12px] font-black transition-colors ${isFamilyPay ? 'text-brand-700' : 'text-slate-900'}`}>为家人购买 (开启看护模式)</div>
-                 <div className="text-[9px] text-slate-400 font-bold mt-0.5">支付后将绑定亲情账号，同步预警信息</div>
-              </div>
+           <div>
+               <div className="text-[12px] font-bold text-slate-900">开启亲情代付</div>
+               <div className="text-[10px] text-slate-400 mt-0.5">支付后自动绑定家属账号</div>
            </div>
-           <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${isFamilyPay ? 'bg-brand-500 border-brand-500' : 'border-slate-300 bg-white'}`}>
-              {isFamilyPay && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+           <div className={`w-10 h-6 rounded-full relative transition-colors ${isFamilyPay ? 'bg-[#1677FF]' : 'bg-slate-200'}`}>
+               <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${isFamilyPay ? 'left-5' : 'left-1'}`}></div>
            </div>
         </div>
 
       </div>
 
-      {/* 底部支付栏 */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 p-4 pb-safe z-50 flex items-center justify-between max-w-[430px] mx-auto shadow-[0_-5px_20px_rgba(0,0,0,0.02)]">
-         <div>
-            <div className="text-[10px] text-slate-400 font-bold mb-0.5">实付金额 (含押金)</div>
-            <div className="flex items-baseline gap-1 text-slate-900">
-               <span className="text-xs font-bold">¥</span>
-               <span className="text-2xl font-black tracking-tighter">{pricing.total}</span>
+      {/* 底部结算栏 (Fixed) */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 p-3 pb-safe z-50 flex items-center justify-between max-w-[430px] mx-auto shadow-[0_-4px_16px_rgba(0,0,0,0.05)]">
+         <div className="pl-2">
+            <div className="flex items-baseline gap-1">
+               <span className="text-xs font-bold text-red-500">¥</span>
+               <span className="text-2xl font-black text-red-500 tracking-tighter">{pricing.total}</span>
             </div>
+            <div className="text-[9px] text-slate-400">已优惠 ¥{pricing.discount}</div>
          </div>
-         <Button onClick={handlePay} disabled={isProcessing} className="w-[180px] shadow-xl shadow-brand-500/20">
-             {isProcessing ? '支付处理中...' : (isFamilyPay ? '亲情代付并开通' : '立即支付')}
+         <Button onClick={handlePay} disabled={isProcessing} className="w-[140px] bg-[#1677FF] h-10 text-[13px]">
+             {isProcessing ? '处理中...' : '提交订单'}
          </Button>
       </div>
     </Layout>
@@ -266,77 +215,35 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
 // --- 服务商城矩阵 (入口) ---
 export const ServiceMallView: React.FC<ServiceMarketplaceProps> = ({ onNavigate, onBack }) => {
   return (
-    <Layout headerTitle="华西神经专病服务中心" showBack onBack={onBack}>
-      <div className="p-5 space-y-6 pb-24 animate-slide-up">
+    <Layout headerTitle="服务中心" showBack onBack={onBack}>
+      <div className="p-4 space-y-4 pb-24 animate-slide-up bg-[#F5F5F5] min-h-screen">
         
         {/* Banner */}
-        <div className="relative overflow-hidden bg-slate-900 rounded-[32px] p-6 text-white shadow-xl min-h-[160px] flex flex-col justify-center">
-            <div className="absolute top-0 right-0 w-48 h-48 bg-brand-500/20 rounded-full blur-3xl -translate-y-12 translate-x-12"></div>
-            <div className="relative z-10">
-               <span className="bg-white/10 text-white text-[9px] font-black px-2 py-0.5 rounded backdrop-blur-md uppercase tracking-widest border border-white/10">华西医联体官方</span>
-               <h2 className="text-2xl font-black mt-3 mb-2">专业硬件 免费租赁</h2>
-               <p className="text-[11px] text-slate-400 font-bold leading-relaxed w-2/3">
-                 加入专病生命守护计划，即刻由华西物联网中心配送医疗级监测设备。
-               </p>
-            </div>
+        <div className="bg-[#1677FF] rounded-xl p-5 text-white shadow-lg shadow-blue-500/20 relative overflow-hidden">
+             <div className="relative z-10">
+                <div className="font-black text-lg mb-1">华西专病 · 租赁中心</div>
+                <p className="text-xs opacity-80">医疗级监测设备 / 坏件包赔 / 专家解读</p>
+             </div>
+             <div className="absolute -right-4 -bottom-4 text-8xl opacity-20 rotate-12">🎁</div>
         </div>
 
-        {/* 服务矩阵 */}
-        <div className="space-y-4">
-           <h3 className="text-[13px] font-black text-slate-900 tracking-wider px-1">会员服务矩阵</h3>
-           
-           {/* 1. 深度评估 */}
-           <div 
-             onClick={() => onNavigate('payment')} 
-             className="bg-white rounded-[24px] p-5 shadow-card border border-slate-50 flex items-center justify-between active:scale-[0.98] transition-all"
-           >
-              <div className="flex gap-4 items-center">
-                 <div className="w-12 h-12 bg-orange-50 rounded-2xl flex items-center justify-center text-xl text-orange-500">📋</div>
-                 <div>
-                    <h4 className="font-black text-slate-800 text-[13px]">单次深度风险评估</h4>
-                    <p className="text-[10px] text-slate-400 font-bold mt-1">临床级量表 + AI 预诊报告</p>
+        {/* List Grid */}
+        <div className="grid grid-cols-2 gap-3">
+             {[
+                 { title: '癫痫守护包', price: '599', icon: '⌚', tag: '热租', nav: 'haas-checkout' },
+                 { title: 'AD 认知会员', price: '365', icon: '🧠', tag: '推荐', nav: 'payment' },
+                 { title: '深度评估', price: '1.00', icon: '📋', tag: '基础', nav: 'payment' },
+                 { title: '专家复核', price: '299', icon: '👨‍⚕️', tag: 'VIP', nav: 'payment' },
+             ].map((item, i) => (
+                 <div key={i} onClick={() => onNavigate(item.nav as AppView)} className="bg-white p-4 rounded-xl shadow-sm border border-slate-50 flex flex-col justify-between h-32 active:scale-[0.98] transition-transform relative overflow-hidden">
+                     {item.tag && <span className="absolute top-0 right-0 bg-orange-50 text-orange-600 text-[9px] px-2 py-1 rounded-bl-lg font-bold">{item.tag}</span>}
+                     <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-xl mb-2">{item.icon}</div>
+                     <div>
+                         <div className="text-[13px] font-bold text-slate-800">{item.title}</div>
+                         <div className="text-red-500 font-black text-sm mt-0.5">¥{item.price}</div>
+                     </div>
                  </div>
-              </div>
-              <button className="bg-orange-50 text-orange-600 px-4 py-2 rounded-full text-[11px] font-black">¥ 1.00</button>
-           </div>
-
-           {/* 2. AD 会员 */}
-           <div 
-             onClick={() => onNavigate('payment')} // 简化逻辑，实际可跳到详情
-             className="bg-white rounded-[24px] p-5 shadow-card border border-slate-50 flex items-center justify-between active:scale-[0.98] transition-all"
-           >
-              <div className="flex gap-4 items-center">
-                 <div className="w-12 h-12 bg-purple-50 rounded-2xl flex items-center justify-center text-xl text-purple-500">🧠</div>
-                 <div>
-                    <h4 className="font-black text-slate-800 text-[13px]">AD 认知康复会员</h4>
-                    <p className="text-[10px] text-slate-400 font-bold mt-1">定制训练 · 专家季度随访</p>
-                 </div>
-              </div>
-              <button className="bg-purple-50 text-purple-600 px-4 py-2 rounded-full text-[11px] font-black">¥ 365</button>
-           </div>
-
-           {/* 3. 癫痫守护包 (HaaS) */}
-           <div 
-             onClick={() => onNavigate('haas-checkout')}
-             className="bg-white rounded-[24px] p-5 shadow-card border border-slate-50 relative overflow-hidden group active:scale-[0.98] transition-all ring-1 ring-brand-100"
-           >
-              <div className="absolute top-0 right-0 bg-brand-500 text-white text-[9px] font-black px-2 py-1 rounded-bl-xl">热销</div>
-              <div className="flex gap-4 items-start">
-                 <div className="w-12 h-12 bg-brand-50 rounded-2xl flex items-center justify-center text-xl text-brand-600">⌚</div>
-                 <div className="flex-1">
-                    <h4 className="font-black text-slate-800 text-[13px]">癫痫生命守护包 (年卡)</h4>
-                    <p className="text-[10px] text-slate-400 font-bold mt-1 mb-3">含智能手环/脑电贴租赁 · 24h 报警</p>
-                    <div className="flex gap-2">
-                       <span className="text-[8px] border border-slate-100 px-1.5 py-0.5 rounded text-slate-500">免押金</span>
-                       <span className="text-[8px] border border-slate-100 px-1.5 py-0.5 rounded text-slate-500">顺丰包邮</span>
-                    </div>
-                 </div>
-                 <div className="self-center">
-                    <button className="bg-brand-600 text-white px-4 py-2 rounded-full text-[11px] font-black shadow-lg shadow-brand-500/30">¥ 599</button>
-                 </div>
-              </div>
-           </div>
-
+             ))}
         </div>
 
       </div>

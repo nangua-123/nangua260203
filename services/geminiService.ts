@@ -1,17 +1,32 @@
 
+/**
+ * @file geminiService.ts
+ * @description 华西医院神经内科 AI 核心服务层 (Mock)
+ * @author Neuro-Link Architect
+ * 
+ * 本服务负责模拟 LLM 的多轮问诊交互、医学术语清洗及 CDSS 临床路径分流。
+ * 目前采用“规则引擎 + 状态机”混合模式，未来可无缝替换为真实 Gemini API。
+ */
+
 import { ChatMessage, HeadacheProfile, EpilepsyProfile, CognitiveProfile, DiseaseType } from "../types";
 
-// MOCK SERVICE
-// 模拟华西医院分诊逻辑 - 神经内科 CDSS 标准版
+// --- Types & Interfaces ---
 
 interface MockChatSession {
-  step: number;
-  totalSteps: number; // [NEW] 总步数用于进度条
-  diseaseType: DiseaseType;
-  history: string[]; // Internal short-term memory
+  step: number;        // 当前问诊节点 (0-5)
+  totalSteps: number;  // 总节点数，用于前端进度条渲染
+  diseaseType: DiseaseType; // 当前识别出的病种路径
+  history: string[];   // 会话上下文快照
 }
 
-// 术语库处理
+// --- Utils ---
+
+/**
+ * 术语清洗器 (Terminology Sanitizer)
+ * 将口语化的用户输入转换为标准的医学术语，确保病历归档的专业性。
+ * @param text 原始文本
+ * @returns 清洗后的医学文本
+ */
 const sanitizeTerminology = (text: string) => {
     return text
         .replace(/头痛/g, "血管性头痛/偏头痛")
@@ -19,8 +34,13 @@ const sanitizeTerminology = (text: string) => {
         .replace(/看病/g, "就诊");
 };
 
-// 初始化会话，支持专病类型
-// [REFACTOR] 默认 5 步问诊流程
+// --- Core Logic ---
+
+/**
+ * 初始化问诊会话
+ * @param systemInstruction 系统预设指令 (Prompt)
+ * @param diseaseType 初始病种类型
+ */
 export const createChatSession = (systemInstruction: string, diseaseType: DiseaseType = DiseaseType.UNKNOWN): any => {
   return {
     step: 0,
@@ -30,24 +50,37 @@ export const createChatSession = (systemInstruction: string, diseaseType: Diseas
   } as MockChatSession;
 };
 
-// 核心问诊逻辑
+/**
+ * 发送消息给 AI (CDSS 状态机模拟)
+ * 
+ * 逻辑流程:
+ * 1. Step 0->1: 主动接诊
+ * 2. Step 1->2: 基于正则(Regex)的 NLP 意图识别与分诊路由
+ * 3. Step 2->5: 核心医学信息采集 (症状/频率/病史)
+ * 4. Step 5:    触发深度评估 (Commercial Hook)
+ * 
+ * @param session 当前会话状态
+ * @param message 用户输入
+ * @param fullContext 完整聊天记录
+ */
 export const sendMessageToAI = async (session: MockChatSession, message: string, fullContext: ChatMessage[] = []): Promise<string> => {
-  // Simulate network delay
+  // 模拟网络延迟 (RRT Simulation)
   await new Promise(resolve => setTimeout(resolve, 800));
 
   const msg = message.trim();
   let response = "";
 
-  // 0. 接诊 (Step 0 -> Step 1) - 严格对标 PRD 话术
+  // [Phase 0] 接诊阶段
   if (msg === "开始分诊" || session.step === 0) {
       session.step = 1;
       response = `您好，我是您的专病数字医生。请问您目前最主要的困扰是什么？
 <OPTIONS>记忆力明显下降|反复肢体抽搐/意识丧失|剧烈头痛/偏头痛|其他神经系统不适</OPTIONS>`;
   } 
   else {
-      // 1. 自动病种识别 & 路由逻辑 (Step 1 -> Step 2)
+      // [Phase 1] 智能分诊路由 (Intent Recognition)
       if (session.step === 1) {
           session.step = 2;
+          // 规则引擎：关键词匹配 -> 路由至对应 CDSS 路径
           if (/头痛|头晕|偏头痛|胀痛/.test(msg)) {
               session.diseaseType = DiseaseType.MIGRAINE;
               response = `已为您匹配【华西头痛中心】路径。
@@ -64,17 +97,16 @@ export const sendMessageToAI = async (session: MockChatSession, message: string,
 除了记忆力问题，患者目前最明显的改变是？
 <OPTIONS>出门迷路/分不清方向|性格突变/多疑|算不清账/无法购物|近期事情记不住</OPTIONS>`;
           } else {
-              // 默认兜底
+              // Fallback: 默认走头痛路径或通用路径
               session.diseaseType = DiseaseType.MIGRAINE;
               response = `症状已记录。为了更准确评估，请确认是否有以下情况：
 <OPTIONS>是否伴有剧烈头痛？|是否曾出现短暂意识丧失？|是否经常忘记近期发生的事？</OPTIONS>`;
           }
       } 
-      // 2. 核心信息采集 (Step 2 -> Step 5) - 只采集，不给结论
+      // [Phase 2] 结构化信息采集 (Data Collection)
       else {
-          session.step = Math.min(session.step + 1, 5); // 递增步数
+          session.step = Math.min(session.step + 1, 5); // 步进控制器
 
-          // 通用追问逻辑 (模拟不同病种的路径，但在 Step 5 统一结束)
           if (session.step < 5) {
               if (session.step === 3) {
                   response = `这种情况出现的频率是？
@@ -84,8 +116,8 @@ export const sendMessageToAI = async (session: MockChatSession, message: string,
 <OPTIONS>已确诊并服药|曾确诊但未服药|从未就诊|不清楚</OPTIONS>`;
               }
           } else {
-              // Step 5: 采集完成，触发深度测评推荐
-              // 严格对标 PRD: 不做分流判断，引导进入量表测评
+              // [Phase 3] 采集结束，触发转化 (Conversion)
+              // 严格对标 PRD: 不直接给出结论，引导进入量表测评
               response = `基础信息采集完毕。
 为了精准判断病情分级，建议进行【华西标准量表深度测评】。
 <ACTION>OFFER_ASSESSMENT</ACTION>`;
@@ -98,14 +130,17 @@ export const sendMessageToAI = async (session: MockChatSession, message: string,
   return sanitizeTerminology(response);
 };
 
-// 生成结构化病历 (支持多病种提取)
+/**
+ * 生成结构化病历摘要
+ * 用于 ReportView 展示及转诊凭证生成
+ */
 export const getTriageAnalysis = async (conversationHistory: ChatMessage[], diseaseType: DiseaseType = DiseaseType.MIGRAINE): Promise<string> => {
-    // Simulate thinking
+    // 模拟 AI 思考时间
     await new Promise(resolve => setTimeout(resolve, 1500));
 
-    const historyStr = JSON.stringify(conversationHistory);
-    // 默认风险分，具体由 ReportView 结合 Assessment 分数决定
-    // 此处仅生成摘要
+    // const historyStr = JSON.stringify(conversationHistory); // 实际场景中会发送给 LLM
+    
+    // Mock Result Generator
     let risk = 50; 
     let summary = "";
     let extractedProfile: any = {}; 
@@ -141,11 +176,18 @@ export const getTriageAnalysis = async (conversationHistory: ChatMessage[], dise
     });
 };
 
-// ... existing cognitive game assessment code ...
+/**
+ * 认知游戏评估生成器
+ * @param score 游戏得分
+ * @param accuracy 准确率/耗时
+ * @param gameType 游戏类型
+ */
 export const generateCognitiveAssessment = async (score: number, accuracy: number, gameType: 'memory' | 'attention'): Promise<{rating: string; advice: string}> => {
     await new Promise(resolve => setTimeout(resolve, 1200));
     let rating = 'B';
     let advice = '';
+    
+    // 简单的评分逻辑规则
     if (gameType === 'memory') {
         if (score > 100) { rating = 'S'; advice = '海马体空间记忆能力极佳。'; }
         else { rating = 'C'; advice = '注意广度略显不足。'; }
