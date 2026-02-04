@@ -105,26 +105,42 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
     return () => cancelAnimationFrame(anim);
   }, []);
 
-  // --- Alert Modal Component ---
+  // --- Alert Modal Component (Updated to Level 3 Meltdown) ---
   const AlertModal = () => (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl border border-red-100 relative overflow-hidden">
-              <div className="absolute top-0 left-0 w-full h-1 bg-red-500 animate-pulse"></div>
-              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center text-3xl mx-auto mb-4 animate-bounce text-red-500 border border-red-100">
-                  💓
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-md animate-fade-in">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl border-2 border-red-500 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-2 bg-red-600 animate-pulse"></div>
+              
+              <div className="flex justify-center mb-6 mt-2">
+                 <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center animate-ping absolute opacity-50"></div>
+                 <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center text-4xl relative text-red-600 border border-red-200">
+                    🆘
+                 </div>
               </div>
-              <h3 className="text-lg font-black text-slate-900 mb-2">检测到生命体征异常</h3>
-              <p className="text-sm text-slate-500 mb-6 font-bold">
-                  监测到心率 ({currentIoTStats?.hr} bpm) 超出安全范围。
-                  <br/>建议立即停止当前活动并联系医生。
+              
+              <h3 className="text-xl font-black text-slate-900 mb-2">三级熔断预警已触发</h3>
+              <p className="text-sm text-slate-600 mb-6 font-medium leading-relaxed">
+                  监测到严重心率异常 ({currentIoTStats?.hr} bpm)<br/>
+                  疑似<strong className="text-red-600">强直阵挛性发作</strong>，建议立即急救。
               </p>
+              
               <div className="space-y-3">
-                  <Button fullWidth className="bg-red-600 shadow-red-500/30" onClick={() => onNavigate('chat')}>
-                      联系华西值班医生 (SOS)
+                  <Button fullWidth className="bg-red-600 hover:bg-red-700 shadow-lg shadow-red-500/40 py-4 h-auto flex flex-col items-center justify-center gap-1" onClick={() => window.alert("模拟拨打 120 急救电话")}>
+                      <span className="text-base font-black">📞 一键拨打 120</span>
+                      <span className="text-[10px] opacity-80 font-normal">系统将自动播报患者位置</span>
                   </Button>
-                  <Button fullWidth variant="outline" onClick={() => setShowAlertModal(false)}>
-                      我知道了 (取消报警)
+                  
+                  <Button fullWidth variant="outline" className="border-slate-300 text-slate-700 h-auto py-3 flex flex-col gap-1" onClick={() => window.alert("已向紧急联系人发送 GPS 定位: 北纬30.67, 东经104.06")}>
+                      <span className="text-sm font-black">📍 发送 GPS 定位</span>
+                      <span className="text-[10px] text-slate-400">已自动通知 2 位紧急联系人</span>
                   </Button>
+
+                  <button 
+                     onClick={() => setShowAlertModal(false)}
+                     className="mt-2 text-slate-400 text-xs font-bold underline decoration-slate-300 p-2"
+                  >
+                      我是本人，误报解除
+                  </button>
               </div>
           </div>
       </div>

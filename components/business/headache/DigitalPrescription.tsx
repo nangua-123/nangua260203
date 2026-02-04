@@ -96,8 +96,31 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
 
   return (
     <>
-      <div className="relative group">
-        {/* Prescription Card Container */}
+      <div className="relative group space-y-4">
+        
+        {/* 0. 动态非药物干预 (生活方式) - [COMPLIANCE FIX] 移出付费墙，作为免费基础功能 */}
+        <div className={`rounded-[24px] p-5 border shadow-sm transition-colors duration-500 bg-white ${highlight ? 'border-rose-100 ring-2 ring-rose-50' : 'border-slate-50'}`}>
+             <h4 className={`text-[12px] font-black uppercase tracking-widest mb-3 flex items-center justify-between ${highlight ? 'text-rose-500' : 'text-slate-800'}`}>
+                 <span className="flex items-center gap-1">
+                    {highlight && <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping"></span>}
+                    今日非药物干预 (生活方式)
+                 </span>
+                 <span className="text-[9px] bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded font-bold border border-emerald-100">免费基础项</span>
+             </h4>
+             <div className="space-y-2">
+                 {sortedLifestyle.map((item, idx) => (
+                     <div key={item.id} className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100 animate-slide-up" style={{ animationDelay: `${idx * 100}ms` }}>
+                         <div className="text-xl">{item.icon}</div>
+                         <div>
+                             <div className="text-[12px] font-black text-slate-800">{item.title}</div>
+                             <div className="text-[10px] text-slate-500">{item.desc}</div>
+                         </div>
+                     </div>
+                 ))}
+             </div>
+        </div>
+
+        {/* Prescription Card Container (Locked) */}
         <div className={`
             bg-white rounded-[32px] p-0 shadow-xl shadow-brand-500/10 relative overflow-hidden transition-all duration-500 border border-slate-100
             ${(!isUnlocked || isInvalid) ? 'select-none grayscale-[0.9] opacity-80' : 'scale-100 opacity-100'}
@@ -127,30 +150,9 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
                 </div>
             </div>
 
-            {/* Content Section */}
+            {/* Content Section (Drug Info) */}
             <div className="p-6 space-y-6">
                 
-                {/* 0. 动态非药物干预 */}
-                {isUnlocked && !isInvalid && (
-                    <div className={`rounded-2xl p-4 border transition-colors duration-500 ${highlight ? 'bg-rose-50 border-rose-100' : 'bg-orange-50/50 border-orange-100'}`}>
-                         <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-1 ${highlight ? 'text-rose-500' : 'text-orange-400'}`}>
-                             {highlight && <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping"></span>}
-                             今日生活方式干预 (Top 2)
-                         </h4>
-                         <div className="space-y-2">
-                             {sortedLifestyle.map((item, idx) => (
-                                 <div key={item.id} className="flex items-center gap-3 bg-white p-2.5 rounded-xl shadow-sm border border-transparent animate-slide-up" style={{ animationDelay: `${idx * 100}ms` }}>
-                                     <div className="text-xl">{item.icon}</div>
-                                     <div>
-                                         <div className="text-[11px] font-black text-slate-800">{item.title}</div>
-                                         <div className="text-[9px] text-slate-400">{item.desc}</div>
-                                     </div>
-                                 </div>
-                             ))}
-                         </div>
-                    </div>
-                )}
-
                 {/* 1. 预防性治疗 */}
                 <div className="relative pl-4 border-l-2 border-brand-200">
                     <div className="absolute -left-[5px] top-0 w-2.5 h-2.5 bg-brand-500 rounded-full ring-4 ring-white"></div>
@@ -194,45 +196,45 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
                     Powered by West China Hospital CDSS
                 </p>
             </div>
+        
+            {/* Invalid Overlay (Expired or Unauthorized) */}
+            {isUnlocked && isInvalid && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 bg-slate-100/50 backdrop-blur-[2px] rounded-[32px]">
+                    <div className="bg-white p-6 rounded-[24px] shadow-2xl text-center border border-rose-100 max-w-[260px]">
+                        <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center text-2xl mx-auto mb-3">
+                            ⚠️
+                        </div>
+                        <h3 className="text-sm font-black text-slate-800 mb-1">处方已失效</h3>
+                        <p className="text-[10px] text-slate-500 mb-0 leading-relaxed">
+                            {isExpired ? '超过7天有效期，需重新评估' : '医师签名未通过华西认证'}
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {/* Lock Overlay & Unlock Trigger */}
+            {!isUnlocked && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6">
+                    <div className="bg-white/90 backdrop-blur-xl p-6 rounded-[24px] shadow-2xl text-center border border-white/50 max-w-[260px] animate-slide-up">
+                        <div className="w-12 h-12 bg-brand-50 text-brand-600 rounded-full flex items-center justify-center text-2xl mx-auto mb-3 shadow-inner">
+                            🔒
+                        </div>
+                        <h3 className="text-sm font-black text-slate-800 mb-1">解锁华西数字药方</h3>
+                        <p className="text-[10px] text-slate-500 mb-4 leading-relaxed">
+                            包含完整用药方案、剂量指导及专家注意事项。
+                        </p>
+                        <button 
+                            onClick={() => setShowPayModal(true)}
+                            className="bg-brand-600 text-white w-full py-3 rounded-xl text-[11px] font-black shadow-lg shadow-brand-500/30 active:scale-95 transition-all hover:bg-brand-700 flex items-center justify-center gap-2"
+                        >
+                            <span>立即解锁</span>
+                            <span className="bg-white/20 px-1.5 rounded text-[9px]">¥1.00</span>
+                        </button>
+                        <p className="text-[8px] text-slate-300 mt-3">支持微信支付 / 支付宝</p>
+                    </div>
+                </div>
+            )}
         </div>
-
-        {/* Invalid Overlay (Expired or Unauthorized) */}
-        {isUnlocked && isInvalid && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 bg-slate-100/50 backdrop-blur-[2px] rounded-[32px]">
-                <div className="bg-white p-6 rounded-[24px] shadow-2xl text-center border border-rose-100 max-w-[260px]">
-                     <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center text-2xl mx-auto mb-3">
-                        ⚠️
-                    </div>
-                    <h3 className="text-sm font-black text-slate-800 mb-1">处方已失效</h3>
-                    <p className="text-[10px] text-slate-500 mb-0 leading-relaxed">
-                        {isExpired ? '超过7天有效期，需重新评估' : '医师签名未通过华西认证'}
-                    </p>
-                </div>
-            </div>
-        )}
-
-        {/* Lock Overlay & Unlock Trigger */}
-        {!isUnlocked && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6">
-                <div className="bg-white/90 backdrop-blur-xl p-6 rounded-[24px] shadow-2xl text-center border border-white/50 max-w-[260px] animate-slide-up">
-                    <div className="w-12 h-12 bg-brand-50 text-brand-600 rounded-full flex items-center justify-center text-2xl mx-auto mb-3 shadow-inner">
-                        🔒
-                    </div>
-                    <h3 className="text-sm font-black text-slate-800 mb-1">权益已锁定</h3>
-                    <p className="text-[10px] text-slate-500 mb-4 leading-relaxed">
-                        包含完整用药方案、剂量指导及专家注意事项。
-                    </p>
-                    <button 
-                        onClick={() => setShowPayModal(true)}
-                        className="bg-brand-600 text-white w-full py-3 rounded-xl text-[11px] font-black shadow-lg shadow-brand-500/30 active:scale-95 transition-all hover:bg-brand-700 flex items-center justify-center gap-2"
-                    >
-                        <span>立即解锁</span>
-                        <span className="bg-white/20 px-1.5 rounded text-[9px]">¥1.00</span>
-                    </button>
-                    <p className="text-[8px] text-slate-300 mt-3">支持微信支付 / 支付宝</p>
-                </div>
-            </div>
-        )}
 
         {/* Payment Modal */}
         <PaywallModal 

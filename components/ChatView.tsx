@@ -1,10 +1,12 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChatMessage, HeadacheProfile, DiseaseType, EpilepsyProfile, CognitiveProfile } from '../types';
+import { ChatMessage, DiseaseType } from '../types';
 import { createChatSession, sendMessageToAI, getTriageAnalysis } from '../services/geminiService';
 import { useApp } from '../context/AppContext';
 import Layout from './Layout';
 import Button from './Button';
+import { PaywallModal } from './business/payment/PaywallModal'; // 复用支付组件
+import { usePayment } from '../hooks/usePayment';
 
 interface ChatViewProps {
   onBack: () => void;
@@ -13,84 +15,71 @@ interface ChatViewProps {
 
 const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
   const { state, dispatch } = useApp();
+  const { PACKAGES } = usePayment();
   
-  // --- State for Chat ---
-  const [activeDisease, setActiveDisease] = useState<DiseaseType>(DiseaseType.MIGRAINE);
+  // --- State ---
+  const [activeDisease, setActiveDisease] = useState<DiseaseType>(DiseaseType.UNKNOWN);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isAnalysing, setIsAnalysing] = useState(false);
-  const [showArchiveGen, setShowArchiveGen] = useState(false);
   const [latestOptions, setLatestOptions] = useState<string[]>([]);
-  const [apiError, setApiError] = useState(false); // New Error State
+  const [apiError, setApiError] = useState(false);
+  
+  // Progress & Feedback (PRD Req: "问诊进度3/5")
+  const [currentStep, setCurrentStep] = useState(0);
+  const [totalSteps] = useState(5); 
+  const [showFeedbackToast, setShowFeedbackToast] = useState(false);
+  const [feedbackMsg, setFeedbackMsg] = useState('');
+
+  // Assessment Offer State
+  const [showAssessmentOffer, setShowAssessmentOffer] = useState(false);
+  const [showPayModal, setShowPayModal] = useState(false);
   
   const chatSessionRef = useRef<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const hasTriggeredReport = useRef(false);
 
-  // --- Context Caching Logic (localStorage) ---
-  const STORAGE_KEY_PREFIX = 'huaxi_chat_history_';
+  // --- Context Caching Logic ---
+  const STORAGE_KEY = 'huaxi_chat_history_unified_v4';
 
-  // Load history when disease type changes
   useEffect(() => {
-    loadHistory(activeDisease);
-  }, [activeDisease]);
+    loadHistory();
+  }, []);
 
-  const loadHistory = (disease: DiseaseType) => {
+  const loadHistory = () => {
     setMessages([]);
     setLatestOptions([]);
     setIsLoading(false);
-    setIsAnalysing(false);
-    setShowArchiveGen(false);
+    setShowAssessmentOffer(false);
     setApiError(false);
-    hasTriggeredReport.current = false;
+    setCurrentStep(0);
 
-    chatSessionRef.current = createChatSession("系统初始化", disease);
-
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}${disease}`);
-    if (saved) {
-        try {
-            const parsedMsgs = JSON.parse(saved) as ChatMessage[];
-            if (parsedMsgs.length > 0) {
-                setMessages(parsedMsgs);
-                chatSessionRef.current.step = Math.floor(parsedMsgs.length / 2);
-                const lastMsg = parsedMsgs[parsedMsgs.length - 1];
-                if (lastMsg.role === 'model' && lastMsg.suggestedOptions) {
-                    setLatestOptions(lastMsg.suggestedOptions);
-                }
-                setTimeout(scrollToBottom, 100);
-                return;
-            }
-        } catch (e) {
-            console.error("Failed to load chat history", e);
-        }
-    }
+    chatSessionRef.current = createChatSession("系统初始化", DiseaseType.UNKNOWN);
+    // 直接开始分诊，AI 主动接诊
     handleSend("开始分诊", true);
-  };
-
-  const saveHistory = (newMessages: ChatMessage[]) => {
-      const sliced = newMessages.slice(-15);
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}${activeDisease}`, JSON.stringify(sliced));
   };
 
   const scrollToBottom = () => {
     if (scrollRef.current) {
         setTimeout(() => {
-            if (scrollRef.current) {
-                scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-            }
+            if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }, 100);
     }
   };
 
+  useEffect(() => { scrollToBottom(); }, [messages, isLoading, showAssessmentOffer]);
+
+  // Toast Auto-Close (PRD Req: "3秒自动关闭")
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, isLoading, isAnalysing, apiError]);
+      if (showFeedbackToast) {
+          const timer = setTimeout(() => setShowFeedbackToast(false), 3000);
+          return () => clearTimeout(timer);
+      }
+  }, [showFeedbackToast]);
 
   const parseResponse = (rawText: string) => {
     let cleanText = rawText;
     let options: string[] = [];
-    let triggerReport = false;
+    let triggerOffer = false;
 
     const optionsMatch = rawText.match(/<OPTIONS>([\s\S]*?)<\/OPTIONS>/i);
     if (optionsMatch) {
@@ -98,39 +87,44 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
         cleanText = cleanText.replace(optionsMatch[0], '');
     }
 
-    if (rawText.includes("<ACTION>REPORT</ACTION>")) {
-        triggerReport = true;
-        cleanText = cleanText.replace(/<ACTION>\s*REPORT\s*<\/ACTION>/i, '');
+    if (rawText.includes("<ACTION>OFFER_ASSESSMENT</ACTION>")) {
+        triggerOffer = true;
+        cleanText = cleanText.replace(/<ACTION>\s*OFFER_ASSESSMENT\s*<\/ACTION>/i, '');
     }
 
-    return { cleanText: cleanText.trim(), options, triggerReport };
+    return { cleanText: cleanText.trim(), options, triggerOffer };
   };
 
   const handleSend = async (text: string, isSystemStart = false) => {
     let currentMsgs = messages;
+    setLatestOptions([]);
 
-    // 如果是从错误状态重试，不添加新消息，而是重发上一条
     if (!apiError && !isSystemStart) {
-        const newMsg: ChatMessage = {
-            id: Date.now().toString(),
-            role: 'user',
-            text: text,
-            timestamp: Date.now()
-        };
+        const newMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: text, timestamp: Date.now() };
         currentMsgs = [...messages, newMsg];
         setMessages(currentMsgs);
-        saveHistory(currentMsgs);
+        
+        // PRD Req: "信息已提交，正在分析"
+        setFeedbackMsg("信息已提交，正在分析");
+        setShowFeedbackToast(true);
     }
     
-    setLatestOptions([]);
     setInput('');
     setIsLoading(true);
     setApiError(false);
 
     try {
-      // API 熔断保护
       const rawResponse = await sendMessageToAI(chatSessionRef.current, text, currentMsgs);
-      const { cleanText, options, triggerReport } = parseResponse(rawResponse);
+      
+      // Update disease type
+      if (chatSessionRef.current.diseaseType !== DiseaseType.UNKNOWN) {
+          setActiveDisease(chatSessionRef.current.diseaseType);
+      }
+      
+      // Update step for Progress Bar
+      setCurrentStep(chatSessionRef.current.step);
+
+      const { cleanText, options, triggerOffer } = parseResponse(rawResponse);
       
       const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -143,207 +137,200 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
       const updatedMsgs = [...currentMsgs, aiMsg];
       setMessages(updatedMsgs);
       setLatestOptions(options);
-      saveHistory(updatedMsgs);
 
-      if (triggerReport && !hasTriggeredReport.current) {
-         hasTriggeredReport.current = true;
-         handleTriggerAnalysis(updatedMsgs); 
+      if (triggerOffer) {
+         setShowAssessmentOffer(true);
       }
 
     } catch (e) {
       console.error(e);
-      setApiError(true); // Trigger Error UI
+      setApiError(true);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleTriggerAnalysis = async (fullHistory: ChatMessage[]) => {
-    setIsAnalysing(true);
-    
-    setTimeout(async () => {
-        try {
-            const analysisJson = await getTriageAnalysis(fullHistory, activeDisease);
-            const summary = JSON.parse(analysisJson);
-            
-            setShowArchiveGen(true);
-            
-            setTimeout(() => {
-                if (summary.extractedProfile) {
-                     const payload: any = { id: state.user.id, profile: summary.extractedProfile };
-                     dispatch({ type: 'UPDATE_PROFILE', payload: payload });
-                }
-                localStorage.removeItem(`${STORAGE_KEY_PREFIX}${activeDisease}`);
-                onPaymentGate(summary);
-            }, 3000);
-
-        } catch (e) {
-            console.error("分析失败", e);
-            setApiError(true);
-        } finally {
-            setIsAnalysing(false);
-        }
-    }, 1500);
+  // --- Handlers ---
+  const handleUnlockAssessment = () => {
+      // 点击付费，弹出支付框
+      setShowPayModal(true);
   };
 
-  const DiseaseTab = ({ type, label, icon }: { type: DiseaseType; label: string; icon: string }) => (
-      <button 
-        onClick={() => setActiveDisease(type)}
-        disabled={isLoading || isAnalysing}
-        className={`flex-1 py-3 text-xs font-bold transition-all border-b-2 flex items-center justify-center gap-1.5 ${
-            activeDisease === type 
-            ? 'border-brand-600 text-brand-700 bg-brand-50/50' 
-            : 'border-transparent text-slate-400 hover:text-slate-600'
-        }`}
-      >
-          <span>{icon}</span>
-          {label}
-      </button>
-  );
+  const handleAssessmentPaid = () => {
+      // 支付成功，跳转到测评页
+      // 使用 window event 通知 App.tsx 跳转
+      const event = new CustomEvent('navigate-to', { detail: 'assessment' });
+      window.dispatchEvent(event);
+  };
+
+  const handleSkip = () => {
+      // PRD Req: "用户若不购买该深度测评，可正常享受线上基础免费功能"
+      // 这里跳过测评，直接去首页或简单的基础报告
+      // 我们设定 riskScore = 0 (表示未测评/基础) 并跳转首页
+      dispatch({ type: 'SET_RISK_SCORE', payload: { score: 0, type: activeDisease } });
+      const event = new CustomEvent('navigate-to', { detail: 'home' });
+      window.dispatchEvent(event);
+      
+      // 可以加个 Toast 提示进入基础模式
+      setTimeout(() => alert("已为您开启基础免费服务模式"), 500);
+  };
+
+  const getDiseaseLabel = (type: DiseaseType) => {
+      switch (type) {
+          case DiseaseType.MIGRAINE: return '华西头痛中心';
+          case DiseaseType.EPILEPSY: return '华西癫痫中心';
+          case DiseaseType.COGNITIVE: return '认知/记忆门诊';
+          default: return '华西神经内科';
+      }
+  };
+
+  const getTargetPackage = () => {
+      return PACKAGES.ICE_BREAKING_MIGRAINE; 
+  };
 
   return (
-    <Layout headerTitle="AI 专病门诊" showBack onBack={onBack} hideHeader={false} disableScroll={true}>
-      <div className="flex flex-col h-full bg-slate-50 w-full relative">
+    <Layout headerTitle="" showBack={false} hideHeader={true} disableScroll={true}>
+      <div className="flex flex-col h-full bg-[#F7F8FA] w-full relative">
         
-        {!isAnalysing && !showArchiveGen && (
-            <div className="flex bg-white border-b border-slate-100 z-20 shrink-0">
-                <DiseaseTab type={DiseaseType.MIGRAINE} label="偏头痛" icon="⚡" />
-                <DiseaseTab type={DiseaseType.EPILEPSY} label="癫痫" icon="🧠" />
-                <DiseaseTab type={DiseaseType.COGNITIVE} label="认知/AD" icon="🧩" />
+        {/* --- 1. Custom Header with Progress Bar (PRD Req) --- */}
+        <div className="bg-white/95 backdrop-blur-md sticky top-0 z-30 shadow-sm border-b border-slate-100 pt-[env(safe-area-inset-top)]">
+            <div className="flex items-center px-2 h-14">
+                 <button onClick={onBack} className="w-10 h-10 flex items-center justify-center text-slate-800 active:opacity-60">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                    </svg>
+                 </button>
+                 <div className="flex-1 px-2">
+                     <div className="flex justify-between items-end mb-1.5">
+                         <span className="text-[12px] font-bold text-slate-900">{getDiseaseLabel(activeDisease)}</span>
+                         <span className="text-[10px] text-brand-600 font-bold">
+                             问诊进度 {Math.min(currentStep, totalSteps)}/{totalSteps} (剩余{Math.max(0, totalSteps - currentStep)}步)
+                         </span>
+                     </div>
+                     <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                         <div 
+                            className="bg-brand-500 h-full rounded-full transition-all duration-500 ease-out" 
+                            style={{ width: `${Math.min((currentStep / totalSteps) * 100, 100)}%` }}
+                         ></div>
+                     </div>
+                 </div>
+                 <div className="w-4"></div>
+            </div>
+        </div>
+
+        {/* --- Feedback Toast (PRD Req: 3s auto close) --- */}
+        {showFeedbackToast && (
+            <div className="absolute top-28 left-1/2 -translate-x-1/2 z-50 bg-slate-800/90 backdrop-blur text-white px-5 py-2.5 rounded-full shadow-xl flex items-center gap-2 animate-fade-in transition-opacity duration-300">
+                <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>
+                <span className="text-[12px] font-medium">{feedbackMsg}</span>
             </div>
         )}
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 scroll-smooth no-scrollbar">
-          <div className="space-y-6 pb-4">
-            
-            <div className="flex justify-center">
-                 <div className="bg-slate-100 text-slate-400 text-[10px] px-3 py-1 rounded-full font-medium">
-                     当前接入：华西{activeDisease === DiseaseType.MIGRAINE ? '头痛' : activeDisease === DiseaseType.EPILEPSY ? '癫痫' : '认知'}中心 CDSS 知识库
-                 </div>
-            </div>
-
-            {messages.map((msg, index) => {
-                const isLast = index === messages.length - 1;
-                const showOptions = isLast && msg.role === 'model' && latestOptions.length > 0 && !isLoading && !isAnalysing && !showArchiveGen && !apiError;
-
-                return (
-                    <div key={msg.id} className="flex flex-col gap-3 animate-slide-up">
-                        <div className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start items-start gap-3'}`}>
-                            {msg.role === 'model' && (
-                                <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm mt-1 text-white
-                                    ${activeDisease === DiseaseType.EPILEPSY ? 'bg-emerald-500' : activeDisease === DiseaseType.COGNITIVE ? 'bg-purple-500' : 'bg-brand-600'}
-                                `}>
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12h15m-15 3.75h15m-1.5-3.75h.008v.008h-.008v-.008zM3.75 20.25h16.5" />
-                                    </svg>
-                                </div>
-                            )}
-                            <div className={`max-w-[85%] p-4 rounded-2xl text-[15px] leading-relaxed shadow-sm whitespace-pre-wrap ${
-                                msg.role === 'user' 
-                                ? 'bg-brand-600 text-white rounded-tr-sm' 
-                                : 'bg-white text-slate-800 rounded-tl-sm border border-slate-100'
-                            }`}>
-                                {msg.text}
-                            </div>
-                        </div>
-
-                        {showOptions && (
-                            <div className="pl-12 pr-4 space-y-2.5 w-full max-w-sm animate-fade-in">
-                                {latestOptions.map((opt, idx) => (
-                                    <button 
-                                        key={idx}
-                                        onClick={() => handleSend(opt)}
-                                        className="w-full bg-white hover:bg-brand-50 active:bg-brand-100 border border-brand-100 text-brand-600 font-bold py-3.5 px-5 rounded-xl shadow-sm text-left transition-all active:scale-[0.98] flex items-center justify-between group"
-                                    >
-                                        <span>{opt}</span>
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-brand-200 group-hover:text-brand-500">
-                                            <path fillRule="evenodd" d="M16.28 11.47a.75.75 0 010 1.06l-7.5 7.5a.75.75 0 01-1.06-1.06L14.69 12 7.72 5.03a.75.75 0 011.06-1.06l7.5 7.5z" clipRule="evenodd" />
-                                        </svg>
-                                    </button>
-                                ))}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 scroll-smooth no-scrollbar">
+          <div className="space-y-6 pb-32">
+            {messages.map((msg, index) => (
+                <div key={msg.id} className="flex flex-col gap-3 animate-slide-up">
+                    <div className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start items-start gap-3'}`}>
+                        {msg.role === 'model' && (
+                            <div className="w-10 h-10 rounded-full bg-white border border-slate-100 flex items-center justify-center flex-shrink-0 mt-1 shadow-sm">
+                                <span className="text-xl">👨‍⚕️</span>
                             </div>
                         )}
+                        <div className={`max-w-[85%] p-4 rounded-2xl text-[15px] leading-relaxed shadow-sm whitespace-pre-wrap ${
+                            msg.role === 'user' 
+                            ? 'bg-[#1677FF] text-white rounded-tr-sm shadow-brand-500/20' 
+                            : 'bg-white text-slate-800 rounded-tl-sm border border-slate-100'
+                        }`}>
+                            {msg.text}
+                        </div>
                     </div>
-                );
-            })}
-          
+                    {/* Render Options: Only for the last AI message if offers exist and not showing assessment */}
+                    {index === messages.length - 1 && msg.role === 'model' && latestOptions.length > 0 && !showAssessmentOffer && (
+                        <div className="pl-14 pr-2 space-y-2.5 w-full animate-fade-in">
+                            {latestOptions.map((opt, idx) => (
+                                <button 
+                                    key={idx}
+                                    onClick={() => !isLoading && handleSend(opt)}
+                                    disabled={isLoading}
+                                    className="w-full bg-white hover:bg-brand-50 active:bg-brand-100 border border-brand-100 text-brand-600 font-bold py-3.5 px-5 rounded-xl shadow-sm text-left transition-all active:scale-[0.98] flex items-center justify-between group"
+                                >
+                                    <span className="text-[13px]">{opt}</span>
+                                    <span className="text-slate-300 group-hover:text-brand-400">›</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            ))}
+            
             {isLoading && (
-                <div className="flex justify-start items-center gap-3">
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm
-                        ${activeDisease === DiseaseType.EPILEPSY ? 'bg-emerald-500' : activeDisease === DiseaseType.COGNITIVE ? 'bg-purple-500' : 'bg-brand-600'}
-                    `}>
-                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                <div className="flex justify-start items-center gap-3 pl-1">
+                    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center">👨‍⚕️</div>
+                    <div className="flex gap-1.5 bg-white px-5 py-4 rounded-2xl border border-slate-50 shadow-sm">
+                        <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></span>
+                        <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></span>
+                        <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></span>
                     </div>
                 </div>
             )}
 
-            {isAnalysing && !showArchiveGen && (
-                <div className="flex justify-center py-4 animate-fade-in">
-                    <div className="bg-brand-50 border border-brand-100 text-brand-700 px-6 py-3 rounded-full shadow-sm flex items-center gap-3 text-sm font-bold">
-                        <div className="w-4 h-4 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin"></div>
-                        华西大脑正在生成您的分诊报告...
+            {/* --- 2. Assessment Offer Card (End of Flow) --- */}
+            {/* PRD Req: "仅在初步信息采集完成页面清晰标注测评入口及费用，尊重用户自主选择" */}
+            {showAssessmentOffer && (
+                <div className="bg-gradient-to-b from-brand-50 to-white border border-brand-100 rounded-[24px] p-6 text-center animate-slide-up shadow-xl mx-2 mb-10">
+                    <div className="w-16 h-16 bg-brand-100 rounded-full flex items-center justify-center text-4xl mx-auto mb-4 shadow-inner">
+                        📋
+                    </div>
+                    <h3 className="text-lg font-black text-slate-900 mb-2">基础信息采集完毕</h3>
+                    <p className="text-xs text-slate-500 mb-8 leading-relaxed px-4">
+                        为了给您提供精准的医疗分级建议，建议进行华西标准量表深度测评。
+                    </p>
+                    
+                    <div className="space-y-4">
+                        {/* 1元付费入口 */}
+                        <Button fullWidth onClick={handleUnlockAssessment} className="shadow-lg shadow-brand-500/20 py-4 h-auto flex items-center justify-center gap-2">
+                            <span>开始深度测评</span>
+                            <span className="bg-white/20 text-white text-[10px] px-1.5 py-0.5 rounded">¥1.00</span>
+                        </Button>
+
+                        {/* 免费跳过入口 (PRD Req: "可正常享受线上基础免费功能") */}
+                        <button 
+                            onClick={handleSkip}
+                            className="text-slate-400 text-xs font-bold underline decoration-slate-300 p-2 hover:text-slate-600 transition-colors"
+                        >
+                            暂不测评，直接享受基础免费服务
+                        </button>
                     </div>
                 </div>
-            )}
-
-            {/* Error UI */}
-            {apiError && (
-                 <div className="flex flex-col items-center justify-center py-6 animate-fade-in px-8 text-center">
-                     <div className="text-3xl mb-2">📡</div>
-                     <p className="text-sm font-bold text-slate-800 mb-1">华西 AI 服务暂不可用</p>
-                     <p className="text-xs text-slate-400 mb-4">网络波动或云端服务繁忙，请稍后重试</p>
-                     <Button size="sm" onClick={() => handleSend(messages[messages.length-1].text, true)}>重新连接</Button>
-                 </div>
             )}
           </div>
         </div>
-        
-        {showArchiveGen && (
-            <div className="absolute inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex flex-col items-center justify-center p-8 text-center animate-fade-in">
-                <div className="w-24 h-24 relative mb-8">
-                     <div className="absolute inset-0 border-4 border-brand-500/30 rounded-full"></div>
-                     <div className="absolute inset-0 border-4 border-t-brand-500 border-l-brand-500 rounded-full animate-spin"></div>
-                     <div className="absolute inset-4 bg-slate-800 rounded-full flex items-center justify-center border border-white/10 shadow-inner">
-                         <span className="text-3xl">📋</span>
-                     </div>
-                </div>
-                
-                <h3 className="text-2xl font-black text-white mb-2 tracking-tight">华西标准数字档案生成中</h3>
-                <p className="text-brand-300 text-xs font-bold uppercase tracking-[0.2em] animate-pulse">
-                    正在写入{activeDisease === DiseaseType.EPILEPSY ? '癫痫' : activeDisease === DiseaseType.COGNITIVE ? '认知' : '头痛'}专病数据库...
-                </p>
-                
-                <div className="w-64 h-1.5 bg-slate-800 rounded-full mt-8 overflow-hidden">
-                    <div className="h-full bg-brand-500 w-full animate-[loading_3s_ease-in-out_forwards] origin-left scale-x-0"></div>
-                </div>
-                <style>{`@keyframes loading { 0% { transform: scaleX(0); } 100% { transform: scaleX(1); } }`}</style>
-            </div>
-        )}
 
-        {!isAnalysing && !showArchiveGen && !apiError && (
+        {/* Input Area (Manual Fallback) */}
+        {!showAssessmentOffer && !isLoading && latestOptions.length === 0 && (
             <div className="flex-none bg-white border-t border-slate-100 p-3 pb-safe z-20 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
                 <div className="flex items-center gap-3">
                     <input
-                    type="text"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSend(input)}
-                    placeholder={latestOptions.length > 0 ? "若上述选项无匹配，请手动输入..." : "请描述症状..."}
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-full px-5 py-3 text-sm focus:ring-2 focus:ring-brand-100 focus:border-brand-500 outline-none transition-all font-medium"
-                    disabled={isLoading}
+                        type="text"
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        placeholder="手动输入症状细节..."
+                        className="flex-1 bg-slate-50 border border-slate-200 rounded-full px-5 py-3 text-sm outline-none focus:border-brand-500 transition-all"
                     />
-                    <button 
-                    onClick={() => handleSend(input)}
-                    disabled={isLoading || !input.trim()}
-                    className="bg-brand-600 text-white w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-50 disabled:bg-slate-200 hover:bg-brand-700 active:scale-95 transition-all shadow-md shadow-brand-500/30"
-                    >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                        <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
-                    </svg>
+                    <button onClick={() => handleSend(input)} className="bg-[#1677FF] text-white w-11 h-11 rounded-full flex items-center justify-center shadow-md active:scale-95">
+                        ↑
                     </button>
                 </div>
             </div>
         )}
+
+        {/* Payment Modal */}
+        <PaywallModal 
+            visible={showPayModal} 
+            pkg={getTargetPackage()} 
+            onClose={() => setShowPayModal(false)}
+            onSuccess={handleAssessmentPaid}
+        />
       </div>
     </Layout>
   );

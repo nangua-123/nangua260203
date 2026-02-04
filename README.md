@@ -78,31 +78,24 @@
 
 ## 5. 变更日志 (Change Log)
 
+### [2026-XX-XX] - [问诊流程统一化重构]
+- **业务改进**：
+  1. **入口整合**：移除了顶部病种切换 Tab，整合为唯一的“AI 专病门诊”入口，简化用户决策路径。
+  2. **智能分诊**：新增基于 NLU（模拟）的病种自动识别逻辑，AI 可根据用户描述（头痛、抽搐、忘事）自动路由至对应的 CDSS 临床路径。
+  3. **交互优化**：在对话顶部增加了动态状态栏，实时显示当前接入的知识库类型（如由“通用”切换为“华西头痛中心”）。
+- **医学/产品价值**：模拟真实线下门诊的“预检分诊”流程，避免患者因自我判断错误选择错误的专科，提升了医疗服务的专业性与准确性。
+- **技术点**：`geminiService` 状态机重构，新增 `DiseaseType.UNKNOWN` 状态及正则路由表。
+- **遗留风险(Mock)**：分诊逻辑目前基于简单的关键词正则匹配，生产环境需接入真实 NLP 模型。
+
+### [2026-XX-XX] - [合规性审计与修复]
+- **业务改进**：
+  1. **偏头痛**：将“生活方式干预”从付费墙中移除，确保非药物缓解方案（热敷、冥想等）作为免费基础功能提供。
+  2. **癫痫**：HomeView 报警模态框升级为三级熔断标准，增加“一键拨打 120”和“发送 GPS 定位”按钮。
+  3. **适老化**：Profile 页新增“老年模式”开关，App 根容器支持字体动态放大（`text-lg`）。
+- **医学/产品价值**：严格遵循华西医院 PRD 规范，杜绝“过度商业化”导致的医疗伦理风险，保障急救场景下的生命通道畅通。
+- **技术点**：Redux-like 全局状态管理 `isElderlyMode`，CSS 级联字体控制。
+- **遗留风险(Mock)**：120 拨打仅为 window.alert 模拟，需对接原生系统 API。
+
 **Date: 2024-05-22 (Init)**
 *   **Action**: 项目文档初始化 (Project Documentation Initialization)。
-*   **Impact**: 创建 `README.md`，梳理全项目文件结构与业务逻辑。
 *   **Status**: 基建完成。
-
-**Date: 2024-05-22 (Feature)**
-*   **Action**: 商业化链路增强 (Commercialization Enhancement)。
-*   **Impact**: 
-    *   新增 `HomeView` AI 智能推荐卡片。
-    *   重构 `ServiceMarketplace` 支持租赁周期、押金、优惠券。
-    *   升级 `PaywallModal` 增加会员权益对比表。
-*   **Status**: 商业化闭环跑通。
-
-**Date: 2024-05-22 (Feature)**
-*   **Action**: 认知训练与 IoT 增强 (Cognitive & IoT Enhancement)。
-*   **Impact**:
-    *   `CognitiveGames.tsx`: 补全视觉记忆与舒尔特方格游戏逻辑，集成 AI 效果评估。
-    *   `HealthServices.tsx`: 集成认知训练智能仪表盘。
-*   **Status**: 核心数字疗法闭环完成。
-
-**Date: 2024-05-22 (Feature)**
-*   **Action**: 商业化能力强化 (Commercialization Enhancement P2)。
-*   **Impact**:
-    *   `hooks/usePayment.ts`: 增加个性化套餐推荐逻辑、租赁价格计算及优惠券逻辑。
-    *   `components/HomeView.tsx`: 新增基于风险评分的个性化套餐推荐卡片。
-    *   `components/business/payment/PaywallModal.tsx`: 新增会员权益对比表及优惠券选择。
-    *   `components/ServiceMarketplace.tsx`: 硬件租赁流程闭环，包含押金、租期及优惠券。
-*   **Status**: 商业化转化效率提升。

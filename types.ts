@@ -101,6 +101,7 @@ export interface User {
   vipLevel: number; // 0: 普通, 1: 会员
   unlockedFeatures: FeatureKey[]; // 已解锁的原子权益列表
   hasHardware: boolean; // 是否绑定了HaaS设备
+  isElderlyMode: boolean; // [NEW] 老年模式状态
   
   // 扩展字段
   headacheProfile?: HeadacheProfile;

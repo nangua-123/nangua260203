@@ -21,11 +21,12 @@ const INITIAL_USER: User = {
   role: UserRole.PATIENT,
   vipLevel: 0,
   unlockedFeatures: [],
-  hasHardware: false
+  hasHardware: false,
+  isElderlyMode: false
 };
 
 // --- Profile View Component (Refined) ---
-const ProfileView: React.FC<{ user: User; hasDevice: boolean; onNavigate: (v: AppView) => void; onClearCache: () => void }> = ({ user, hasDevice, onNavigate, onClearCache }) => {
+const ProfileView: React.FC<{ user: User; hasDevice: boolean; onNavigate: (v: AppView) => void; onClearCache: () => void; onToggleElderly: () => void }> = ({ user, hasDevice, onNavigate, onClearCache, onToggleElderly }) => {
   return (
     <Layout headerTitle="个人中心" hideHeader>
       <div className="min-h-screen bg-slate-50 pb-24 relative animate-fade-in">
@@ -64,6 +65,21 @@ const ProfileView: React.FC<{ user: User; hasDevice: boolean; onNavigate: (v: Ap
 
         {/* Dashboard Content */}
         <div className="px-5 -mt-16 relative z-20 space-y-4">
+           
+           {/* Elderly Mode Toggle Card (New) */}
+           <div onClick={onToggleElderly} className="bg-white rounded-[24px] p-4 shadow-sm border border-slate-50 flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer">
+              <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${user.isElderlyMode ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-400'}`}>👓</div>
+                  <div>
+                      <div className="text-[13px] font-black text-slate-800">适老化关怀模式</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">大字体 / 高对比度 / 语音播报</div>
+                  </div>
+              </div>
+              <div className={`w-10 h-5 rounded-full relative transition-colors duration-300 ${user.isElderlyMode ? 'bg-brand-500' : 'bg-slate-200'}`}>
+                  <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-300 ${user.isElderlyMode ? 'translate-x-5' : 'translate-x-0'}`}></div>
+              </div>
+           </div>
+
            {/* Device Card */}
            <div className="bg-white rounded-[24px] p-5 shadow-lg shadow-slate-200/50 border border-slate-50">
               <div className="flex justify-between items-center mb-4">
@@ -130,9 +146,6 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Sync state from Context to local logic where necessary, though Context is single source of truth now.
-  // We use `state.user` directly.
-
   const handleNavigate = (view: AppView) => {
     setCurrentView(view);
     window.scrollTo(0, 0);
@@ -188,6 +201,7 @@ const App: React.FC = () => {
                   hasDevice={state.user.hasHardware} 
                   onNavigate={handleNavigate} 
                   onClearCache={() => { dispatch({type: 'CLEAR_CACHE'}); window.location.reload(); }}
+                  onToggleElderly={() => dispatch({type: 'TOGGLE_ELDERLY_MODE'})}
                />;
       case 'assessment':
         return <div className="animate-slide-up"><AssessmentView type={assessmentType} onComplete={handleScoreUpdate} onBack={() => handleNavigate('home')} /></div>;
@@ -214,7 +228,7 @@ const App: React.FC = () => {
   const showBottomNav = ['home', 'chat', 'profile'].includes(currentView);
 
   return (
-    <div className="font-sans antialiased text-slate-900 bg-white min-h-screen max-w-[430px] mx-auto shadow-2xl relative overflow-hidden">
+    <div className={`font-sans antialiased text-slate-900 bg-white min-h-screen max-w-[430px] mx-auto shadow-2xl relative overflow-hidden ${state.user.isElderlyMode ? 'text-lg' : ''}`}>
        {/* Global Offline Warning */}
        {!isOnline && (
           <div className="absolute top-0 left-0 right-0 bg-slate-800 text-white text-[10px] font-bold py-2 text-center z-[9999] animate-slide-up flex items-center justify-center gap-2">

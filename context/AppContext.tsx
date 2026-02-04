@@ -29,6 +29,7 @@ const INITIAL_STATE: AppState = {
     vipLevel: 0,
     unlockedFeatures: [],
     hasHardware: false,
+    isElderlyMode: false,
     iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, lastUpdated: 0 },
     cognitiveStats: { totalSessions: 0, todaySessions: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0 },
     familyMembers: [
@@ -66,7 +67,8 @@ type Action =
   | { type: 'SWITCH_PATIENT'; payload: string }
   | { type: 'UPDATE_IOT_STATS'; payload: { id: string; stats: IoTStats } }
   | { type: 'UPDATE_COGNITIVE_STATS'; payload: { id: string; stats: Partial<CognitiveStats> } }
-  | { type: 'CLEAR_CACHE' }; // New Action
+  | { type: 'TOGGLE_ELDERLY_MODE' } // New Action
+  | { type: 'CLEAR_CACHE' };
 
 // --- Reducer ---
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -151,6 +153,15 @@ const appReducer = (state: AppState, action: Action): AppState => {
         ) || [];
         return { ...state, user: { ...state.user, familyMembers: updatedFamily } };
     }
+
+    case 'TOGGLE_ELDERLY_MODE':
+        return {
+            ...state,
+            user: {
+                ...state.user,
+                isElderlyMode: !state.user.isElderlyMode
+            }
+        };
 
     case 'CLEAR_CACHE':
         localStorage.removeItem(STORAGE_KEY);
