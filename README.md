@@ -97,3 +97,12 @@
     *   `CognitiveGames.tsx`: 补全视觉记忆与舒尔特方格游戏逻辑，集成 AI 效果评估。
     *   `HealthServices.tsx`: 集成认知训练智能仪表盘。
 *   **Status**: 核心数字疗法闭环完成。
+
+**Date: 2024-05-22 (Feature)**
+*   **Action**: 商业化能力强化 (Commercialization Enhancement P2)。
+*   **Impact**:
+    *   `hooks/usePayment.ts`: 增加个性化套餐推荐逻辑、租赁价格计算及优惠券逻辑。
+    *   `components/HomeView.tsx`: 新增基于风险评分的个性化套餐推荐卡片。
+    *   `components/business/payment/PaywallModal.tsx`: 新增会员权益对比表及优惠券选择。
+    *   `components/ServiceMarketplace.tsx`: 硬件租赁流程闭环，包含押金、租期及优惠券。
+*   **Status**: 商业化转化效率提升。
