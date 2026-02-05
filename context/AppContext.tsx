@@ -313,6 +313,9 @@ const appReducer = (state: AppState, action: Action): AppState => {
 };
 
 const initState = (initial: AppState): AppState => {
+    // [DEMO MODE] 禁用自动加载本地存储，确保每次刷新都进入登录页进行演示
+    // 若需恢复持久化，请取消下方注释
+    /*
     try {
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored) {
@@ -320,7 +323,6 @@ const initState = (initial: AppState): AppState => {
             if (!parsed.user.privacySettings) {
                 parsed.user.privacySettings = INITIAL_STATE.user.privacySettings;
             }
-            // 兼容性处理
             if (!parsed.user.availableRoles) {
                 parsed.user.availableRoles = parsed.user.role ? [parsed.user.role] : [];
             }
@@ -329,6 +331,7 @@ const initState = (initial: AppState): AppState => {
     } catch (e) {
         console.error("Failed to load state from localStorage", e);
     }
+    */
     return initial;
 };
 
