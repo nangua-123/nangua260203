@@ -263,3 +263,4 @@ export const LoginView: React.FC = () => {
             </div>
         </div>
     );
+};
