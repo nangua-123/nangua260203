@@ -1,67 +1,91 @@
 
 export enum UserRole {
-  PATIENT = 'PATIENT',
-  FAMILY = 'FAMILY',
+  PATIENT = 'PATIENT',           // 患者本人
+  FAMILY = 'FAMILY',             // 家属 (看护者)
+  DOCTOR_ASSISTANT = 'DOCTOR_ASSISTANT', // 医生助理 (华西协作)
 }
 
+export enum AuthProvider {
+  PHONE = 'PHONE',
+  WECHAT = 'WECHAT',
+  ALIPAY = 'ALIPAY'
+}
+
+// [NEW] 登录表单状态接口
+export interface LoginFormState {
+  phone: string;
+  code: string;
+}
+
+// [NEW] 第三方登录模拟响应接口
+export interface ThirdPartyLoginRes {
+  openid: string;
+  nickname: string;
+  avatar: string;
+  provider: AuthProvider;
+}
+
+// 细粒度权限定义
+export type Permission = 
+  | 'VIEW_ALL_DATA'       // 查看所有数据
+  | 'EDIT_PRESCRIPTION'   // 修改处方/用药
+  | 'MANAGE_FAMILY'       // 管理家庭成员
+  | 'GENERATE_QR'         // 生成代管二维码
+  | 'VIEW_LIMITED_DATA'   // 查看受限数据 (家属)
+  | 'RECEIVE_ALERTS'      // 接收预警
+  | 'SYNC_DATA'           // 同步数据 (医助)
+  | 'WRITE_FOLLOW_UP';    // 填写随访 (医助)
+
 export enum DiseaseType {
-  MIGRAINE = 'MIGRAINE', // 偏头痛
-  EPILEPSY = 'EPILEPSY', // 癫痫
-  COGNITIVE = 'COGNITIVE', // 认知障碍(AD)
+  MIGRAINE = 'MIGRAINE', 
+  EPILEPSY = 'EPILEPSY', 
+  COGNITIVE = 'COGNITIVE', 
   UNKNOWN = 'UNKNOWN',
 }
 
 export enum RiskLevel {
-  LOW = 'LOW', // 绿色
-  MODERATE = 'MODERATE', // 黄色
-  HIGH = 'HIGH', // 红色
+  LOW = 'LOW', 
+  MODERATE = 'MODERATE', 
+  HIGH = 'HIGH', 
 }
 
-// 具体权益标识符
 export type FeatureKey = 
-  | 'ICE_BREAKING_MIGRAINE'  // 1元破冰：偏头痛处方
-  | 'VIP_MIGRAINE'           // 偏头痛年卡
-  | 'VIP_EPILEPSY'           // 癫痫年卡
-  | 'VIP_COGNITIVE';         // 认知障碍年卡
-
-// --- [NEW] 隐私权限相关定义 ---
+  | 'ICE_BREAKING_MIGRAINE'  
+  | 'VIP_MIGRAINE'           
+  | 'VIP_EPILEPSY'           
+  | 'VIP_COGNITIVE';         
 
 export enum SharingScope {
-  ONLY_ME = 'ONLY_ME',     // 仅自己可见
-  DOCTOR = 'DOCTOR',       // 授权医生可见
-  FAMILY = 'FAMILY',       // 家属可见
+  ONLY_ME = 'ONLY_ME',     
+  DOCTOR = 'DOCTOR',       
+  FAMILY = 'FAMILY',       
 }
 
 export interface PrivacySettings {
-  allowCloudStorage: boolean;  // 医疗数据加密存储权限
-  sharingScope: SharingScope;  // 数据分享范围
-  allowResearchUse: boolean;   // 允许匿名科研使用 (扩展项)
+  allowCloudStorage: boolean;  
+  sharingScope: SharingScope;  
+  allowResearchUse: boolean;   
   lastUpdated: number;
 }
 
-// ---------------------------
-
-// --- IoT 设备实时数据 ---
 export interface IoTStats {
-  hr: number;      // 心率
-  bpSys: number;   // 收缩压
-  bpDia: number;   // 舒张压
-  spo2: number;    // 血氧
-  isAbnormal: boolean; // 是否异常
+  hr: number;      
+  bpSys: number;   
+  bpDia: number;   
+  spo2: number;    
+  isAbnormal: boolean; 
   lastUpdated: number;
 }
 
-// --- 认知训练进度 ---
 export interface CognitiveStats {
-  totalSessions: number;  // 累计训练次数
-  todaySessions: number;  // 今日次数
-  totalDuration: number;  // 累计时长(秒)
-  lastScore: number;      // 最近一次得分
-  aiRating: string;       // AI 综合评价 (S/A/B/C)
+  totalSessions: number;  
+  todaySessions: number;  
+  totalDuration: number;  
+  lastScore: number;      
+  aiRating: string;       
   lastUpdated: number;
 }
 
-// --- 头痛专病档案 ---
 export interface HeadacheProfile {
   isComplete: boolean;
   source: 'USER_INPUT' | 'AI_GENERATED'; 
@@ -74,86 +98,97 @@ export interface HeadacheProfile {
   lastUpdated: number;
 }
 
-// --- 新增：癫痫专病档案 ---
 export interface EpilepsyProfile {
   isComplete: boolean;
   source: 'AI_GENERATED';
-  seizureType: string; // 发作类型 (全面性/局灶性)
-  frequency: string;   // 发作频率
-  lastSeizure: string; // 上次发作时间
-  triggers: string[];  // 诱因 (熬夜/漏服药)
-  consciousness: boolean; // 是否伴随意识丧失
+  seizureType: string; 
+  frequency: string;   
+  lastSeizure: string; 
+  triggers: string[];  
+  consciousness: boolean; 
   lastUpdated: number;
 }
 
-// --- 新增：认知障碍专病档案 ---
 export interface CognitiveProfile {
   isComplete: boolean;
   source: 'AI_GENERATED';
-  mmseScoreEstimate: string; // MMSE 预估分区间
-  symptoms: string[];        // 核心症状 (迷路/遗忘/性格改变)
-  adlScore: string;          // 日常生活能力 (ADL) 状态
-  caregiver: string;         // 照料者情况
+  mmseScoreEstimate: string; 
+  symptoms: string[];        
+  adlScore: string;          
+  caregiver: string;         
   lastUpdated: number;
 }
 
-// --- 新增：家庭成员 ---
 export interface FamilyMember {
   id: string;
   name: string;
-  relation: string; // e.g. "父亲"
+  relation: string; 
   avatar: string;
   headacheProfile?: HeadacheProfile;
   epilepsyProfile?: EpilepsyProfile;
   cognitiveProfile?: CognitiveProfile;
-  iotStats?: IoTStats; // 独立设备数据
-  cognitiveStats?: CognitiveStats; // 独立训练数据
+  iotStats?: IoTStats; 
+  cognitiveStats?: CognitiveStats; 
+}
+
+// 医生助理认证信息
+export interface DoctorAssistantProof {
+    hospitalName: string;
+    employeeId: string;
+    certificateUrl: string; // 模拟上传后的URL
+    verified: boolean;
 }
 
 export interface User {
   id: string;
   name: string;
   phone: string;
-  role: UserRole;
-  vipLevel: number; // 0: 普通, 1: 会员
-  unlockedFeatures: FeatureKey[]; // 已解锁的原子权益列表
-  hasHardware: boolean; // 是否绑定了HaaS设备
-  isElderlyMode: boolean; // [NEW] 老年模式状态
+  avatar?: string; // 支持第三方头像
+  authProvider?: AuthProvider; // 登录方式
   
-  // [NEW] 隐私设置
+  // [Modified] 核心角色字段
+  role: UserRole; // 当前活跃角色
+  availableRoles: UserRole[]; // 该账号已开通的所有角色列表
+
+  vipLevel: number; 
+  unlockedFeatures: FeatureKey[]; 
+  hasHardware: boolean; 
+  isElderlyMode: boolean; 
+  
   privacySettings: PrivacySettings;
 
-  // 扩展字段
   headacheProfile?: HeadacheProfile;
-  epilepsyProfile?: EpilepsyProfile;     // 新增
-  cognitiveProfile?: CognitiveProfile;   // 新增
+  epilepsyProfile?: EpilepsyProfile;     
+  cognitiveProfile?: CognitiveProfile;   
   
-  iotStats?: IoTStats;             // [IoT]
-  cognitiveStats?: CognitiveStats; // [Cognitive]
+  iotStats?: IoTStats;             
+  cognitiveStats?: CognitiveStats; 
 
   familyMembers?: FamilyMember[];
-  currentProfileId?: string; // 当前选中的患者ID (自身或家属)
+  currentProfileId?: string; 
+
+  // 角色特定字段
+  associatedPatientId?: string; // 家属角色：关联的患者ID
+  assistantProof?: DoctorAssistantProof; // 医助角色：认证信息
 }
 
-// 转诊数据实体
 export interface ReferralData {
   hospitalName: string;
   distance: string;
   address: string;
-  recommends: string[]; // 建议检查项，如 "3.0T MRI"
-  qrCodeValue: string; // 唯一就诊码
+  recommends: string[]; 
+  qrCodeValue: string; 
 }
 
-// 商业化服务包定义
 export interface ServicePackage {
   id: string;
-  featureKey: FeatureKey; // 对应的权益Key
+  featureKey: FeatureKey; 
   title: string;
   price: number;
   originalPrice?: number;
   duration: string;
   features: string[];
-  medicalValue: string; // 医疗价值主张
+  medicalValue: string; 
 }
 
 export interface ChatMessage {
@@ -165,15 +200,14 @@ export interface ChatMessage {
   suggestedOptions?: string[]; 
 }
 
-// 临床记录实体
 export interface MedLog {
   id: string;
   timestamp: number;
   drugName: string;
   dosage: string;
-  painLevel: number; // VAS 0-10
-  nature: string[]; // 疼痛性质
-  symptoms: string[]; // 伴随症状
+  painLevel: number; 
+  nature: string[]; 
+  symptoms: string[]; 
 }
 
 export interface Prescription {
@@ -188,4 +222,4 @@ export type AppView =
   | 'login' | 'home' | 'chat' | 'payment' | 'assessment' | 'report' | 'profile' 
   | 'service-cognitive' | 'service-epilepsy' | 'service-headache' 
   | 'service-family' | 'service-mall' | 'haas-checkout'
-  | 'privacy-settings'; // [NEW] 隐私设置页路由
+  | 'privacy-settings';

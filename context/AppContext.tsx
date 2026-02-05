@@ -3,72 +3,52 @@
  * @file AppContext.tsx
  * @description 全局状态容器 (Global State Container)
  * @author Neuro-Link Architect
- * 
- * 架构说明:
- * 1. 采用 useReducer + Context 实现轻量级 Redux 模式。
- * 2. 包含数据脱敏 (Masking) 与模拟加密 (AES) 逻辑，保障患者隐私。
- * 3. 支持多 Profile 管理（本人+家庭成员），通过 currentProfileId 切换上下文。
- * 4. 包含自动持久化机制 (localStorage)。
  */
 
 import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
-import { User, UserRole, FeatureKey, DiseaseType, ReferralData, HeadacheProfile, IoTStats, CognitiveStats, FamilyMember, SharingScope, PrivacySettings } from '../types';
+import { User, UserRole, FeatureKey, DiseaseType, ReferralData, HeadacheProfile, IoTStats, CognitiveStats, FamilyMember, SharingScope, PrivacySettings, DoctorAssistantProof } from '../types';
 
 // --- Security Utils (Simulated) ---
-// 模拟 GDPR/HIPAA 合规的数据脱敏
 const maskName = (name: string) => name ? name[0] + '*'.repeat(name.length - 1) : '';
 const maskPhone = (phone: string) => phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
 
-// 模拟端侧加密，实际场景应使用 WebCrypto API
 const encryptData = (data: any) => {
-    // console.log("[Security] Data Encrypted with AES-256:", JSON.stringify(data));
     return data; 
 };
 
 // --- State Definition ---
 interface AppState {
+  isLoggedIn: boolean; // 登录状态
   user: User; // 当前登录用户及家庭组数据
-  riskScore: number; // 动态风险评分 (0-100)
-  primaryCondition: DiseaseType; // 主诉病种
-  lastDiagnosis: { reason: string; referral?: ReferralData } | null; // 最近一次 CDSS 诊断
-  isLoading: boolean; // 全局 Loading 状态
+  riskScore: number; 
+  primaryCondition: DiseaseType; 
+  lastDiagnosis: { reason: string; referral?: ReferralData } | null; 
+  isLoading: boolean; 
 }
 
 // --- Initial State ---
 const INITIAL_STATE: AppState = {
+  isLoggedIn: false, 
   user: {
-    id: 'user_001',
-    name: maskName('陈建国'),
-    phone: maskPhone('13900000000'),
-    role: UserRole.PATIENT,
+    id: 'guest',
+    name: '访客',
+    phone: '',
+    role: UserRole.PATIENT, // 默认占位
+    availableRoles: [], // [NEW] 初始无角色
     vipLevel: 0,
     unlockedFeatures: [],
     hasHardware: false,
     isElderlyMode: false,
-    // [NEW] 默认隐私设置
     privacySettings: {
         allowCloudStorage: true,
-        sharingScope: SharingScope.ONLY_ME, // 默认仅自己可见
+        sharingScope: SharingScope.ONLY_ME, 
         allowResearchUse: false,
         lastUpdated: Date.now()
     },
-    // 本人健康数据
     iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, lastUpdated: 0 },
     cognitiveStats: { totalSessions: 0, todaySessions: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0 },
-    // 家庭成员列表 (Mock Data)
-    familyMembers: [
-       { 
-         id: 'family_001', name: maskName('陈大强'), relation: '父亲', avatar: '👨‍🦳',
-         iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, lastUpdated: 0 },
-         cognitiveStats: { totalSessions: 0, todaySessions: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0 }
-       },
-       { 
-         id: 'family_002', name: maskName('李淑芬'), relation: '母亲', avatar: '👵',
-         iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, lastUpdated: 0 },
-         cognitiveStats: { totalSessions: 0, todaySessions: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0 }
-       }
-    ],
-    currentProfileId: 'user_001' // 默认选中本人
+    familyMembers: [],
+    currentProfileId: 'guest' 
   },
   riskScore: 0,
   primaryCondition: DiseaseType.MIGRAINE,
@@ -77,11 +57,16 @@ const INITIAL_STATE: AppState = {
 };
 
 // --- Persistence Key ---
-const STORAGE_KEY = 'NEURO_LINK_STATE_V1';
+const STORAGE_KEY = 'NEURO_LINK_STATE_V3_MULTI_ROLE';
 
 // --- Actions ---
-// 定义所有允许的状态变更操作
 type Action =
+  | { type: 'LOGIN'; payload: User } 
+  | { type: 'LOGOUT' } 
+  | { type: 'ADD_ROLE'; payload: UserRole } // [NEW] 添加新角色
+  | { type: 'SWITCH_ROLE'; payload: UserRole } // [NEW] 切换角色
+  | { type: 'UPDATE_ASSISTANT_PROOF'; payload: DoctorAssistantProof } // [NEW] 提交医助证明
+  | { type: 'ASSOCIATE_PATIENT'; payload: string } 
   | { type: 'SET_RISK_SCORE'; payload: { score: number; type: DiseaseType } }
   | { type: 'SET_DIAGNOSIS'; payload: { reason: string; referral?: ReferralData } }
   | { type: 'UNLOCK_FEATURE'; payload: FeatureKey }
@@ -97,12 +82,75 @@ type Action =
   | { type: 'EDIT_FAMILY_MEMBER'; payload: { id: string; updates: Partial<FamilyMember> } }
   | { type: 'REMOVE_FAMILY_MEMBER'; payload: string }
   | { type: 'CLEAR_CACHE' }
-  // [NEW] 隐私设置更新 Action
   | { type: 'UPDATE_PRIVACY_SETTINGS'; payload: Partial<PrivacySettings> };
 
 // --- Reducer ---
 const appReducer = (state: AppState, action: Action): AppState => {
   switch (action.type) {
+    case 'LOGIN':
+      return {
+          ...state,
+          isLoggedIn: true,
+          user: action.payload,
+          riskScore: action.payload.role === UserRole.PATIENT ? 0 : state.riskScore
+      };
+    case 'LOGOUT':
+      localStorage.removeItem(STORAGE_KEY);
+      return { ...INITIAL_STATE, isLoggedIn: false };
+
+    // [NEW] 角色管理逻辑
+    case 'ADD_ROLE':
+        if (state.user.availableRoles.includes(action.payload)) return state;
+        return {
+            ...state,
+            user: {
+                ...state.user,
+                availableRoles: [...state.user.availableRoles, action.payload],
+                role: action.payload // 添加后自动切换到新角色
+            }
+        };
+
+    case 'SWITCH_ROLE':
+        if (!state.user.availableRoles.includes(action.payload)) return state;
+        return {
+            ...state,
+            user: {
+                ...state.user,
+                role: action.payload,
+                // 切换到家属时，重置 currentProfileId
+                currentProfileId: action.payload === UserRole.FAMILY ? state.user.id : state.user.currentProfileId
+            }
+        };
+
+    case 'UPDATE_ASSISTANT_PROOF':
+        return {
+            ...state,
+            user: {
+                ...state.user,
+                assistantProof: action.payload
+            }
+        };
+      
+    case 'ASSOCIATE_PATIENT':
+        return {
+            ...state,
+            user: {
+                ...state.user,
+                associatedPatientId: action.payload,
+                // 模拟关联后，自动添加一个 FamilyMember 表示该患者
+                familyMembers: [
+                    ...(state.user.familyMembers || []),
+                    {
+                        id: action.payload,
+                        name: '关联患者(陈建国)',
+                        relation: '被监护人',
+                        avatar: '👴',
+                        iotStats: { hr: 75, bpSys: 120, bpDia: 80, spo2: 98, isAbnormal: false, lastUpdated: Date.now() }
+                    }
+                ]
+            }
+        };
+
     case 'SET_RISK_SCORE':
       return {
         ...state,
@@ -115,7 +163,6 @@ const appReducer = (state: AppState, action: Action): AppState => {
         lastDiagnosis: action.payload,
       };
     case 'UNLOCK_FEATURE':
-      // 幂等性校验
       if (state.user.unlockedFeatures.includes(action.payload)) {
         return state;
       }
@@ -143,11 +190,9 @@ const appReducer = (state: AppState, action: Action): AppState => {
     case 'UPDATE_PROFILE': {
         const { id, profile } = action.payload;
         const secureProfile = encryptData(profile);
-        // 如果 ID 匹配本人
         if (state.user.id === id) {
             return { ...state, user: { ...state.user, headacheProfile: secureProfile } };
         }
-        // 否则查找家庭成员并更新
         const updatedFamily = state.user.familyMembers?.map(m => 
             m.id === id ? { ...m, headacheProfile: secureProfile } : m
         ) || [];
@@ -170,7 +215,6 @@ const appReducer = (state: AppState, action: Action): AppState => {
 
     case 'UPDATE_COGNITIVE_STATS': {
         const { id, stats } = action.payload;
-        // 辅助函数：合并统计数据
         const mergeStats = (prev: CognitiveStats | undefined, incoming: Partial<CognitiveStats>): CognitiveStats => {
             const base = prev || { totalSessions: 0, todaySessions: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0 };
             return { ...base, ...incoming, lastUpdated: Date.now() };
@@ -197,7 +241,6 @@ const appReducer = (state: AppState, action: Action): AppState => {
             }
         };
 
-    // --- Family Member Management ---
     case 'ADD_FAMILY_MEMBER': {
         const newId = `family_${Date.now()}`;
         const newMember: FamilyMember = {
@@ -205,7 +248,6 @@ const appReducer = (state: AppState, action: Action): AppState => {
             name: action.payload.name, 
             relation: action.payload.relation,
             avatar: action.payload.avatar,
-            // 初始化空数据状态
             iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, lastUpdated: 0 },
             cognitiveStats: { totalSessions: 0, todaySessions: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0 }
         };
@@ -232,8 +274,6 @@ const appReducer = (state: AppState, action: Action): AppState => {
     case 'REMOVE_FAMILY_MEMBER': {
         const removeId = action.payload;
         const filteredMembers = state.user.familyMembers?.filter(m => m.id !== removeId) || [];
-        
-        // 边界处理：如果删除的是当前选中的 Profile，回退到主账号
         let nextProfileId = state.user.currentProfileId;
         if (state.user.currentProfileId === removeId) {
             nextProfileId = state.user.id;
@@ -249,7 +289,6 @@ const appReducer = (state: AppState, action: Action): AppState => {
         };
     }
 
-    // [NEW] 处理隐私设置更新
     case 'UPDATE_PRIVACY_SETTINGS': {
         return {
             ...state,
@@ -273,15 +312,17 @@ const appReducer = (state: AppState, action: Action): AppState => {
   }
 };
 
-// --- Initializer for Persistence ---
 const initState = (initial: AppState): AppState => {
     try {
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored) {
             const parsed = JSON.parse(stored);
-            // 兼容旧数据：如果读取的 user 没有 privacySettings，则合并默认值
             if (!parsed.user.privacySettings) {
                 parsed.user.privacySettings = INITIAL_STATE.user.privacySettings;
+            }
+            // 兼容性处理
+            if (!parsed.user.availableRoles) {
+                parsed.user.availableRoles = parsed.user.role ? [parsed.user.role] : [];
             }
             return parsed;
         }
@@ -291,7 +332,6 @@ const initState = (initial: AppState): AppState => {
     return initial;
 };
 
-// --- Context Setup ---
 const AppContext = createContext<{
   state: AppState;
   dispatch: React.Dispatch<Action>;
@@ -303,10 +343,11 @@ const AppContext = createContext<{
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(appReducer, INITIAL_STATE, initState);
 
-  // 状态变更自动持久化
   useEffect(() => {
       try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          if (state.isLoggedIn) {
+             localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          }
       } catch (e) {
           console.error("Failed to persist state", e);
       }
@@ -319,7 +360,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   );
 };
 
-// --- Custom Hook ---
 export const useApp = () => {
   const context = useContext(AppContext);
   if (!context) {

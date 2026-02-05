@@ -8,7 +8,7 @@
  * 1. 定义 SKU (服务包) 与 Pricing (价格体系)。
  * 2. 优惠券 (Coupon) 核销逻辑。
  * 3. 硬件租赁 (HaaS) 复杂计费逻辑。
- * 4. 模拟支付网关 (Mock Gateway)，含随机故障注入以测试系统健壮性。
+ * 4. 模拟支付网关 (Mock Gateway) - [UPDATED] 移除随机故障，确保演示流畅性。
  */
 
 import { useState } from 'react';
@@ -143,8 +143,8 @@ export const usePayment = () => {
   };
 
   /**
-   * 处理支付核心逻辑 (Mock Gateway with Random Failures)
-   * 包含模拟网络延迟、随机故障注入及成功后的权益下发。
+   * 处理支付核心逻辑 (Mock Gateway)
+   * [UPDATED] 移除随机故障逻辑，确保演示 100% 成功
    * 
    * @param featureKey 待解锁的权益 Key
    * @param onSuccess 成功回调
@@ -160,21 +160,11 @@ export const usePayment = () => {
     setStatus('processing');
 
     try {
-      // 1. 模拟网络延迟 (1.5秒 RTT)
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      // 1. 模拟网络延迟 (缩短至 1s 提升体验)
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      // 2. 模拟随机支付异常 (20% 概率失败) - 用于测试前端健壮性 (Retry Logic)
-      const isFailure = Math.random() < 0.2;
-      
-      if (isFailure) {
-          // 模拟不同的错误类型
-          const errorType = Math.random();
-          let errorMsg = "支付网关响应超时";
-          if (errorType > 0.6) errorMsg = "银行卡余额不足";
-          else if (errorType > 0.3) errorMsg = "安全验证失败，请重试";
-          
-          throw new Error(errorMsg);
-      }
+      // 2. [DEMO MODE] 移除故障注入，强制成功
+      // const isFailure = Math.random() < 0.2; ... (Removed)
 
       // 3. 支付成功，下发权益 (License Provisioning)
       dispatch({ type: 'UNLOCK_FEATURE', payload: featureKey });
@@ -182,11 +172,11 @@ export const usePayment = () => {
       
       // 执行后续 UI 逻辑 (如关闭弹窗)
       if (onSuccess) {
-        setTimeout(onSuccess, 800);
+        setTimeout(onSuccess, 500);
       }
 
       // 自动重置状态
-      setTimeout(() => setStatus('idle'), 2500);
+      setTimeout(() => setStatus('idle'), 2000);
 
     } catch (error: any) {
       console.error('Payment failed', error);

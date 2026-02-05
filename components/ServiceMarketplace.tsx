@@ -38,18 +38,11 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
     setStep('confirm'); // reset if coming from error
     
     setTimeout(() => {
-      // [NEW] 模拟随机失败 (20%)
-      if (Math.random() < 0.2) {
-          setIsProcessing(false);
-          setErrorMsg("支付系统繁忙 (Code: 503)，请稍后重试");
-          setStep('error');
-          return;
-      }
-
+      // [DEMO MODE] 移除随机故障，强制成功
       setIsProcessing(false);
       setStep('success');
       setIsDataSynced(true); // 模拟数据下发
-    }, 2000);
+    }, 1500);
   };
 
   if (step === 'success') {
