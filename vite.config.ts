@@ -4,32 +4,32 @@ import react from '@vitejs/plugin-react';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // 根据当前工作目录中的 `mode` 加载 .env 文件
-  // 设置第三个参数为 '' 来加载所有环境变量，而不管是否有 `VITE_` 前缀
+  // 加载环境变量
   const env = loadEnv(mode, process.cwd(), '');
 
   return {
-    // 关键修复：将基础路径设为相对路径，解决腾讯云静态托管 404 资源找不到的问题
+    // 1. 核心修复：强制使用相对路径。
+    // 这将使资源引用从 "/assets/..." 变为 "./assets/..."
     base: './',
-
-    server: {
-      port: 3000,
-      host: '0.0.0.0',
-    },
 
     plugins: [react()],
 
+    // 2. 注入环境变量到代码中
     define: {
-      // 将环境变量注入到代码中
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
     },
 
     resolve: {
       alias: {
-        // 对应 tsconfig.json 中的 "@/*": ["./*"]
-        '@': path.resolve(__dirname, '.'),
+        // 3. 路径别名修复：确保 @ 指向项目根目录，匹配你的 tsconfig.json
+        '@': path.resolve(__dirname, './'),
       }
+    },
+
+    server: {
+      port: 3000,
+      host: '0.0.0.0',
     }
   };
 });
