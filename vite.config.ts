@@ -3,6 +3,9 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
+    plugins: [react()],
+  // 将基础路径设为相对路径，解决 404 资源找不到的问题
+  base: './',
     const env = loadEnv(mode, '.', '');
     return {
       server: {
