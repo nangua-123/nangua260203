@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import Layout from './Layout';
-import Button from './Button';
+import Layout from './common/Layout';
+import Button from './common/Button';
 import { useApp } from '../context/AppContext';
 import { SharingScope } from '../types';
 

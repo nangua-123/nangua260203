@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import Button from './Button';
+import Button from './common/Button';
 import { useApp } from '../context/AppContext';
 import { generateCognitiveAssessment } from '../services/geminiService';
 import { CognitiveStats } from '../types';
@@ -89,6 +89,50 @@ const playSound = (type: 'correct' | 'wrong' | 'levelUp' | 'complete' | 'click')
     } catch (e) {
         console.error("Audio playback failed", e);
     }
+};
+
+/**
+ * 游戏结果结算页
+ */
+const GameResult: React.FC<{ score: number; accuracy?: number; type: 'memory' | 'attention'; onExit: () => void }> = ({ score, accuracy, type, onExit }) => {
+    const [analysis, setAnalysis] = useState<{rating: string; advice: string} | null>(null);
+
+    useEffect(() => {
+        // Mock async analysis
+        generateCognitiveAssessment(score, accuracy || 0, type).then(setAnalysis);
+    }, []);
+
+    return (
+        <div className="flex flex-col h-screen bg-slate-900 text-white animate-fade-in relative max-w-[430px] mx-auto">
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+                <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-brand-500 to-purple-600 flex items-center justify-center text-5xl mb-6 shadow-[0_0_40px_rgba(124,58,237,0.5)] animate-bounce">
+                    {analysis ? analysis.rating : '...'}
+                </div>
+                <h2 className="text-2xl font-black mb-2">训练完成</h2>
+                <div className="flex gap-8 mb-8 text-slate-300">
+                    <div className="flex flex-col">
+                        <span className="text-xs font-bold uppercase tracking-widest opacity-60">得分</span>
+                        <span className="text-3xl font-black">{score}</span>
+                    </div>
+                    <div className="flex flex-col">
+                        <span className="text-xs font-bold uppercase tracking-widest opacity-60">{type === 'memory' ? '准确率' : '耗时'}</span>
+                        <span className="text-3xl font-black">{type === 'memory' ? `${accuracy}%` : `${Math.floor((accuracy || 0)/1000)}s`}</span>
+                    </div>
+                </div>
+                
+                <div className="bg-white/10 rounded-2xl p-6 backdrop-blur-md mb-8 w-full border border-white/10">
+                    <h4 className="text-xs font-bold text-brand-300 uppercase tracking-widest mb-2">AI 康复分析</h4>
+                    <p className="text-sm leading-relaxed text-slate-200">
+                        {analysis ? analysis.advice : '正在生成神经认知评估报告...'}
+                    </p>
+                </div>
+
+                <Button fullWidth onClick={onExit} className="bg-white text-slate-900 hover:bg-slate-100">
+                    保存并返回
+                </Button>
+            </div>
+        </div>
+    );
 };
 
 /** 
@@ -337,54 +381,58 @@ export const AttentionGame: React.FC<AttentionGameProps> = ({ onComplete, onExit
         setStartTime(Date.now());
         resetHintTimer(1);
         
+        // Start timer
+        timerRef.current = setInterval(() => {
+            if (!isGameOver && startTime > 0) {
+                 setElapsed(Date.now() - startTime);
+            }
+        }, 100);
+
         return () => {
-            clearInterval(timerRef.current);
-            clearTimeout(hintTimerRef.current);
+            if (timerRef.current) clearInterval(timerRef.current);
+            if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
         };
     }, []);
 
-    // 游戏主计时器
+    // Effect for timer update when startTime is set
     useEffect(() => {
         if (startTime > 0 && !isGameOver) {
-             timerRef.current = setInterval(() => {
+             const interval = setInterval(() => {
                 setElapsed(Date.now() - startTime);
-            }, 100);
+             }, 100);
+             return () => clearInterval(interval);
         }
-        return () => clearInterval(timerRef.current);
     }, [startTime, isGameOver]);
 
-    const handleTap = (num: number) => {
+    const handleNumClick = (num: number) => {
+        if (isGameOver) return;
+
         if (num === nextNum) {
-            // Correct
             playSound('correct');
             if (num === 16) {
-                setIsGameOver(true);
+                // Win
                 playSound('complete');
-                clearInterval(timerRef.current);
-                clearTimeout(hintTimerRef.current);
+                setIsGameOver(true);
+                const finalTime = Date.now() - startTime;
+                // Calculate score
+                const score = Math.max(0, 100 - Math.floor((finalTime / 1000) - 10)); 
+                onComplete(score, finalTime);
             } else {
-                const next = nextNum + 1;
-                setNextNum(next);
-                resetHintTimer(next);
+                setNextNum(n => n + 1);
+                resetHintTimer(num + 1);
             }
         } else {
-            // Wrong
             playSound('wrong');
             setShakeTarget(num);
-            setTimeout(() => setShakeTarget(null), 400); // 震动动画持续时间
+            setTimeout(() => setShakeTarget(null), 500);
         }
     };
 
     if (isGameOver) {
-        const finalTime = Date.now() - startTime;
-        const seconds = finalTime / 1000;
-        // 计算得分：基准 25秒，每快1秒加分
-        const calculatedScore = Math.max(10, Math.floor(100 - (seconds - 25) * 4));
-        
         return (
             <GameResult 
-                score={calculatedScore} 
-                accuracy={seconds} // 此处 accuracy 传时间
+                score={Math.max(0, 100 - Math.floor(elapsed / 1000))} 
+                accuracy={elapsed} // Here accuracy prop is reused for time in ms for attention game
                 type="attention"
                 onExit={onExit}
             />
@@ -392,155 +440,37 @@ export const AttentionGame: React.FC<AttentionGameProps> = ({ onComplete, onExit
     }
 
     return (
-        <div className="flex flex-col h-screen bg-slate-50 relative max-w-[430px] mx-auto overflow-hidden animate-fade-in">
-             {/* 顶部目标指引 - 减轻工作记忆负荷 */}
-             <div className="p-6 flex justify-between items-center bg-white shadow-sm border-b border-slate-100 z-10 pt-[calc(1.5rem+env(safe-area-inset-top))]">
-                 <div className="flex items-center gap-3">
-                     <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">当前目标</div>
-                     <div className="w-10 h-10 bg-brand-500 rounded-lg flex items-center justify-center text-white text-xl font-black shadow-lg shadow-brand-500/30 animate-pulse-fast">
-                        {nextNum}
-                     </div>
-                 </div>
-                 <div className="font-mono text-xl font-black text-slate-900 tabular-nums">
-                    {(elapsed/1000).toFixed(1)} <span className="text-xs text-slate-400">s</span>
-                 </div>
+        <div className="flex flex-col h-screen bg-slate-900 text-white relative max-w-[430px] mx-auto animate-fade-in">
+            {/* Header */}
+             <div className="flex justify-between items-center p-6 pt-[calc(1.5rem+env(safe-area-inset-top))]">
+                <div className="text-[11px] font-black opacity-60 uppercase tracking-widest">寻找数字</div>
+                <div className="text-2xl font-black font-mono tracking-tighter">{(elapsed / 1000).toFixed(1)}s</div>
+                <div className="text-[11px] font-black opacity-60 uppercase tracking-widest">目标: {nextNum}</div>
              </div>
 
-             <div className="flex-1 flex items-center justify-center p-6 bg-[#F8FAFC]">
+             <div className="flex-1 flex items-center justify-center p-4">
                  <div className="grid grid-cols-4 gap-3 w-full max-w-sm aspect-square">
-                     {numbers.map((num) => {
-                         const isFound = num < nextNum;
-                         const isHint = num === hintTarget;
-                         const isShake = num === shakeTarget;
-
-                         // 动态样式计算
-                         let btnClass = "bg-white text-slate-800 border-b-4 border-slate-200 active:border-b-0 active:translate-y-[4px]";
-                         if (isFound) btnClass = "bg-slate-100 text-slate-300 border-none shadow-none scale-95 opacity-50";
-                         else if (isHint) btnClass = "bg-amber-50 text-amber-600 border-b-4 border-amber-200 animate-pulse shadow-[0_0_15px_rgba(245,158,11,0.4)] relative z-10 scale-105";
-                         else if (isShake) btnClass = "bg-red-50 text-red-500 border-b-4 border-red-200 animate-shake";
-
-                         return (
-                             <button
-                                key={num}
-                                disabled={isFound}
-                                onClick={() => handleTap(num)}
-                                className={`rounded-2xl text-2xl font-black shadow-sm transition-all duration-200 flex items-center justify-center min-h-[70px] ${btnClass}`}
-                             >
-                                 {num}
-                             </button>
-                         )
-                     })}
+                     {numbers.map((num) => (
+                         <button
+                            key={num}
+                            onClick={() => handleNumClick(num)}
+                            className={`
+                                rounded-2xl text-2xl font-black transition-all duration-200 relative overflow-hidden
+                                ${num < nextNum ? 'bg-slate-800 text-slate-600 scale-95 opacity-50' : 'bg-slate-700 text-white active:scale-95 shadow-lg'}
+                                ${hintTarget === num ? 'ring-4 ring-brand-500 animate-pulse' : ''}
+                                ${shakeTarget === num ? 'animate-shake bg-red-500/20' : ''}
+                            `}
+                            disabled={num < nextNum}
+                         >
+                             {num}
+                         </button>
+                     ))}
                  </div>
              </div>
-             
-             {/* 底部操作区 */}
-             <div className="p-8 text-center pb-[calc(2.5rem+env(safe-area-inset-bottom))] bg-white border-t border-slate-50">
-                 <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-4">
-                     请按顺序点击数字 1 - 16
-                 </p>
-                 
-                 {/* 进度条 */}
-                 <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mb-6">
-                     <div 
-                        className="bg-brand-500 h-full rounded-full transition-all duration-300 ease-out"
-                        style={{ width: `${((nextNum - 1) / 16) * 100}%` }}
-                     ></div>
-                 </div>
 
-                 <button onClick={onExit} className="text-slate-400 text-xs font-bold underline decoration-slate-200 active:text-slate-600">
-                     结束训练
-                 </button>
+             <div className="p-8 text-center text-white/40 text-[11px] font-black uppercase tracking-widest pb-[calc(2.5rem+env(safe-area-inset-bottom))]">
+                请按顺序点击数字 1 - 16
              </div>
         </div>
-    );
-};
-
-
-// --- 通用游戏结算组件 (AI 评估 & 状态持久化) ---
-const GameResult: React.FC<{ score: number; accuracy: number; type: 'memory' | 'attention'; onExit: () => void }> = ({ score, accuracy, type, onExit }) => {
-    const { state, dispatch } = useApp();
-    const [aiAssessment, setAiAssessment] = useState<{rating: string; advice: string} | null>(null);
-
-    const activeProfileId = state.user.currentProfileId || state.user.id;
-
-    useEffect(() => {
-        const processResult = async () => {
-            // 1. 调用 Gemini Mock 生成评估
-            const assessment = await generateCognitiveAssessment(score, accuracy, type);
-            setAiAssessment(assessment);
-
-            // 2. 更新全局状态 (自动同步到 localStorage)
-            // 获取当前 stats 以便累加
-            const currentStats = state.user.id === activeProfileId 
-                ? state.user.cognitiveStats 
-                : state.user.familyMembers?.find(m => m.id === activeProfileId)?.cognitiveStats;
-
-            const baseStats = currentStats || { totalSessions: 0, todaySessions: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0 };
-            
-            // 检查是否跨天，重置今日计数
-            const today = new Date().toDateString();
-            const lastDate = new Date(baseStats.lastUpdated).toDateString();
-            const todaySessions = (today !== lastDate && baseStats.lastUpdated !== 0) ? 1 : (baseStats.todaySessions + 1);
-
-            const newStats: Partial<CognitiveStats> = {
-                totalSessions: baseStats.totalSessions + 1,
-                todaySessions: todaySessions,
-                totalDuration: baseStats.totalDuration + (type === 'memory' ? 120 : Math.floor(accuracy)), // 估算时长
-                lastScore: score,
-                aiRating: assessment.rating,
-                lastUpdated: Date.now()
-            };
-
-            dispatch({
-                type: 'UPDATE_COGNITIVE_STATS',
-                payload: { id: activeProfileId, stats: newStats }
-            });
-        };
-
-        processResult();
-    }, [score, accuracy, type, activeProfileId]);
-
-    if (!aiAssessment) {
-        return (
-             <div className="flex flex-col items-center justify-center h-screen bg-white text-center p-8 max-w-[430px] mx-auto">
-                 <div className="w-12 h-12 border-4 border-slate-100 border-t-brand-500 rounded-full animate-spin mb-6"></div>
-                 <h3 className="font-black text-slate-900 mb-2">正在分析认知数据</h3>
-                 <p className="text-xs text-slate-400">华西 AI 正在生成康复评估...</p>
-             </div>
-        );
-    }
-
-    return (
-      <div className="flex flex-col items-center justify-center h-full p-6 text-center animate-fade-in max-w-[430px] mx-auto bg-white min-h-screen">
-        <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mb-6 shadow-sm">
-           <span className="text-4xl">🧠</span>
-        </div>
-        <h2 className="text-2xl font-black text-slate-900 mb-2">康复训练已完成</h2>
-        <div className="text-4xl font-black text-brand-500 mb-6">{score} <span className="text-sm text-slate-400 font-bold uppercase tracking-widest">积分</span></div>
-        
-        {/* 结算页双栏 */}
-        <div className="grid grid-cols-2 gap-3 w-full mb-6">
-            <div className="bg-slate-50 p-4 rounded-[24px] text-left border border-slate-100 shadow-sm flex flex-col justify-between">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">华西 AI 评级</span>
-                <span className="text-2xl font-black text-indigo-600">{aiAssessment.rating}级</span>
-            </div>
-            <div className="bg-slate-50 p-4 rounded-[24px] text-left border border-slate-100 shadow-sm flex flex-col justify-between">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{type === 'memory' ? '记忆广度' : '反应耗时'}</span>
-                <span className="text-sm font-black text-slate-800">{type === 'memory' ? `${score/10} 项` : `${accuracy.toFixed(1)}s`}</span>
-            </div>
-        </div>
-
-        {/* AI Advice */}
-        <div className="bg-brand-50 p-4 rounded-xl border border-brand-100 w-full text-left mb-8">
-            <div className="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-1">医师建议</div>
-            <p className="text-xs text-brand-800 font-medium leading-relaxed">
-                {aiAssessment.advice}
-            </p>
-        </div>
-
-        <Button fullWidth onClick={() => { playSound('click'); onExit(); }} className="py-4 shadow-lg shadow-brand-500/20">
-            保存并返回
-        </Button>
-      </div>
     );
 };

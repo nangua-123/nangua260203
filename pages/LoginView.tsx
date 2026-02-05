@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, SharingScope, AuthProvider, LoginFormState, ThirdPartyLoginRes } from '../types';
-import Button from './Button';
+import Button from '../components/common/Button';
 import { useApp } from '../context/AppContext';
 
 export const LoginView: React.FC = () => {

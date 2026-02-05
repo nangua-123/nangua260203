@@ -2,16 +2,11 @@
 /**
  * @file HomeView.tsx
  * @description 应用首页 (Dashboard)
- * 
- * 视觉架构:
- * 1. 沉浸式顶栏 (Immersion Header): 展示用户信息、健康分环及会员状态。
- * 2. 金刚区 (King Kong District): 4个核心功能入口 (问诊/报告/家庭/设备)。
- * 3. 信息流 (Feed): 包含风险预警、智能推荐卡片及专病管理入口。
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, AppView, DiseaseType, IoTStats } from '../types';
-import Button from './Button';
+import Button from '../components/common/Button';
 import { usePayment } from '../hooks/usePayment';
 import { useApp } from '../context/AppContext';
 

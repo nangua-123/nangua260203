@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import Button from './Button';
+import Button from './common/Button';
 
 interface FamilyManagedModalProps {
     onClose: () => void;

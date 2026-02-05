@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { UserRole } from '../types';
 import { useApp } from '../context/AppContext';
-import Button from './Button';
+import Button from './common/Button';
 
 interface RoleSelectionModalProps {
     onRoleSelected: () => void;

@@ -40,6 +40,7 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
   const { hasFeature, PACKAGES } = usePayment();
   const [showPayModal, setShowPayModal] = useState(false);
   const [dailyMedsTaken, setDailyMedsTaken] = useState(false);
+  const [showToast, setShowToast] = useState(false); // [HS-001]
 
   // 权益校验：是否已购买“偏头痛1元破冰”或“偏头痛VIP”
   const isUnlocked = hasFeature('ICE_BREAKING_MIGRAINE') || hasFeature('VIP_MIGRAINE');
@@ -95,10 +96,29 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
     }).slice(0, 2); 
   }, [factors]);
 
+  // Handle meds click with visual feedback
+  const handleTakeMeds = () => {
+      if (!isUnlocked || isInvalid) return;
+      const newState = !dailyMedsTaken;
+      setDailyMedsTaken(newState);
+      if (newState) {
+          setShowToast(true);
+          setTimeout(() => setShowToast(false), 2000);
+      }
+  };
+
   return (
     <>
       <div className="relative group space-y-4">
         
+        {/* Toast for Medication Reminder */}
+        {showToast && (
+            <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs px-4 py-2 rounded-full shadow-lg z-50 animate-fade-in flex items-center gap-2">
+                <span className="text-emerald-400">✓</span>
+                已关联今日用药提醒
+            </div>
+        )}
+
         {/* 0. 动态非药物干预 (生活方式) - [COMPLIANCE FIX] 移出付费墙，作为免费基础功能 */}
         <div className={`rounded-[24px] p-5 border shadow-sm transition-colors duration-500 bg-white ${highlight ? 'border-rose-100 ring-2 ring-rose-50' : 'border-slate-50'}`}>
              <h4 className={`text-[12px] font-black uppercase tracking-widest mb-3 flex items-center justify-between ${highlight ? 'text-rose-500' : 'text-slate-800'}`}>
@@ -189,7 +209,7 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
                             </div>
                         </div>
                         <button 
-                            onClick={() => isUnlocked && !isInvalid && setDailyMedsTaken(!dailyMedsTaken)}
+                            onClick={handleTakeMeds}
                             disabled={isInvalid}
                             className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all active:scale-90 ${dailyMedsTaken ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-slate-50 text-slate-300 hover:bg-slate-100'}`}
                         >

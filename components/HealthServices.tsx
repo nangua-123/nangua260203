@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import Layout from './Layout';
-import Button from './Button';
+import Layout from './common/Layout';
+import Button from './common/Button';
 import { usePayment } from '../hooks/usePayment';
 import { useApp } from '../context/AppContext';
 // 引入完整的认知游戏组件集合
@@ -43,7 +43,8 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
     // --- 档案管理状态 ---
     const [showProfileForm, setShowProfileForm] = useState(false);
     const [isSwitchingUser, setIsSwitchingUser] = useState(false);
-    const [showProfileDetails, setShowProfileDetails] = useState(false); // 控制 AI 档案详情展开
+    const [showProfileDetails, setShowProfileDetails] = useState(false); 
+    const [hasImportedPrescription, setHasImportedPrescription] = useState(false); // HS-001
 
     // 获取当前展示的患者信息 (自己 or 家属)
     const activePatient = useMemo(() => {
@@ -336,10 +337,18 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                     )}
                 </div>
                 
-                {/* 1. 数字处方看板 (联动高风险状态) */}
-                <DigitalPrescription highlight={riskAnalysis.alertLevel === 'high'} factors={factors} />
+                {/* 1. 数字处方看板 (联动高风险状态) [HS-001] */}
+                {hasImportedPrescription ? (
+                    <DigitalPrescription highlight={riskAnalysis.alertLevel === 'high'} factors={factors} />
+                ) : (
+                    <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-[24px] p-6 text-center" onClick={() => setHasImportedPrescription(true)}>
+                        <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-slate-400 mx-auto mb-3 shadow-sm text-2xl">📷</div>
+                        <h4 className="text-xs font-bold text-slate-600 mb-1">暂无电子处方</h4>
+                        <p className="text-[10px] text-slate-400">点击模拟扫描医院处方二维码 (HS-001)</p>
+                    </div>
+                )}
 
-                {/* 2. 动态诱因雷达 */}
+                {/* 2. 动态诱因雷达 [HS-009] */}
                 <div className={`bg-white rounded-[32px] p-6 shadow-card border transition-all duration-500 relative overflow-hidden ${riskAnalysis.alertLevel === 'high' ? 'border-rose-100 ring-4 ring-rose-50' : 'border-slate-50'}`}>
                     
                     {/* Header */}
@@ -539,12 +548,45 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
 export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const { hasFeature, PACKAGES } = usePayment();
     const [showPay, setShowPay] = useState(false);
+    const [showManualRecord, setShowManualRecord] = useState(false); // HS-003: Manual fallback
     const isVip = hasFeature('VIP_EPILEPSY');
 
     return (
         <Layout headerTitle="癫痫生命守护" showBack onBack={onBack}>
             <div className="p-5 space-y-5">
                 <WaveMonitor />
+                
+                {/* [HS-003] 异常场景：设备断连后的手动兜底入口 */}
+                <div className="flex justify-center">
+                     <button 
+                         onClick={() => setShowManualRecord(!showManualRecord)}
+                         className="text-xs font-bold text-slate-500 underline decoration-slate-300"
+                     >
+                         设备无法连接？切换手动记录模式
+                     </button>
+                </div>
+                
+                {/* Manual Record Form */}
+                {showManualRecord && (
+                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 animate-slide-up">
+                         <h3 className="font-black text-slate-800 text-sm mb-3">手动记录发作事件</h3>
+                         <div className="space-y-3">
+                             <div>
+                                 <label className="text-[10px] font-bold text-slate-500 block mb-1">发作形式</label>
+                                 <div className="flex gap-2">
+                                     <button className="flex-1 bg-brand-50 text-brand-600 py-2 rounded-lg text-xs font-bold border border-brand-200">大发作</button>
+                                     <button className="flex-1 bg-slate-50 text-slate-500 py-2 rounded-lg text-xs font-bold border border-slate-100">失神</button>
+                                     <button className="flex-1 bg-slate-50 text-slate-500 py-2 rounded-lg text-xs font-bold border border-slate-100">局灶</button>
+                                 </div>
+                             </div>
+                             <div>
+                                 <label className="text-[10px] font-bold text-slate-500 block mb-1">持续时间 (秒)</label>
+                                 <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold" placeholder="例如: 120" />
+                             </div>
+                             <Button fullWidth size="sm" onClick={() => { setShowManualRecord(false); alert("记录已保存至本地缓存 (HS-007)"); }}>保存记录</Button>
+                         </div>
+                    </div>
+                )}
                 
                 <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-50">
                     <h3 className="font-black text-slate-800 text-sm mb-3">最近24小时监测日志</h3>

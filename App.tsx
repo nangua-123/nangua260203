@@ -3,17 +3,16 @@ import React, { useState, useEffect } from 'react';
 import { User, UserRole, AppView, DiseaseType } from './types';
 
 // Import all functional components
-import BottomNav from './components/BottomNav';
-import HomeView from './components/HomeView';
-import ChatView from './components/ChatView';
-import AssessmentView from './components/AssessmentView';
-import ReportView from './components/ReportView';
+import BottomNav from './components/common/BottomNav';
+import HomeView from './pages/HomeView';
+import ChatView from './pages/ChatView';
+import AssessmentView from './pages/AssessmentView';
+import ReportView from './pages/ReportView';
+import { LoginView } from './pages/LoginView'; 
+import { ProfileView } from './pages/ProfileView'; 
 import { HeadacheServiceView, CognitiveServiceView, EpilepsyServiceView, FamilyServiceView } from './components/HealthServices';
 import { HaaSRentalView, ServiceMallView } from './components/ServiceMarketplace';
 import PrivacyPanel from './components/PrivacyPanel';
-import Layout from './components/Layout';
-import { LoginView } from './components/LoginView'; 
-import { ProfileView } from './components/ProfileView'; 
 import { useApp } from './context/AppContext';
 
 const App: React.FC = () => {
@@ -50,17 +49,8 @@ const App: React.FC = () => {
     return () => window.removeEventListener('navigate-to', handleDeepLink);
   }, []);
 
-  // [NEW] Force navigation to chat if just logged in (Safeguard for E2E tests)
-  useEffect(() => {
-      // Safeguard: If we are logged in, risk is 0 (new user session), and on home, redirect to chat.
-      // This ensures that even if the 'navigate-to' event is missed during the login transition,
-      // the user is still correctly routed to the triage chat.
-      if (state.isLoggedIn && currentView === 'home' && state.riskScore === 0) {
-          const t = setTimeout(() => setCurrentView('chat'), 100);
-          return () => clearTimeout(t);
-      }
-  }, [state.isLoggedIn, currentView, state.riskScore]);
-
+  // [REMOVED] Forced navigation to chat loop was preventing access to Home view
+  
   const handleTriageComplete = (summary: any) => {
     dispatch({ type: 'SET_RISK_SCORE', payload: { score: summary.risk || 85, type: DiseaseType.MIGRAINE } });
     setAssessmentType(DiseaseType.MIGRAINE); 
@@ -143,7 +133,8 @@ const App: React.FC = () => {
        {!isOnline && (
           <div className="absolute top-0 left-0 right-0 bg-slate-800 text-white text-[10px] font-bold py-2 text-center z-[9999] animate-slide-up flex items-center justify-center gap-2">
              <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-             网络连接已断开，部分 AI 服务不可用
+             {/* [Text Update] 文案优化 (Requirement 5) */}
+             你的网络连接已断开，部分AI服务暂时不可用
           </div>
        )}
        

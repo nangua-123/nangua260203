@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import Layout from './Layout';
-import Button from './Button';
+import Layout from './common/Layout';
+import Button from './common/Button';
 import { AppView } from '../types';
 import { usePayment, AVAILABLE_COUPONS, RENTAL_PLANS } from '../hooks/usePayment';
 

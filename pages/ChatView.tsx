@@ -1,11 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, DiseaseType } from '../types';
-import { createChatSession, sendMessageToAI, getTriageAnalysis } from '../services/geminiService';
+import { createChatSession, sendMessageToAI } from '../services/geminiService';
 import { useApp } from '../context/AppContext';
-import Layout from './Layout';
-import Button from './Button';
-import { PaywallModal } from './business/payment/PaywallModal'; // 复用支付组件
+import Layout from '../components/common/Layout';
+import Button from '../components/common/Button';
+import { PaywallModal } from '../components/business/payment/PaywallModal'; // 复用支付组件
 import { usePayment } from '../hooks/usePayment';
 
 interface ChatViewProps {
@@ -138,13 +138,15 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
     }
   };
 
-  // --- Handlers ---
+  // --- Handlers & Fixes ---
   const handleUnlockAssessment = () => {
+      // [FIX] Explicitly set showPayModal to true
       setShowPayModal(true);
   };
 
   const handleAssessmentPaid = () => {
       // 支付成功，跳转到测评页
+      // [FIX] Ensure this is called by PaywallModal on success
       const event = new CustomEvent('navigate-to', { detail: 'assessment' });
       window.dispatchEvent(event);
   };

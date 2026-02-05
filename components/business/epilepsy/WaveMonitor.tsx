@@ -3,6 +3,7 @@ import React, { useEffect, useState, useRef, memo } from 'react';
 
 // 使用 React.memo 避免父组件渲染导致的不必要重绘
 export const WaveMonitor = memo(() => {
+  const [isConnected, setIsConnected] = useState(true); // 蓝牙连接状态
   const [eegPath, setEegPath] = useState('');
   const [stats, setStats] = useState({ hr: 72, spo2: 98, tremor: 0.5 });
   const [isAbnormal, setIsAbnormal] = useState(false);
@@ -11,8 +12,15 @@ export const WaveMonitor = memo(() => {
   const animationFrameRef = useRef<number>(0);
   const tickRef = useRef(0);
 
+  // 模拟断开连接
+  const toggleConnection = () => {
+      setIsConnected(prev => !prev);
+  };
+
   // 1. 生命体征模拟循环 (低频更新)
   useEffect(() => {
+    if (!isConnected) return; // 断连停止更新
+
     const interval = setInterval(() => {
         setStats(prev => ({
             hr: 70 + Math.floor(Math.random() * 8), // 心率在 70-78 波动
@@ -21,10 +29,15 @@ export const WaveMonitor = memo(() => {
         }));
     }, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isConnected]);
 
   // 2. 脑电波形绘制循环 (高频 60FPS)
   useEffect(() => {
+    if (!isConnected) {
+        setEegPath(''); // 清空波形
+        return;
+    }
+
     const generateWave = () => {
       // [AUDIT_FIX] 调整时间步进，使波形流动更自然
       tickRef.current += 0.15; 
@@ -79,10 +92,10 @@ export const WaveMonitor = memo(() => {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, []);
+  }, [isConnected]);
 
   return (
-    <div className={`bg-slate-900 rounded-[32px] p-6 text-white shadow-2xl relative overflow-hidden transform transition-all duration-300 ${isAbnormal ? 'animate-shake ring-4 ring-red-500 shadow-red-500/50' : ''}`}>
+    <div className={`bg-slate-900 rounded-[32px] p-6 text-white shadow-2xl relative overflow-hidden transform transition-all duration-300 ${isAbnormal ? 'animate-shake ring-4 ring-red-500 shadow-red-500/50' : ''} ${!isConnected ? 'opacity-90 grayscale' : ''}`}>
         {/* 背景网格装饰 */}
         <div className="absolute inset-0 opacity-10" 
              style={{ backgroundImage: 'linear-gradient(#334155 1px, transparent 1px), linear-gradient(90deg, #334155 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
@@ -90,17 +103,17 @@ export const WaveMonitor = memo(() => {
 
         {/* 顶部状态栏 */}
         <div className="relative z-10 flex justify-between items-start mb-6">
-            <div className="flex items-center gap-2">
-                <div className="relative">
-                    <div className={`w-2 h-2 rounded-full ${isAbnormal ? 'bg-red-500' : 'bg-emerald-500'} animate-pulse`}></div>
-                    <div className={`absolute inset-0 rounded-full animate-ping opacity-75 ${isAbnormal ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
+            <div className="flex items-center gap-2" onClick={toggleConnection}>
+                <div className="relative cursor-pointer">
+                    <div className={`w-2 h-2 rounded-full ${!isConnected ? 'bg-slate-500' : isAbnormal ? 'bg-red-500' : 'bg-emerald-500'} ${isConnected ? 'animate-pulse' : ''}`}></div>
+                    {isConnected && <div className={`absolute inset-0 rounded-full animate-ping opacity-75 ${isAbnormal ? 'bg-red-500' : 'bg-emerald-500'}`}></div>}
                 </div>
-                <span className={`text-[10px] font-black uppercase tracking-widest ${isAbnormal ? 'text-red-400' : 'text-emerald-400'}`}>
-                    {isAbnormal ? '检测到异常棘慢波' : '华西 AI 实时哨兵监测中'}
+                <span className={`text-[10px] font-black uppercase tracking-widest ${!isConnected ? 'text-slate-400' : isAbnormal ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {isConnected ? (isAbnormal ? '检测到异常棘慢波' : '华西 AI 实时哨兵监测中') : '设备已断开连接'}
                 </span>
             </div>
             <div className="flex flex-col items-end">
-                <span className="text-[9px] text-slate-400 font-bold">设备连接: 稳定</span>
+                <span className="text-[9px] text-slate-400 font-bold">设备连接: {isConnected ? '稳定' : '异常'}</span>
                 <span className="text-[8px] text-slate-600 font-mono">ID: HaaS-8829</span>
             </div>
         </div>
@@ -114,6 +127,17 @@ export const WaveMonitor = memo(() => {
                 <span>-100</span>
             </div>
             
+            {/* 断连提示遮罩 */}
+            {!isConnected && (
+                <div className="absolute inset-0 flex items-center justify-center z-30">
+                    <div className="bg-slate-800/80 px-4 py-2 rounded-lg border border-slate-600 text-center">
+                        <div className="text-xl mb-1">🔌</div>
+                        <div className="text-[10px] text-slate-300 font-bold">蓝牙信号丢失</div>
+                        <div className="text-[8px] text-slate-500">点击左上角状态灯模拟重连</div>
+                    </div>
+                </div>
+            )}
+
             {/* 动态 SVG */}
             <svg width="100%" height="100%" viewBox="0 0 360 100" preserveAspectRatio="none" className="overflow-visible">
                 <defs>
@@ -128,34 +152,36 @@ export const WaveMonitor = memo(() => {
                         <stop offset="100%" stopColor="#EF4444" stopOpacity="1" />
                     </linearGradient>
                 </defs>
-                <path 
-                    d={eegPath} 
-                    fill="none" 
-                    stroke={isAbnormal ? "url(#alertGradient)" : "url(#waveGradient)"} 
-                    strokeWidth="2" 
-                    strokeLinecap="round" 
-                    strokeLinejoin="round"
-                    className="transition-colors duration-100"
-                />
+                {isConnected && (
+                    <path 
+                        d={eegPath} 
+                        fill="none" 
+                        stroke={isAbnormal ? "url(#alertGradient)" : "url(#waveGradient)"} 
+                        strokeWidth="2" 
+                        strokeLinecap="round" 
+                        strokeLinejoin="round"
+                        className="transition-colors duration-100"
+                    />
+                )}
             </svg>
             
             {/* 扫描线动画 */}
-            <div className="absolute top-0 bottom-0 right-0 w-8 bg-gradient-to-r from-transparent to-slate-900 z-20"></div>
+            {isConnected && <div className="absolute top-0 bottom-0 right-0 w-8 bg-gradient-to-r from-transparent to-slate-900 z-20"></div>}
         </div>
 
         {/* 生命体征仪表盘 */}
         <div className="relative z-10 grid grid-cols-3 gap-4 border-t border-slate-800 pt-4">
             <div className="flex flex-col items-center">
                 <span className="text-[8px] font-black text-slate-500 uppercase mb-1">心率 (BPM)</span>
-                <span className={`text-2xl font-black tracking-tighter ${isAbnormal ? 'text-red-500 animate-pulse' : 'text-emerald-500'}`}>{stats.hr}</span>
+                <span className={`text-2xl font-black tracking-tighter ${!isConnected ? 'text-slate-600' : isAbnormal ? 'text-red-500 animate-pulse' : 'text-emerald-500'}`}>{isConnected ? stats.hr : '--'}</span>
             </div>
             <div className="flex flex-col items-center border-l border-slate-800">
                 <span className="text-[8px] font-black text-slate-500 uppercase mb-1">血氧 (%)</span>
-                <span className="text-2xl font-black text-brand-500 tracking-tighter">{stats.spo2}</span>
+                <span className={`text-2xl font-black tracking-tighter ${!isConnected ? 'text-slate-600' : 'text-brand-500'}`}>{isConnected ? stats.spo2 : '--'}</span>
             </div>
             <div className="flex flex-col items-center border-l border-slate-800">
                 <span className="text-[8px] font-black text-slate-500 uppercase mb-1">肌张力 (Hz)</span>
-                <span className={`text-2xl font-black tracking-tighter ${isAbnormal ? 'text-amber-500' : 'text-amber-500'}`}>{stats.tremor}</span>
+                <span className={`text-2xl font-black tracking-tighter ${!isConnected ? 'text-slate-600' : 'text-amber-500'}`}>{isConnected ? stats.tremor : '--'}</span>
             </div>
         </div>
     </div>
