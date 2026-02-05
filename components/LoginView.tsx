@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, SharingScope, AuthProvider, LoginFormState, ThirdPartyLoginRes } from '../types';
-import Button from './Button';
+import Button from './common/Button';
 import { useApp } from '../context/AppContext';
 
 export const LoginView: React.FC = () => {
@@ -263,3 +263,4 @@ export const LoginView: React.FC = () => {
             </div>
         </div>
     );
+};

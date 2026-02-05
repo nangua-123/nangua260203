@@ -25,7 +25,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
   const [latestOptions, setLatestOptions] = useState<string[]>([]);
   const [apiError, setApiError] = useState(false);
   
-  // Progress (Dynamic)
+  // Progress (Dynamic: Based on specific disease path logic from geminiService)
   const [currentStep, setCurrentStep] = useState(0);
   const [totalSteps, setTotalSteps] = useState(5); // Default, updated by AI session
 
@@ -49,7 +49,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
     setCurrentStep(0);
 
     chatSessionRef.current = createChatSession("系统初始化", DiseaseType.UNKNOWN);
-    // 更新动态步数
+    // 更新动态步数 (Initial state)
     setTotalSteps(chatSessionRef.current.totalSteps || 5);
     // 直接开始分诊，AI 主动接诊
     handleSend("开始分诊", true);
@@ -106,7 +106,8 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
           setActiveDisease(chatSessionRef.current.diseaseType);
       }
       
-      // Update dynamic steps
+      // Update dynamic steps (Critical: Sync with Service Logic)
+      // Service sets totalSteps based on disease: Epilepsy=4, Migraine=6, Default=5
       setCurrentStep(chatSessionRef.current.step);
       if (chatSessionRef.current.totalSteps) {
           setTotalSteps(chatSessionRef.current.totalSteps);
@@ -146,7 +147,6 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
 
   const handleAssessmentPaid = () => {
       // 支付成功，跳转到测评页
-      // [FIX] Ensure this is called by PaywallModal on success
       const event = new CustomEvent('navigate-to', { detail: 'assessment' });
       window.dispatchEvent(event);
   };
