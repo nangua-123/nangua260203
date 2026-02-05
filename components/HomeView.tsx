@@ -71,6 +71,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
         const stats: IoTStats = {
             hr, bpSys, bpDia, spo2,
             isAbnormal: hr > 120 || hr < 60,
+            isFallDetected: false,
             lastUpdated: Date.now()
         };
 
@@ -130,7 +131,9 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
       if (val > 0) {
           const stats: IoTStats = {
             hr: val, bpSys: 120, bpDia: 80, spo2: 98,
-            isAbnormal: false, lastUpdated: Date.now()
+            isAbnormal: false, 
+            isFallDetected: false,
+            lastUpdated: Date.now()
           };
           dispatch({ type: 'UPDATE_IOT_STATS', payload: { id: activeProfileId, stats } });
           setShowRecordModal(false);

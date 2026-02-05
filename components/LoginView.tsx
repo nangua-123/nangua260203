@@ -51,8 +51,8 @@ export const LoginView: React.FC = () => {
                 allowResearchUse: false,
                 lastUpdated: Date.now()
             },
-            iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, lastUpdated: 0 },
-            cognitiveStats: { totalSessions: 0, todaySessions: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0 },
+            iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, isFallDetected: false, lastUpdated: 0 },
+            cognitiveStats: { totalSessions: 0, todaySessions: 0, todayDuration: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0 },
             familyMembers: [],
             currentProfileId: `user_${Date.now()}`
         };
@@ -263,4 +263,3 @@ export const LoginView: React.FC = () => {
             </div>
         </div>
     );
-};

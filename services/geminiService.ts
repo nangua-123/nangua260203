@@ -13,8 +13,8 @@ import { ChatMessage, HeadacheProfile, EpilepsyProfile, CognitiveProfile, Diseas
 // --- Types & Interfaces ---
 
 interface MockChatSession {
-  step: number;        // 当前问诊节点 (0-5)
-  totalSteps: number;  // 总节点数，用于前端进度条渲染
+  step: number;        // 当前问诊节点
+  totalSteps: number;  // 动态总节点数，根据病种路径调整
   diseaseType: DiseaseType; // 当前识别出的病种路径
   history: string[];   // 会话上下文快照
   estimatedRisk: number; // [NEW] 实时动态风险评分
@@ -45,7 +45,7 @@ const sanitizeTerminology = (text: string) => {
 export const createChatSession = (systemInstruction: string, diseaseType: DiseaseType = DiseaseType.UNKNOWN): any => {
   return {
     step: 0,
-    totalSteps: 5,
+    totalSteps: 5, // 默认初始步数，分诊后动态更新
     diseaseType: diseaseType,
     history: [],
     estimatedRisk: 10 // 初始基线分
@@ -58,8 +58,9 @@ export const createChatSession = (systemInstruction: string, diseaseType: Diseas
  * 逻辑流程:
  * 1. Step 0->1: 主动接诊
  * 2. Step 1->2: 基于正则(Regex)的 NLP 意图识别与分诊路由
- * 3. Step 2->5: 核心医学信息采集 (症状/频率/病史)
- * 4. Step 5:    触发深度评估 (Commercial Hook)
+ *    [Dynamic] 根据病种调整 totalSteps (癫痫4步急救优先，头痛6步详查)
+ * 3. Step 2->N: 核心医学信息采集 (症状/频率/病史/先兆)
+ * 4. Step N:    触发深度评估 (Commercial Hook)
  * 
  * @param session 当前会话状态
  * @param message 用户输入
@@ -97,31 +98,35 @@ export const sendMessageToAI = async (session: MockChatSession, message: string,
 <OPTIONS>记忆力明显下降|反复肢体抽搐/意识丧失|剧烈头痛/偏头痛|其他神经系统不适</OPTIONS>`;
   } 
   else {
-      // [Phase 1] 智能分诊路由 (Intent Recognition)
+      // [Phase 1] 智能分诊路由 (Intent Recognition) & 动态路径规划
       if (session.step === 1) {
           session.step = 2;
           // 规则引擎：关键词匹配 -> 路由至对应 CDSS 路径
           if (/头痛|头晕|偏头痛|胀痛/.test(msg)) {
               session.diseaseType = DiseaseType.MIGRAINE;
+              session.totalSteps = 6; // [Dynamic] 偏头痛需要更详细的先兆问询
               session.estimatedRisk = 30; // 偏头痛基线分
               response = `已为您匹配【华西头痛中心】路径。
 请点击选择疼痛的具体性质（无需输入）：
 <OPTIONS>搏动性跳痛|紧箍感/压迫感|电击样刺痛|炸裂样剧痛</OPTIONS>`;
           } else if (/抽搐|抖动|发作|意识丧失|愣神|倒地/.test(msg)) {
               session.diseaseType = DiseaseType.EPILEPSY;
+              session.totalSteps = 4; // [Dynamic] 癫痫强调快速急救分流，缩短问诊
               session.estimatedRisk = 60; // 癫痫基线分 (高危)
               response = `已为您匹配【华西癫痫中心】路径。
 请选择最近一次发作时的目击表现：
 <OPTIONS>意识丧失+肢体抽搐|仅发呆/愣神|肢体麻木/无力|跌倒/尿失禁</OPTIONS>`;
           } else if (/记忆|忘|迷路|性格|变笨|糊涂/.test(msg)) {
               session.diseaseType = DiseaseType.COGNITIVE;
+              session.totalSteps = 5; // 标准 5 步
               session.estimatedRisk = 40; // 认知障碍基线分
               response = `已为您匹配【认知记忆门诊】路径。
 除了记忆力问题，患者目前最明显的改变是？
 <OPTIONS>出门迷路/分不清方向|性格突变/多疑|算不清账/无法购物|近期事情记不住</OPTIONS>`;
           } else {
-              // Fallback: 默认走头痛路径或通用路径
+              // Fallback
               session.diseaseType = DiseaseType.MIGRAINE;
+              session.totalSteps = 5;
               session.estimatedRisk = 20;
               response = `症状已记录。为了更准确评估，请确认是否有以下情况：
 <OPTIONS>是否伴有剧烈头痛？|是否曾出现短暂意识丧失？|是否经常忘记近期发生的事？</OPTIONS>`;
@@ -129,19 +134,22 @@ export const sendMessageToAI = async (session: MockChatSession, message: string,
       } 
       // [Phase 2] 结构化信息采集 (Data Collection)
       else {
-          session.step = Math.min(session.step + 1, 5); // 步进控制器
+          session.step = Math.min(session.step + 1, session.totalSteps); // 动态步进控制
 
-          if (session.step < 5) {
+          if (session.step < session.totalSteps) {
               if (session.step === 3) {
                   response = `这种情况出现的频率是？
 <OPTIONS>每天都会|每周2-3次|每月1-2次|偶尔/数月一次</OPTIONS>`;
               } else if (session.step === 4) {
                   response = `既往是否有相关确诊病史或用药史？
 <OPTIONS>已确诊并服药|曾确诊但未服药|从未就诊|不清楚</OPTIONS>`;
+              } else if (session.step === 5) {
+                  // [Dynamic] 仅偏头痛路径会进入第 5 步询问
+                  response = `发作前是否有视觉先兆（如眼前闪光、暗点、视野缺损）？
+<OPTIONS>每次都有|偶尔有|完全没有|不确定</OPTIONS>`;
               }
           } else {
               // [Phase 3] 采集结束，触发转化 (Conversion)
-              // 严格对标 PRD: 不直接给出结论，引导进入量表测评
               response = `基础信息采集完毕。
 为了精准判断病情分级，建议进行【华西标准量表深度测评】。
 <ACTION>OFFER_ASSESSMENT</ACTION>`;

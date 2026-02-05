@@ -6,7 +6,6 @@ import { generateCognitiveAssessment } from '../services/geminiService';
 import { CognitiveStats } from '../types';
 
 // --- Audio Engine (Singleton Pattern) ---
-// 优化：单例管理 AudioContext，避免频繁创建导致的内存泄漏和浏览器限制
 let sharedAudioCtx: AudioContext | null = null;
 
 const getAudioContext = () => {
@@ -16,7 +15,6 @@ const getAudioContext = () => {
             sharedAudioCtx = new AudioContext();
         }
     }
-    // 浏览器自动播放策略适配：用户交互后恢复上下文
     if (sharedAudioCtx && sharedAudioCtx.state === 'suspended') {
         sharedAudioCtx.resume().catch(console.error);
     }
@@ -44,7 +42,6 @@ const playSound = (type: 'correct' | 'wrong' | 'levelUp' | 'complete' | 'click')
                 osc.stop(now + 0.05);
                 break;
             case 'correct':
-                // 愉悦的高频正弦波
                 osc.frequency.setValueAtTime(660, now);
                 osc.frequency.exponentialRampToValueAtTime(880, now + 0.1);
                 gain.gain.setValueAtTime(0.08, now);
@@ -53,7 +50,6 @@ const playSound = (type: 'correct' | 'wrong' | 'levelUp' | 'complete' | 'click')
                 osc.stop(now + 0.15);
                 break;
             case 'wrong':
-                // 低频锯齿波，提示错误
                 osc.type = 'sawtooth';
                 osc.frequency.setValueAtTime(150, now);
                 osc.frequency.linearRampToValueAtTime(100, now + 0.2);
@@ -63,7 +59,6 @@ const playSound = (type: 'correct' | 'wrong' | 'levelUp' | 'complete' | 'click')
                 osc.stop(now + 0.2);
                 break;
             case 'levelUp':
-                // 升级音效三连音
                 osc.type = 'triangle';
                 osc.frequency.setValueAtTime(440, now);
                 osc.frequency.setValueAtTime(554, now + 0.1);
@@ -74,7 +69,6 @@ const playSound = (type: 'correct' | 'wrong' | 'levelUp' | 'complete' | 'click')
                 osc.stop(now + 0.4);
                 break;
             case 'complete':
-                 // 胜利和弦
                 osc.type = 'triangle';
                 osc.frequency.setValueAtTime(523.25, now);
                 osc.frequency.setValueAtTime(659.25, now + 0.15);
@@ -98,7 +92,6 @@ const GameResult: React.FC<{ score: number; accuracy?: number; type: 'memory' | 
     const [analysis, setAnalysis] = useState<{rating: string; advice: string} | null>(null);
 
     useEffect(() => {
-        // Mock async analysis
         generateCognitiveAssessment(score, accuracy || 0, type).then(setAnalysis);
     }, []);
 
@@ -137,66 +130,100 @@ const GameResult: React.FC<{ score: number; accuracy?: number; type: 'memory' | 
 
 /** 
  * 认知训练控制台 (Dashboard)
- * 负责展示进度、统计数据及智能推荐
  */
 export const CognitiveDashboard: React.FC<{ onStartGame: (type: 'memory' | 'attention') => void }> = ({ onStartGame }) => {
     const { state } = useApp();
-    // 从全局状态获取统计信息 (支持亲情账号切换)
     const activeProfileId = state.user.currentProfileId || state.user.id;
     const stats = state.user.id === activeProfileId 
         ? state.user.cognitiveStats 
         : state.user.familyMembers?.find(m => m.id === activeProfileId)?.cognitiveStats;
 
-    // 简单的推荐算法：如果上次得分低于 60，推荐基础记忆训练，否则推荐进阶专注力训练
     const recommendedGame = (stats?.lastScore || 0) < 60 ? 'memory' : 'attention';
 
+    const targetMinutes = 20;
+    const currentMinutes = stats?.todayDuration || 0;
+    const remaining = Math.max(0, targetMinutes - currentMinutes);
+    const progress = Math.min(100, (currentMinutes / targetMinutes) * 100);
+
     return (
-        <div className="space-y-4">
-             {/* 进度卡片 */}
-             <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-50">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-black text-slate-800">今日训练进度</h3>
-                    <span className="text-[10px] bg-brand-50 text-brand-600 px-2 py-0.5 rounded font-bold">
-                        {stats?.todaySessions || 0} / 3 组
-                    </span>
-                </div>
-                <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden mb-2">
-                    <div 
-                        className="bg-brand-600 h-full rounded-full transition-all duration-500" 
-                        style={{ width: `${Math.min(100, ((stats?.todaySessions || 0) / 3) * 100)}%` }}
-                    ></div>
-                </div>
-                <div className="flex justify-between text-[10px] text-slate-400 font-medium">
-                    <span>累计训练: {stats?.totalSessions || 0} 次</span>
-                    <span>总时长: {Math.floor((stats?.totalDuration || 0) / 60)} 分钟</span>
+        <div className="space-y-5 animate-slide-up">
+             {/* 1. Progress Bar Card */}
+             <div className="bg-white rounded-[20px] p-5 shadow-sm border border-brand-100 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-brand-50 rounded-full blur-3xl -translate-y-10 translate-x-10 opacity-60"></div>
+                <div className="relative z-10">
+                    <div className="flex justify-between items-end mb-3">
+                        <div>
+                            <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                                今日大脑激活计划
+                                {progress >= 100 && <span className="text-xs">🎉</span>}
+                            </h3>
+                            <p className="text-[10px] text-slate-500 font-medium mt-1">
+                                每日 20 分钟 · 预防认知衰退
+                            </p>
+                        </div>
+                        <div className="text-right">
+                            {remaining > 0 ? (
+                                <div className="flex items-baseline gap-1">
+                                    <span className="text-[10px] text-slate-400 font-bold">今日剩余</span>
+                                    <span className="text-xl font-black text-brand-600 font-mono">{remaining}</span>
+                                    <span className="text-[10px] text-slate-400 font-bold">分钟</span>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-1 bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg">
+                                    <span className="text-[10px] font-black">目标已达成</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden relative shadow-inner">
+                        <div 
+                            className={`h-full rounded-full transition-all duration-1000 ease-out relative ${progress >= 100 ? 'bg-emerald-500' : 'bg-gradient-to-r from-brand-400 to-brand-600'}`}
+                            style={{ width: `${progress}%` }}
+                        >
+                            <div className="absolute inset-0 bg-white/30 w-full h-full animate-[shimmer_2s_infinite] skew-x-12 origin-left"></div>
+                        </div>
+                    </div>
+                    <div className="flex justify-between mt-2 text-[9px] text-slate-400 font-bold">
+                        <span>0 min</span>
+                        <span>10 min</span>
+                        <span>20 min</span>
+                    </div>
                 </div>
              </div>
 
-             {/* AI 推荐卡片 */}
-             <div className="bg-gradient-to-r from-indigo-50 to-white p-5 rounded-2xl border border-indigo-100">
+             {/* 2. AI 推荐卡片 */}
+             <div className="bg-gradient-to-r from-indigo-50 to-white p-5 rounded-[20px] border border-indigo-100 shadow-sm">
                  <div className="flex items-start gap-3 mb-4">
-                     <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-xl">💡</div>
+                     <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-xl shadow-sm">💡</div>
                      <div>
                          <div className="text-xs font-black text-indigo-900">华西推荐训练计划</div>
-                         <div className="text-[10px] text-indigo-600/80 mt-0.5">基于您最近一次评估 (评分: {stats?.lastScore || '-'})</div>
+                         <div className="text-[10px] text-indigo-600/80 mt-0.5 font-bold">基于您最近一次评估 (评分: {stats?.lastScore || '-'})</div>
                      </div>
                  </div>
                  <Button 
                     fullWidth 
                     onClick={() => { playSound('click'); onStartGame(recommendedGame); }} 
-                    className="bg-indigo-600 shadow-indigo-500/20"
+                    className="bg-indigo-600 shadow-lg shadow-indigo-500/20 text-xs py-3"
                  >
                      <span className="mr-2">{recommendedGame === 'memory' ? '🧩' : '🔢'}</span> 
                      开始{recommendedGame === 'memory' ? '视觉记忆' : '舒尔特方格'}训练
                  </Button>
              </div>
 
-             {/* 自由选择区 */}
-             <div className="text-center">
-                 <p className="text-[10px] text-slate-400 mb-2">或选择自由训练</p>
-                 <div className="flex gap-3">
-                     <Button fullWidth variant="outline" onClick={() => { playSound('click'); onStartGame('memory'); }} disabled={recommendedGame === 'memory'}>视觉记忆</Button>
-                     <Button fullWidth variant="outline" onClick={() => { playSound('click'); onStartGame('attention'); }} disabled={recommendedGame === 'attention'}>专注力</Button>
+             {/* 3. 自由选择区 */}
+             <div className="text-center pt-2">
+                 <div className="flex items-center gap-2 justify-center mb-3 opacity-60">
+                    <div className="h-px bg-slate-200 w-12"></div>
+                    <p className="text-[10px] text-slate-400 font-bold">或选择自由训练</p>
+                    <div className="h-px bg-slate-200 w-12"></div>
+                 </div>
+                 <div className="grid grid-cols-2 gap-3">
+                     <Button variant="outline" onClick={() => { playSound('click'); onStartGame('memory'); }} className="border-slate-200 bg-white text-slate-600">
+                        <span className="mr-1">🧩</span> 视觉记忆
+                     </Button>
+                     <Button variant="outline" onClick={() => { playSound('click'); onStartGame('attention'); }} className="border-slate-200 bg-white text-slate-600">
+                        <span className="mr-1">🔢</span> 专注力
+                     </Button>
                  </div>
              </div>
         </div>
@@ -205,10 +232,9 @@ export const CognitiveDashboard: React.FC<{ onStartGame: (type: 'memory' | 'atte
 
 /** 
  * 游戏 1: 视觉空间记忆训练 (Visual Memory)
- * 锻炼海马体空间记忆功能
  */
 interface VisualMemoryGameProps {
-  onComplete: (score: number, accuracy: number) => void;
+  onComplete: (score: number, accuracy: number, level: number) => void;
   onExit: () => void;
 }
 
@@ -221,10 +247,8 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
   const [lives, setLives] = useState(3);
   const [score, setScore] = useState(0);
 
-  // 初始化或进入下一关
   useEffect(() => {
     if (gameState === 'preview') {
-      // 难度曲线：随关卡增加方块数
       const tileCount = Math.min(3 + Math.floor(level / 2), 8); 
       const size = level > 3 ? 4 : 3;
       setGridSize(size);
@@ -237,7 +261,6 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
       
       if (level > 1) playSound('levelUp');
 
-      // 预览模式持续 1.5 秒后开始
       const timer = setTimeout(() => {
         setGameState('playing');
       }, 1500);
@@ -255,7 +278,6 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
         setUserSelection(newSelection);
         playSound('correct');
         
-        // 本关完成
         if (newSelection.length === targets.length) {
           setScore(s => s + (targets.length * 10));
           setTimeout(() => {
@@ -266,31 +288,30 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
         }
       }
     } else {
-      // 点击错误，扣除生命
       playSound('wrong');
       if (lives > 1) {
         setLives(l => l - 1);
       } else {
-        // 游戏结束，进入结算
         setGameState('result');
       }
     }
   };
 
   if (gameState === 'result') {
+    // Calculate final accuracy based on level
+    const finalAccuracy = Math.min(100, Math.floor((level * 10) / (level + 2)));
     return (
       <GameResult 
         score={score} 
-        accuracy={Math.min(100, Math.floor((level * 10) / (level + 2)))}
+        accuracy={finalAccuracy}
         type="memory"
-        onExit={onExit}
+        onExit={() => onComplete(score, finalAccuracy, level)} 
       />
     );
   }
 
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-white relative max-w-[430px] mx-auto animate-fade-in">
-      {/* 游戏状态栏 */}
       <div className="flex justify-between items-center p-6 pt-[calc(1.5rem+env(safe-area-inset-top))]">
         <div className="text-[11px] font-black opacity-60 uppercase tracking-widest">康复关卡 {level}</div>
         <div className="flex gap-2">
@@ -308,16 +329,12 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
         >
             {[...Array(gridSize * gridSize)].map((_, i) => {
                 let statusClass = "bg-slate-800/80 active:scale-90 transition-all duration-150";
-                
-                // 预览模式显示目标
                 if (gameState === 'preview' && targets.includes(i)) {
                     statusClass = "bg-white shadow-[0_0_25px_rgba(255,255,255,0.7)] scale-105 transition-all duration-300";
                 }
-                // 游戏模式显示已选中
                 if (gameState === 'playing' && userSelection.includes(i)) {
                     statusClass = "bg-brand-500 shadow-[0_0_20px_rgba(22,119,255,0.8)] scale-95 duration-100";
                 }
-
                 return (
                     <button
                         key={i}
@@ -329,7 +346,6 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
             })}
         </div>
       </div>
-      
       <div className="p-10 text-center text-white/40 text-[11px] font-black uppercase tracking-widest pb-[calc(2.5rem+env(safe-area-inset-bottom))]">
         {gameState === 'preview' ? '请观察并记忆闪烁的方块' : '请按显示顺序点击方块'}
       </div>
@@ -339,10 +355,9 @@ export const VisualMemoryGame: React.FC<VisualMemoryGameProps> = ({ onComplete, 
 
 /** 
  * 游戏 2: 舒尔特方格 (Attention / Schulte Grid)
- * 锻炼注意力集中与视觉搜索速度
  */
 interface AttentionGameProps {
-  onComplete: (score: number, metrics: number) => void;
+  onComplete: (score: number, durationMs: number, mistakes: number) => void;
   onExit: () => void;
 }
 
@@ -352,6 +367,7 @@ export const AttentionGame: React.FC<AttentionGameProps> = ({ onComplete, onExit
     const [startTime, setStartTime] = useState<number>(0);
     const [elapsed, setElapsed] = useState(0);
     const [isGameOver, setIsGameOver] = useState(false);
+    const [mistakes, setMistakes] = useState(0);
     
     // Hint System
     const [hintTarget, setHintTarget] = useState<number | null>(null);
@@ -359,18 +375,14 @@ export const AttentionGame: React.FC<AttentionGameProps> = ({ onComplete, onExit
     const hintTimerRef = useRef<any>(null);
     const timerRef = useRef<any>(null);
 
-    // 重置提示计时器 (AD 抗挫败机制)
     const resetHintTimer = (next: number) => {
         if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
         setHintTarget(null);
-        
-        // 5秒无操作，触发提示
         hintTimerRef.current = setTimeout(() => {
             setHintTarget(next);
         }, 5000);
     };
 
-    // 初始化打乱数字
     useEffect(() => {
         const nums = Array.from({length: 16}, (_, i) => i + 1);
         for (let i = nums.length - 1; i > 0; i--) {
@@ -381,7 +393,6 @@ export const AttentionGame: React.FC<AttentionGameProps> = ({ onComplete, onExit
         setStartTime(Date.now());
         resetHintTimer(1);
         
-        // Start timer
         timerRef.current = setInterval(() => {
             if (!isGameOver && startTime > 0) {
                  setElapsed(Date.now() - startTime);
@@ -394,7 +405,6 @@ export const AttentionGame: React.FC<AttentionGameProps> = ({ onComplete, onExit
         };
     }, []);
 
-    // Effect for timer update when startTime is set
     useEffect(() => {
         if (startTime > 0 && !isGameOver) {
              const interval = setInterval(() => {
@@ -414,15 +424,15 @@ export const AttentionGame: React.FC<AttentionGameProps> = ({ onComplete, onExit
                 playSound('complete');
                 setIsGameOver(true);
                 const finalTime = Date.now() - startTime;
-                // Calculate score
-                const score = Math.max(0, 100 - Math.floor((finalTime / 1000) - 10)); 
-                onComplete(score, finalTime);
+                const score = Math.max(0, 100 - Math.floor((finalTime / 1000) - 10) - (mistakes * 5)); 
+                // Pass final result but wait for user to click exit
             } else {
                 setNextNum(n => n + 1);
                 resetHintTimer(num + 1);
             }
         } else {
             playSound('wrong');
+            setMistakes(m => m + 1);
             setShakeTarget(num);
             setTimeout(() => setShakeTarget(null), 500);
         }
@@ -431,17 +441,16 @@ export const AttentionGame: React.FC<AttentionGameProps> = ({ onComplete, onExit
     if (isGameOver) {
         return (
             <GameResult 
-                score={Math.max(0, 100 - Math.floor(elapsed / 1000))} 
-                accuracy={elapsed} // Here accuracy prop is reused for time in ms for attention game
+                score={Math.max(0, 100 - Math.floor(elapsed / 1000) - (mistakes * 5))} 
+                accuracy={elapsed} 
                 type="attention"
-                onExit={onExit}
+                onExit={() => onComplete(Math.max(0, 100 - Math.floor(elapsed / 1000) - (mistakes * 5)), elapsed, mistakes)}
             />
         );
     }
 
     return (
         <div className="flex flex-col h-screen bg-slate-900 text-white relative max-w-[430px] mx-auto animate-fade-in">
-            {/* Header */}
              <div className="flex justify-between items-center p-6 pt-[calc(1.5rem+env(safe-area-inset-top))]">
                 <div className="text-[11px] font-black opacity-60 uppercase tracking-widest">寻找数字</div>
                 <div className="text-2xl font-black font-mono tracking-tighter">{(elapsed / 1000).toFixed(1)}s</div>

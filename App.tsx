@@ -14,14 +14,18 @@ import { HeadacheServiceView, CognitiveServiceView, EpilepsyServiceView, FamilyS
 import { HaaSRentalView, ServiceMallView } from './components/ServiceMarketplace';
 import PrivacyPanel from './components/PrivacyPanel';
 import { useApp } from './context/AppContext';
+import { ToastProvider } from './context/ToastContext'; // [NEW]
+import { useIoTSimulation } from './hooks/useIoTSimulation';
+import { GlobalSOS } from './components/GlobalSOS';
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => {
   const { state, dispatch } = useApp();
   const [currentView, setCurrentView] = useState<AppView>('home');
   const [assessmentType, setAssessmentType] = useState<DiseaseType>(DiseaseType.MIGRAINE);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-  // Network listener
+  useIoTSimulation();
+
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -49,8 +53,6 @@ const App: React.FC = () => {
     return () => window.removeEventListener('navigate-to', handleDeepLink);
   }, []);
 
-  // [REMOVED] Forced navigation to chat loop was preventing access to Home view
-  
   const handleTriageComplete = (summary: any) => {
     dispatch({ type: 'SET_RISK_SCORE', payload: { score: summary.risk || 85, type: DiseaseType.MIGRAINE } });
     setAssessmentType(DiseaseType.MIGRAINE); 
@@ -72,7 +74,6 @@ const App: React.FC = () => {
       handleNavigate('report');
   };
 
-  // 1. 未登录时强制显示登录页
   if (!state.isLoggedIn) {
       return (
         <div className="font-sans antialiased text-slate-900 bg-white min-h-screen max-w-[430px] mx-auto shadow-2xl relative overflow-hidden">
@@ -129,15 +130,15 @@ const App: React.FC = () => {
 
   return (
     <div className={`font-sans antialiased text-slate-900 bg-white min-h-screen max-w-[430px] mx-auto shadow-2xl relative overflow-hidden ${state.user.isElderlyMode ? 'text-lg' : ''}`}>
-       {/* Global Offline Warning */}
        {!isOnline && (
           <div className="absolute top-0 left-0 right-0 bg-slate-800 text-white text-[10px] font-bold py-2 text-center z-[9999] animate-slide-up flex items-center justify-center gap-2">
              <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-             {/* [Text Update] 文案优化 (Requirement 5) */}
              你的网络连接已断开，部分AI服务暂时不可用
           </div>
        )}
        
+       <GlobalSOS />
+
        {renderContent()}
        
        {showBottomNav && (
@@ -146,5 +147,13 @@ const App: React.FC = () => {
     </div>
   );
 };
+
+const App: React.FC = () => {
+    return (
+        <ToastProvider>
+            <AppContent />
+        </ToastProvider>
+    );
+}
 
 export default App;

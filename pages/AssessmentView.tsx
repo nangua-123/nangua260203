@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { DiseaseType } from '../types';
 import Layout from '../components/common/Layout';
 import Button from '../components/common/Button';
+import { useToast } from '../context/ToastContext'; // [NEW]
 
 interface AssessmentViewProps {
   type: DiseaseType;
@@ -21,11 +22,11 @@ interface Question {
 }
 
 const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBack }) => {
+  const { showToast } = useToast(); // [NEW]
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [inputValue, setInputValue] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [showCompletionToast, setShowCompletionToast] = useState(false);
 
   // --- SCALE DEFINITIONS ---
   const midasQuestions: Question[] = [
@@ -107,8 +108,8 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
         (Object.values(newAnswers) as number[]).forEach(v => totalScore += v);
       }
       
-      // Show Toast and delay callback
-      setShowCompletionToast(true);
+      // Global Toast
+      showToast('测评已完成，报告生成中...', 'success');
       setTimeout(() => {
           onComplete(totalScore);
       }, 1500);
@@ -119,14 +120,6 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
     <Layout headerTitle="专业风险评估" showBack onBack={onBack}>
       <div className="p-6 pb-safe relative">
         
-        {/* Completion Toast */}
-        {showCompletionToast && (
-            <div className="absolute top-48 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 backdrop-blur px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 animate-fade-in w-max">
-                <span className="text-xl">📊</span>
-                <span className="text-white text-xs font-bold">测评已完成，报告生成中...</span>
-            </div>
-        )}
-
         <div className="mb-6">
            <div className="flex justify-between text-xs text-slate-400 mb-1">
                <span className="font-bold text-slate-500">{getTitle()}</span>
@@ -137,7 +130,7 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
            </div>
         </div>
 
-        <div className={`bg-white rounded-2xl p-6 shadow-card min-h-[360px] flex flex-col border border-slate-50 relative transition-opacity duration-300 ${showCompletionToast ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
+        <div className={`bg-white rounded-2xl p-6 shadow-card min-h-[360px] flex flex-col border border-slate-50 relative transition-opacity duration-300`}>
             {errorMsg && (
                 <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-red-500 text-white text-xs px-3 py-1 rounded-full animate-shake shadow-lg">
                     {errorMsg}

@@ -6,7 +6,7 @@
  */
 
 import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
-import { User, UserRole, FeatureKey, DiseaseType, ReferralData, HeadacheProfile, IoTStats, CognitiveStats, FamilyMember, SharingScope, PrivacySettings, DoctorAssistantProof } from '../types';
+import { User, UserRole, FeatureKey, DiseaseType, ReferralData, HeadacheProfile, IoTStats, CognitiveStats, FamilyMember, SharingScope, PrivacySettings, DoctorAssistantProof, MedLog, MedicalRecord, CognitiveTrainingRecord } from '../types';
 
 // --- Security Utils (Simulated) ---
 const maskName = (name: string) => name ? name[0] + '*'.repeat(name.length - 1) : '';
@@ -24,6 +24,7 @@ interface AppState {
   primaryCondition: DiseaseType; 
   lastDiagnosis: { reason: string; referral?: ReferralData } | null; 
   isLoading: boolean; 
+  mohAlertTriggered: boolean; // [NEW] MOH 熔断预警状态
 }
 
 // --- Initial State ---
@@ -45,8 +46,9 @@ const INITIAL_STATE: AppState = {
         allowResearchUse: false,
         lastUpdated: Date.now()
     },
-    iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, lastUpdated: 0 },
-    cognitiveStats: { totalSessions: 0, todaySessions: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0 },
+    iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, isFallDetected: false, isSoundTriggered: false, lastUpdated: 0 },
+    cognitiveStats: { totalSessions: 0, todaySessions: 0, todayDuration: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0, trainingHistory: [] },
+    medicationLogs: [],
     familyMembers: [],
     currentProfileId: 'guest' 
   },
@@ -54,6 +56,7 @@ const INITIAL_STATE: AppState = {
   primaryCondition: DiseaseType.MIGRAINE,
   lastDiagnosis: null,
   isLoading: false,
+  mohAlertTriggered: false
 };
 
 // --- Persistence Key ---
@@ -63,9 +66,9 @@ const STORAGE_KEY = 'NEURO_LINK_STATE_V3_MULTI_ROLE';
 type Action =
   | { type: 'LOGIN'; payload: User } 
   | { type: 'LOGOUT' } 
-  | { type: 'ADD_ROLE'; payload: UserRole } // [NEW] 添加新角色
-  | { type: 'SWITCH_ROLE'; payload: UserRole } // [NEW] 切换角色
-  | { type: 'UPDATE_ASSISTANT_PROOF'; payload: DoctorAssistantProof } // [NEW] 提交医助证明
+  | { type: 'ADD_ROLE'; payload: UserRole } 
+  | { type: 'SWITCH_ROLE'; payload: UserRole } 
+  | { type: 'UPDATE_ASSISTANT_PROOF'; payload: DoctorAssistantProof } 
   | { type: 'ASSOCIATE_PATIENT'; payload: string } 
   | { type: 'SET_RISK_SCORE'; payload: { score: number; type: DiseaseType } }
   | { type: 'SET_DIAGNOSIS'; payload: { reason: string; referral?: ReferralData } }
@@ -77,12 +80,15 @@ type Action =
   | { type: 'SWITCH_PATIENT'; payload: string }
   | { type: 'UPDATE_IOT_STATS'; payload: { id: string; stats: IoTStats } }
   | { type: 'UPDATE_COGNITIVE_STATS'; payload: { id: string; stats: Partial<CognitiveStats> } }
+  | { type: 'SYNC_TRAINING_DATA'; payload: { id: string; record: CognitiveTrainingRecord } } // [NEW] Train_Data_Sync
   | { type: 'TOGGLE_ELDERLY_MODE' }
-  | { type: 'ADD_FAMILY_MEMBER'; payload: { name: string; relation: string; avatar: string } }
+  | { type: 'ADD_FAMILY_MEMBER'; payload: { name: string; relation: string; avatar: string; isElderly?: boolean } }
   | { type: 'EDIT_FAMILY_MEMBER'; payload: { id: string; updates: Partial<FamilyMember> } }
   | { type: 'REMOVE_FAMILY_MEMBER'; payload: string }
   | { type: 'CLEAR_CACHE' }
-  | { type: 'UPDATE_PRIVACY_SETTINGS'; payload: Partial<PrivacySettings> };
+  | { type: 'UPDATE_PRIVACY_SETTINGS'; payload: Partial<PrivacySettings> }
+  | { type: 'LOG_MEDICATION'; payload: MedLog }
+  | { type: 'ADD_MEDICAL_RECORD'; payload: { profileId: string; record: MedicalRecord } };
 
 // --- Reducer ---
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -145,7 +151,9 @@ const appReducer = (state: AppState, action: Action): AppState => {
                         name: '关联患者(陈建国)',
                         relation: '被监护人',
                         avatar: '👴',
-                        iotStats: { hr: 75, bpSys: 120, bpDia: 80, spo2: 98, isAbnormal: false, lastUpdated: Date.now() }
+                        isElderly: true,
+                        iotStats: { hr: 75, bpSys: 120, bpDia: 80, spo2: 98, isAbnormal: false, isFallDetected: false, isSoundTriggered: false, lastUpdated: Date.now() },
+                        cognitiveStats: { totalSessions: 0, todaySessions: 0, todayDuration: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0, trainingHistory: [] }
                     }
                 ]
             }
@@ -199,6 +207,35 @@ const appReducer = (state: AppState, action: Action): AppState => {
         return { ...state, user: { ...state.user, familyMembers: updatedFamily } };
     }
 
+    case 'ADD_MEDICAL_RECORD': {
+        const { profileId, record } = action.payload;
+        const updateProfileWithRecord = (profile: HeadacheProfile | undefined) => {
+            const currentProfile = profile || { 
+                isComplete: false, source: 'USER_INPUT', onsetAge: 0, frequency: '', 
+                familyHistory: false, medicationHistory: [], diagnosisType: '', symptomsTags: [], lastUpdated: Date.now() 
+            };
+            return {
+                ...currentProfile,
+                medicalRecords: [...(currentProfile.medicalRecords || []), record],
+                lastUpdated: Date.now()
+            };
+        };
+
+        if (state.user.id === profileId) {
+            return {
+                ...state,
+                user: {
+                    ...state.user,
+                    headacheProfile: updateProfileWithRecord(state.user.headacheProfile)
+                }
+            };
+        }
+        const updatedFamily = state.user.familyMembers?.map(m => 
+            m.id === profileId ? { ...m, headacheProfile: updateProfileWithRecord(m.headacheProfile) } : m
+        ) || [];
+        return { ...state, user: { ...state.user, familyMembers: updatedFamily } };
+    }
+
     case 'SWITCH_PATIENT':
         return { ...state, user: { ...state.user, currentProfileId: action.payload } };
 
@@ -213,10 +250,41 @@ const appReducer = (state: AppState, action: Action): AppState => {
         return { ...state, user: { ...state.user, familyMembers: updatedFamily } };
     }
 
+    // [NEW] 训练数据同步至全病程档案
+    case 'SYNC_TRAINING_DATA': {
+        const { id, record } = action.payload;
+        
+        const appendRecord = (stats: CognitiveStats | undefined): CognitiveStats => {
+            const current = stats || { totalSessions: 0, todaySessions: 0, todayDuration: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0, trainingHistory: [] };
+            const history = current.trainingHistory || [];
+            return {
+                ...current,
+                lastScore: record.score,
+                totalSessions: current.totalSessions + 1,
+                todaySessions: current.todaySessions + 1,
+                todayDuration: current.todayDuration + Math.ceil(record.durationSeconds / 60),
+                totalDuration: current.totalDuration + record.durationSeconds,
+                trainingHistory: [...history, record], // Append JSON record
+                lastUpdated: Date.now()
+            };
+        };
+
+        if (state.user.id === id) {
+            return { 
+                ...state, 
+                user: { ...state.user, cognitiveStats: appendRecord(state.user.cognitiveStats) } 
+            };
+        }
+        const updatedFamily = state.user.familyMembers?.map(m => 
+            m.id === id ? { ...m, cognitiveStats: appendRecord(m.cognitiveStats) } : m
+        ) || [];
+        return { ...state, user: { ...state.user, familyMembers: updatedFamily } };
+    }
+
     case 'UPDATE_COGNITIVE_STATS': {
         const { id, stats } = action.payload;
         const mergeStats = (prev: CognitiveStats | undefined, incoming: Partial<CognitiveStats>): CognitiveStats => {
-            const base = prev || { totalSessions: 0, todaySessions: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0 };
+            const base = prev || { totalSessions: 0, todaySessions: 0, todayDuration: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0, trainingHistory: [] };
             return { ...base, ...incoming, lastUpdated: Date.now() };
         };
 
@@ -248,8 +316,9 @@ const appReducer = (state: AppState, action: Action): AppState => {
             name: action.payload.name, 
             relation: action.payload.relation,
             avatar: action.payload.avatar,
-            iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, lastUpdated: 0 },
-            cognitiveStats: { totalSessions: 0, todaySessions: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0 }
+            isElderly: action.payload.isElderly || false,
+            iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, isFallDetected: false, isSoundTriggered: false, lastUpdated: 0 },
+            cognitiveStats: { totalSessions: 0, todaySessions: 0, todayDuration: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0, trainingHistory: [] }
         };
         return {
             ...state,
@@ -303,6 +372,30 @@ const appReducer = (state: AppState, action: Action): AppState => {
         };
     }
 
+    case 'LOG_MEDICATION': {
+        const newLog = action.payload;
+        const currentLogs = state.user.medicationLogs || [];
+        const allLogs = [newLog, ...currentLogs];
+        
+        const now = Date.now();
+        const oneDay = 24 * 60 * 60 * 1000;
+        const sevenDays = 7 * oneDay;
+        
+        const count24h = allLogs.filter(l => l.timestamp > now - oneDay).length;
+        const count7d = allLogs.filter(l => l.timestamp > now - sevenDays).length;
+        
+        const isMOHTriggered = count24h > 3 || count7d > 10;
+
+        return {
+            ...state,
+            user: {
+                ...state.user,
+                medicationLogs: allLogs
+            },
+            mohAlertTriggered: isMOHTriggered
+        };
+    }
+
     case 'CLEAR_CACHE':
         localStorage.removeItem(STORAGE_KEY);
         return INITIAL_STATE;
@@ -313,25 +406,6 @@ const appReducer = (state: AppState, action: Action): AppState => {
 };
 
 const initState = (initial: AppState): AppState => {
-    // [DEMO MODE] 禁用自动加载本地存储，确保每次刷新都进入登录页进行演示
-    // 若需恢复持久化，请取消下方注释
-    /*
-    try {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-            const parsed = JSON.parse(stored);
-            if (!parsed.user.privacySettings) {
-                parsed.user.privacySettings = INITIAL_STATE.user.privacySettings;
-            }
-            if (!parsed.user.availableRoles) {
-                parsed.user.availableRoles = parsed.user.role ? [parsed.user.role] : [];
-            }
-            return parsed;
-        }
-    } catch (e) {
-        console.error("Failed to load state from localStorage", e);
-    }
-    */
     return initial;
 };
 

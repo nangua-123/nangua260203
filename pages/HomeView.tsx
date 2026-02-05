@@ -2,13 +2,20 @@
 /**
  * @file HomeView.tsx
  * @description 应用首页 (Dashboard)
+ * 
+ * 视觉架构:
+ * 1. 沉浸式顶栏 (Immersion Header): 展示用户信息、健康分环及会员状态。
+ * 2. 金刚区 (King Kong District): 4个核心功能入口 (问诊/报告/家庭/设备)。
+ * 3. 信息流 (Feed): 包含风险预警、智能推荐卡片及专病管理入口。
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { User, AppView, DiseaseType, IoTStats } from '../types';
+import { User, AppView, DiseaseType, IoTStats, CognitiveStats } from '../types';
 import Button from '../components/common/Button';
 import { usePayment } from '../hooks/usePayment';
 import { useApp } from '../context/AppContext';
+import { useToast } from '../context/ToastContext'; // [NEW]
+import { NonDrugToolkit } from '../components/business/headache/NonDrugToolkit';
 
 interface HomeViewProps {
   user: User;
@@ -18,16 +25,89 @@ interface HomeViewProps {
   primaryCondition: DiseaseType | null;
 }
 
+// [NEW] Cognitive Circular Progress Component
+const CognitiveTrainingCard: React.FC<{ stats?: CognitiveStats; onClick: () => void; isElderly: boolean }> = ({ stats, onClick, isElderly }) => {
+    const todayDuration = stats?.todayDuration || 0;
+    const target = 20; // 20 mins goal
+    const percentage = Math.min(100, (todayDuration / target) * 100);
+    
+    // Circular calculations
+    const radius = 28;
+    const circumference = 2 * Math.PI * radius;
+    const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
+    return (
+        <div onClick={onClick} className={`bg-white border border-purple-100 rounded-2xl p-5 shadow-sm mb-3 active:scale-[0.99] transition-transform relative overflow-hidden group ${isElderly ? 'min-h-[120px]' : ''}`}>
+            <div className="absolute top-0 right-0 w-32 h-32 bg-purple-50 rounded-full blur-2xl -translate-y-10 translate-x-10 opacity-60"></div>
+            
+            <div className="flex items-center justify-between relative z-10">
+                <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                        <span className="text-2xl">🧠</span>
+                        <div>
+                            <h4 className={`text-slate-800 leading-tight ${isElderly ? 'text-lg font-black' : 'text-sm font-black'}`}>20分钟通用版认知训练</h4>
+                            <span className="text-[9px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded font-bold mt-0.5 inline-block">每日必做 · 预防衰退</span>
+                        </div>
+                    </div>
+                    <p className={`text-slate-500 font-bold mb-3 ${isElderly ? 'text-sm' : 'text-xs'}`}>
+                        {percentage >= 100 ? '今日目标已达成！真棒！' : `还差 ${target - todayDuration} 分钟，激活大脑活力`}
+                    </p>
+                    <button className={`bg-purple-600 text-white rounded-full shadow-lg shadow-purple-500/30 ${isElderly ? 'px-6 py-2.5 text-sm font-bold' : 'px-4 py-1.5 text-xs font-bold'}`}>
+                        {percentage >= 100 ? '继续挑战' : '开始训练'}
+                    </button>
+                </div>
+
+                {/* Circular Progress */}
+                <div className="relative w-20 h-20 flex items-center justify-center">
+                    <svg className="transform -rotate-90 w-full h-full">
+                        <circle
+                            className="text-slate-100"
+                            strokeWidth="6"
+                            stroke="currentColor"
+                            fill="transparent"
+                            r={radius}
+                            cx="40"
+                            cy="40"
+                        />
+                        <circle
+                            className="text-purple-500 transition-all duration-1000 ease-out"
+                            strokeWidth="6"
+                            strokeDasharray={circumference}
+                            strokeDashoffset={strokeDashoffset}
+                            strokeLinecap="round"
+                            stroke="currentColor"
+                            fill="transparent"
+                            r={radius}
+                            cx="40"
+                            cy="40"
+                        />
+                    </svg>
+                    <div className="absolute flex flex-col items-center">
+                        <span className="text-sm font-black text-slate-800">{todayDuration}<span className="text-[9px] font-normal text-slate-400">min</span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavigate, primaryCondition }) => {
-  const { dispatch } = useApp();
+  const { state, dispatch } = useApp();
+  const { showToast } = useToast(); // [NEW]
+  const { mohAlertTriggered } = state; 
+
   const [wavePath, setWavePath] = useState('');
   const { getRecommendedPackage, hasFeature } = usePayment();
   const [showAlertModal, setShowAlertModal] = useState(false);
   
   // [UX Polish] Modals State
   const [showRecordModal, setShowRecordModal] = useState(false);
-  const [showSOSModal, setShowSOSModal] = useState(false);
-  const [toastMsg, setToastMsg] = useState('');
+  
+  // --- Elderly Mode Config ---
+  const isElderly = user.isElderlyMode;
+  // [Accessibility] 适老化视觉增强：高度增加 20%，字体加粗
+  const touchClass = isElderly ? 'min-h-[64px] py-3' : '';
+  const textClass = isElderly ? 'font-black text-base' : 'font-bold text-[11px]';
   
   // --- IoT Simulation Logic ---
   const activeProfileId = user.currentProfileId || user.id;
@@ -46,54 +126,17 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
   const isCritical = finalHealthScore < 60; // 阈值：低于60分为高危
 
   // [Compliance] 高危或癫痫用户，显示红色主题
-  // [Ant Design Fix] 强制使用 #FF4D4F 标准色 (Requirement 1)
+  // [Ant Design Fix] 强制使用 #FF4D4F 标准色
   const isEpilepsy = primaryCondition === DiseaseType.EPILEPSY;
   const themeColor = isCritical || isEpilepsy ? 'bg-[#FF4D4F]' : 'bg-[#1677FF]';
 
-  // 模拟设备数据流 (Heartbeat)
+  // [UPDATED] 监听全局 HR 异常并触发本地弹窗
+  // 注意：跌倒检测 (Level 3) 由 GlobalSOS 接管，此处仅处理 Level 2 心率预警
   useEffect(() => {
-    if (!hasDevice) return;
-
-    const interval = setInterval(() => {
-        const isAnomaly = Math.random() > 0.9;
-        let hr = 75 + Math.floor(Math.random() * 20 - 10);
-        if (isAnomaly) hr = Math.random() > 0.5 ? 135 : 55;
-
-        const bpSys = 110 + Math.floor(Math.random() * 20);
-        const bpDia = 75 + Math.floor(Math.random() * 10);
-        const spo2 = 96 + Math.floor(Math.random() * 4);
-
-        const stats: IoTStats = {
-            hr, bpSys, bpDia, spo2,
-            isAbnormal: hr > 120 || hr < 60,
-            lastUpdated: Date.now()
-        };
-
-        dispatch({
-            type: 'UPDATE_IOT_STATS',
-            payload: { id: activeProfileId, stats }
-        });
-
-        if (stats.isAbnormal) {
-            setShowAlertModal(true);
-            dispatch({
-                type: 'SET_RISK_SCORE',
-                payload: { score: 85, type: DiseaseType.EPILEPSY }
-            });
-        }
-
-    }, 5000); 
-
-    return () => clearInterval(interval);
-  }, [hasDevice, activeProfileId]);
-
-  // Toast Timer
-  useEffect(() => {
-      if (toastMsg) {
-          const t = setTimeout(() => setToastMsg(''), 3000);
-          return () => clearTimeout(t);
+      if (currentIoTStats?.isAbnormal && !showAlertModal) {
+          setShowAlertModal(true);
       }
-  }, [toastMsg]);
+  }, [currentIoTStats?.isAbnormal]);
 
   // 癫痫波形动画 (SVG Path Generator)
   useEffect(() => {
@@ -113,68 +156,147 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
     return () => cancelAnimationFrame(anim);
   }, []);
 
-  // --- SOS Logic ---
-  const handleSOSConfirm = () => {
-      window.location.href = "tel:120";
-      setShowSOSModal(false);
-  };
-
   // --- Manual Record Logic ---
   const handleRecordSubmit = (hr: string) => {
       const val = parseInt(hr);
       if (val > 0) {
           const stats: IoTStats = {
             hr: val, bpSys: 120, bpDia: 80, spo2: 98,
-            isAbnormal: false, lastUpdated: Date.now()
+            isAbnormal: val > 120 || val < 60, // Check manually entered val
+            isFallDetected: false,
+            lastUpdated: Date.now()
           };
           dispatch({ type: 'UPDATE_IOT_STATS', payload: { id: activeProfileId, stats } });
           setShowRecordModal(false);
-          setToastMsg('录入成功，AI 风险模型已更新');
+          showToast('录入成功，AI 风险模型已更新'); // [NEW] Use global toast
+          
+          // Trigger modal on manual input too if critical
+          if (stats.isAbnormal) {
+              setShowAlertModal(true);
+          }
       }
   };
 
-  // --- Alert Modal (三级熔断预警) ---
+  // --- Alert Modal (二级预警: 心率异常) ---
   const AlertModal = () => (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-md animate-fade-in">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl border-2 border-[#FF4D4F] relative overflow-hidden">
-              <div className="absolute top-0 left-0 w-full h-2 bg-[#FF4D4F] animate-pulse"></div>
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-md animate-shake">
+          <div className="bg-white rounded-[32px] p-6 w-full max-w-sm text-center shadow-2xl border-4 border-red-500 relative overflow-hidden">
+              {/* Flashing Header */}
+              <div className="absolute top-0 left-0 w-full h-3 bg-red-500 animate-pulse"></div>
               
-              <div className="flex justify-center mb-6 mt-2">
-                 <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center animate-ping absolute opacity-50"></div>
-                 <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center text-4xl relative text-[#FF4D4F] border border-red-200">
-                    🆘
+              <div className="flex justify-center mb-6 mt-4">
+                 <div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center animate-pulse relative">
+                     <span className="text-5xl">💓</span>
+                     <div className="absolute -top-1 -right-1 w-8 h-8 bg-red-500 rounded-full text-white flex items-center justify-center font-black text-xs border-2 border-white">
+                         !
+                     </div>
                  </div>
               </div>
               
-              <h3 className="text-xl font-black text-slate-900 mb-2">三级熔断预警已触发</h3>
-              <p className="text-sm text-slate-600 mb-6 font-medium leading-relaxed">
-                  监测到严重心率异常 ({currentIoTStats?.hr} bpm)<br/>
-                  疑似<strong className="text-[#FF4D4F]">强直阵挛性发作</strong>，建议立即急救。
-              </p>
+              <h3 className="text-2xl font-black text-slate-900 mb-2">二级风险预警</h3>
+              
+              <div className="bg-red-50 p-4 rounded-2xl mb-6 border border-red-100">
+                  <p className="text-sm text-slate-600 font-bold mb-1">
+                      监测到心率异常: <span className="text-red-600 text-xl font-black">{currentIoTStats?.hr}</span> bpm
+                  </p>
+                  <p className="text-xs text-red-500">
+                      (阈值范围: 60 - 120 bpm)
+                  </p>
+                  <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                      系统判断可能存在<strong className="text-slate-900">严重心律失常</strong>或<strong className="text-slate-900">癫痫发作风险</strong>。
+                  </p>
+              </div>
               
               <div className="space-y-3">
-                  {/* [Ant Design Fix] 按钮背景色统一为 #FF4D4F */}
                   <Button fullWidth className="bg-[#FF4D4F] hover:opacity-90 shadow-lg shadow-red-500/40 py-4 h-auto flex flex-col items-center justify-center gap-1" onClick={() => window.location.href = "tel:120"}>
-                      {/* [Text Update] 文案优化 (Requirement 2) */}
-                      <span className="text-base font-black">📞 你可以一键拨打120</span>
-                      <span className="text-[10px] opacity-80 font-normal">系统将自动播报患者位置</span>
+                      <span className="text-base font-black">📞 一键呼叫 120</span>
+                      <span className="text-[10px] opacity-80 font-normal">及紧急联系人</span>
                   </Button>
                   
-                  <Button fullWidth variant="outline" className="border-slate-300 text-slate-700 h-auto py-3 flex flex-col gap-1" onClick={() => window.alert("已向紧急联系人发送 GPS 定位: 北纬30.67, 东经104.06")}>
-                      <span className="text-sm font-black">📍 发送 GPS 定位</span>
-                  </Button>
-
-                  {/* [A11y Update] 触控区域扩大至 44px (Requirement 4) */}
+                  {/* [Requirement 3] User Dismissible Button */}
                   <button 
                      onClick={() => setShowAlertModal(false)}
-                     className="mt-2 text-slate-400 text-xs font-bold underline decoration-slate-300 h-[44px] flex items-center justify-center w-full"
+                     className="w-full py-4 rounded-full border-2 border-slate-200 text-slate-500 font-bold text-sm hover:bg-slate-50 active:scale-95 transition-all"
                   >
-                      我是本人，误报解除
+                      我已确认安全，关闭预警
                   </button>
               </div>
           </div>
       </div>
   );
+
+  // --- Dynamic Priority Card Strategy ---
+  const renderPrioritySection = () => {
+      // 1. AD (认知障碍): [REMOVED] 已移至全局置顶
+      // if (primaryCondition === DiseaseType.COGNITIVE) { ... }
+
+      // 2. Epilepsy (癫痫): 置顶安全哨兵
+      if (primaryCondition === DiseaseType.EPILEPSY) {
+          return (
+              <div onClick={() => onNavigate('service-epilepsy')} className={`bg-emerald-50 border border-emerald-100 rounded-xl p-4 shadow-sm mb-3 active:scale-[0.99] transition-transform flex items-center justify-between ${touchClass}`}>
+                  <div className="flex items-center gap-3">
+                      <div className="relative">
+                          <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center text-xl">🛡️</div>
+                          {hasDevice && <span className="absolute -bottom-1 -right-1 w-4 h-4 bg-white rounded-full flex items-center justify-center"><span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse"></span></span>}
+                      </div>
+                      <div>
+                          <h4 className={`text-emerald-900 ${isElderly ? 'text-lg font-black' : 'text-xs font-black'}`}>安全哨兵状态: {hasDevice ? '监测中' : '未连接'}</h4>
+                          <p className={`text-emerald-700 font-medium mt-0.5 ${isElderly ? 'text-sm' : 'text-[10px]'}`}>
+                              {hasDevice ? `心率 ${currentIoTStats?.hr} bpm · 节律稳定` : '请尽快连接设备以开启防护'}
+                          </p>
+                      </div>
+                  </div>
+                  <div className="h-8 w-16 opacity-50">
+                        <svg width="100%" height="100%" viewBox="0 0 160 40">
+                            <path d={wavePath} fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" />
+                        </svg>
+                  </div>
+              </div>
+          );
+      }
+
+      // 3. Migraine (偏头痛): 置顶诱因雷达 (环境建议)
+      if (primaryCondition === DiseaseType.MIGRAINE) {
+          return (
+              <div onClick={() => onNavigate('service-headache')} className={`bg-sky-50 border border-sky-100 rounded-xl p-4 shadow-sm mb-3 active:scale-[0.99] transition-transform ${touchClass}`}>
+                  <div className="flex justify-between items-start mb-2">
+                      <div className="flex items-center gap-2">
+                          <span className="text-xl">⚡</span>
+                          <h4 className={`text-slate-800 ${isElderly ? 'text-lg font-black' : 'text-xs font-black'}`}>环境诱因雷达</h4>
+                      </div>
+                      <span className="text-[9px] text-sky-600 bg-sky-100 px-1.5 py-0.5 rounded font-bold">实时</span>
+                  </div>
+                  <div className="flex gap-2">
+                      <div className="flex-1 bg-white/60 rounded-lg p-2 flex items-center gap-2">
+                          <span className="text-sm">☀️</span>
+                          <div>
+                              <div className="text-[10px] font-bold text-slate-700">600 lux (偏亮)</div>
+                              <div className="text-[9px] text-sky-600">建议佩戴墨镜</div>
+                          </div>
+                      </div>
+                      <div className="flex-1 bg-white/60 rounded-lg p-2 flex items-center gap-2">
+                          <span className="text-sm">🔊</span>
+                          <div>
+                              <div className="text-[10px] font-bold text-slate-700">45 dB (舒适)</div>
+                              <div className="text-[9px] text-emerald-600">环境噪音适宜</div>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          );
+      }
+
+      // Default: Fallback to standard promo if no specific disease match
+      return null; 
+  };
+
+  // King Kong Menu Config
+  const kingKongItems = [
+      { label: 'AI 问诊', icon: '🩺', color: 'text-[#1677FF]', bg: 'bg-blue-50', nav: 'chat' },
+      { label: '查报告', icon: '📄', color: 'text-emerald-500', bg: 'bg-emerald-50', nav: 'report' },
+      { label: '亲情号', icon: '👨‍👩‍👧', color: 'text-orange-500', bg: 'bg-orange-50', nav: 'service-family' },
+      { label: '租设备', icon: '⌚', color: 'text-purple-500', bg: 'bg-purple-50', nav: 'service-mall' },
+  ].filter(item => !isElderly || item.nav !== 'service-mall'); // [Elderly Patch] Hide rental service
 
   return (
     <div className="bg-[#F5F5F5] min-h-screen flex flex-col max-w-[430px] mx-auto overflow-x-hidden pb-safe select-none relative">
@@ -221,38 +343,59 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
       {/* 2. 金刚区 */}
       <div className="px-3 -mt-10 relative z-20 mb-2">
           <div className="bg-white rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.05)] p-4 flex justify-between items-center">
-              {[
-                  { label: 'AI 问诊', icon: '🩺', color: 'text-[#1677FF]', bg: 'bg-blue-50', nav: 'chat' },
-                  { label: '查报告', icon: '📄', color: 'text-emerald-500', bg: 'bg-emerald-50', nav: 'report' },
-                  { label: '亲情号', icon: '👨‍👩‍👧', color: 'text-orange-500', bg: 'bg-orange-50', nav: 'service-family' },
-                  { label: '租设备', icon: '⌚', color: 'text-purple-500', bg: 'bg-purple-50', nav: 'service-mall' },
-              ].map((item, i) => (
-                  <button key={i} onClick={() => onNavigate(item.nav as AppView)} className="flex flex-col items-center gap-2 active:opacity-70 transition-opacity">
-                      <div className={`w-11 h-11 rounded-full ${item.bg} flex items-center justify-center text-xl shadow-sm ${item.color}`}>
+              {kingKongItems.map((item, i) => (
+                  <button key={i} onClick={() => onNavigate(item.nav as AppView)} className={`flex flex-col items-center gap-2 active:opacity-70 transition-opacity ${isElderly ? 'flex-1' : ''}`}>
+                      <div className={`w-11 h-11 rounded-full ${item.bg} flex items-center justify-center text-xl shadow-sm ${item.color} ${isElderly ? 'w-14 h-14 text-2xl' : ''}`}>
                           {item.icon}
                       </div>
-                      <span className="text-[11px] font-bold text-slate-700">{item.label}</span>
+                      <span className={`text-slate-700 ${textClass}`}>{item.label}</span>
                   </button>
               ))}
           </div>
       </div>
 
-      {/* 3. 核心业务流 */}
+      {/* 3. 核心业务流 (Feed) */}
       <div className="px-3 space-y-3 pb-24">
         
-        {isCritical && (
-            <div onClick={() => onNavigate('report')} className="bg-rose-50 border border-rose-100 rounded-xl p-3 flex items-center gap-3 animate-pulse">
-                <div className="w-8 h-8 bg-rose-100 rounded-full flex items-center justify-center text-[#FF4D4F] font-bold">!</div>
-                <div className="flex-1">
-                    <div className="text-xs font-black text-rose-700">检测到健康风险异常</div>
-                    <div className="text-[10px] text-rose-500">建议立即进行深度评估</div>
+        {/* [NEW] MOH Alert Banner (Highest Priority) */}
+        {mohAlertTriggered && (
+            <div className={`bg-orange-50 border border-orange-200 rounded-xl p-3 flex items-start gap-3 animate-slide-up shadow-sm ${touchClass}`}>
+                <div className="text-xl">⚠️</div>
+                <div>
+                    <h4 className={`text-orange-800 ${isElderly ? 'text-lg font-black' : 'text-xs font-black'}`}>警告：检测到用药频繁</h4>
+                    <p className={`text-orange-700 leading-tight mt-1 ${isElderly ? 'text-sm' : 'text-[10px]'}`}>
+                        近24小时用药&gt;3次，存在“药物过度使用性头痛”风险。建议立即暂停药物，尝试下方物理缓解方案。
+                    </p>
                 </div>
-                <button className="bg-[#FF4D4F] text-white text-[10px] font-bold px-3 py-1.5 rounded-full">去处理</button>
             </div>
         )}
 
-        {/* 智能推荐卡片 */}
-        {!isPkgUnlocked && (
+        {/* [NEW] Non-Drug Toolkit (Injected when Alert is active) */}
+        {mohAlertTriggered && <NonDrugToolkit />}
+
+        {isCritical && !mohAlertTriggered && (
+            <div onClick={() => onNavigate('report')} className={`bg-rose-50 border border-rose-100 rounded-xl p-3 flex items-center gap-3 animate-pulse ${touchClass}`}>
+                <div className="w-8 h-8 bg-rose-100 rounded-full flex items-center justify-center text-[#FF4D4F] font-bold">!</div>
+                <div className="flex-1">
+                    <div className={`text-rose-700 ${isElderly ? 'text-lg font-black' : 'text-xs font-black'}`}>检测到健康风险异常</div>
+                    <div className={`text-rose-500 ${isElderly ? 'text-sm' : 'text-[10px]'}`}>建议立即进行深度评估</div>
+                </div>
+                <button className={`bg-[#FF4D4F] text-white rounded-full ${isElderly ? 'text-sm font-bold px-5 py-2' : 'text-[10px] font-bold px-3 py-1.5'}`}>去处理</button>
+            </div>
+        )}
+
+        {/* [MANDATORY] Universal Cognitive Training Card (Pinned to Top) */}
+        <CognitiveTrainingCard 
+            stats={user.cognitiveStats} 
+            onClick={() => onNavigate('service-cognitive')} 
+            isElderly={isElderly} 
+        />
+
+        {/* [NEW] Dynamic Priority Section (Strategy Pattern) */}
+        {renderPrioritySection()}
+
+        {/* 智能推荐卡片 (Fallback or Secondary) */}
+        {!isPkgUnlocked && !renderPrioritySection() && !isElderly && ( // [Elderly Patch] Hide payment anxiety
             <div className="bg-white rounded-xl p-4 shadow-sm relative overflow-hidden group" onClick={() => onNavigate('service-mall')}>
                 <div className="absolute top-0 right-0 w-24 h-24 bg-amber-50 rounded-full blur-2xl -translate-y-8 translate-x-8"></div>
                 <div className="flex justify-between items-start relative z-10">
@@ -269,61 +412,64 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
             </div>
         )}
 
+        {/* Standard Grid Menu */}
         <div className="grid grid-cols-2 gap-3">
-            <div onClick={() => onNavigate('service-epilepsy')} className="bg-white rounded-xl p-4 shadow-sm flex flex-col justify-between min-h-[140px] border border-slate-50 active:scale-[0.98] transition-transform">
+            <div onClick={() => onNavigate('service-epilepsy')} className={`bg-white rounded-xl p-4 shadow-sm flex flex-col justify-between border border-slate-50 active:scale-[0.98] transition-transform ${isElderly ? 'min-h-[160px]' : 'min-h-[140px]'}`}>
                 <div>
                     <div className="flex justify-between items-start mb-2">
                         <span className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-500 text-lg">🧠</span>
                         {hasDevice && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
                     </div>
-                    <h4 className="text-[13px] font-black text-slate-800">生命守护</h4>
-                    <p className="text-[10px] text-slate-400 mt-0.5">癫痫发作实时监测</p>
+                    <h4 className={`text-slate-800 ${isElderly ? 'text-lg font-black' : 'text-[13px] font-black'}`}>生命守护</h4>
+                    <p className={`text-slate-400 mt-0.5 ${isElderly ? 'text-sm' : 'text-[10px]'}`}>癫痫发作实时监测</p>
                 </div>
                 <div className="mt-2 h-10 w-full opacity-50">
                      <svg width="100%" height="100%" viewBox="0 0 160 40">
-                        <path d={wavePath} fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" />
+                        <path d={wavePath} fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" />
                      </svg>
                 </div>
             </div>
 
             <div className="flex flex-col gap-3">
-                <div onClick={() => onNavigate('service-headache')} className="bg-white rounded-xl p-3 shadow-sm flex items-center gap-3 border border-slate-50 active:scale-[0.98] transition-transform flex-1">
+                <div onClick={() => onNavigate('service-headache')} className={`bg-white rounded-xl p-3 shadow-sm flex items-center gap-3 border border-slate-50 active:scale-[0.98] transition-transform flex-1 ${touchClass}`}>
                     <div className="w-8 h-8 rounded-full bg-sky-50 flex items-center justify-center text-sky-500 text-lg">⚡</div>
                     <div>
-                        <h4 className="text-[12px] font-black text-slate-800">诱因雷达</h4>
-                        <p className="text-[9px] text-slate-400">偏头痛气象预警</p>
+                        <h4 className={`text-slate-800 ${isElderly ? 'text-lg font-black' : 'text-[12px] font-black'}`}>诱因雷达</h4>
+                        <p className={`text-slate-400 ${isElderly ? 'text-sm' : 'text-[9px]'}`}>偏头痛气象预警</p>
                     </div>
                 </div>
-                <div onClick={() => onNavigate('service-cognitive')} className="bg-white rounded-xl p-3 shadow-sm flex items-center gap-3 border border-slate-50 active:scale-[0.98] transition-transform flex-1">
+                <div onClick={() => onNavigate('service-cognitive')} className={`bg-white rounded-xl p-3 shadow-sm flex items-center gap-3 border border-slate-50 active:scale-[0.98] transition-transform flex-1 ${touchClass}`}>
                     <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center text-purple-500 text-lg">🧩</div>
                     <div>
-                        <h4 className="text-[12px] font-black text-slate-800">记忆训练</h4>
-                        <p className="text-[9px] text-slate-400">AD 认知康复</p>
+                        <h4 className={`text-slate-800 ${isElderly ? 'text-lg font-black' : 'text-[12px] font-black'}`}>记忆训练</h4>
+                        <p className={`text-slate-400 ${isElderly ? 'text-sm' : 'text-[9px]'}`}>AD 认知康复</p>
                     </div>
                 </div>
             </div>
         </div>
 
         {/* [Optimization] 设备状态与手动录入降级交互 */}
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-50 flex items-center justify-between">
+        <div className={`bg-white rounded-xl p-4 shadow-sm border border-slate-50 flex items-center justify-between ${touchClass}`}>
             <div className="flex items-center gap-3" onClick={() => onNavigate(hasDevice ? 'profile' : 'haas-checkout')}>
                 <div className="w-10 h-10 rounded-lg bg-slate-50 flex items-center justify-center text-2xl">⌚</div>
                 <div>
-                    <h4 className="text-[12px] font-black text-slate-800">我的智能装备</h4>
+                    <h4 className={`text-slate-800 ${isElderly ? 'text-lg font-black' : 'text-[12px] font-black'}`}>我的智能装备</h4>
                     {hasDevice ? (
                         <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] font-bold text-slate-500">HR: {currentIoTStats?.hr || '--'}</span>
                             <span className="text-[10px] text-emerald-500 bg-emerald-50 px-1 rounded">已连接</span>
                         </div>
                     ) : (
-                        <p className="text-[10px] text-slate-400 mt-0.5">暂无设备，点击租赁</p>
+                        <p className={`text-slate-400 mt-0.5 ${isElderly ? 'text-sm' : 'text-[10px]'}`}>
+                            {isElderly ? '暂无绑定设备' : '暂无设备，点击租赁'}
+                        </p>
                     )}
                 </div>
             </div>
             {!hasDevice && (
                 <button 
                     onClick={(e) => { e.stopPropagation(); setShowRecordModal(true); }}
-                    className="text-[10px] font-bold text-[#1677FF] bg-blue-50 px-3 py-1.5 rounded-full active:scale-95"
+                    className={`text-[#1677FF] bg-blue-50 rounded-full active:scale-95 ${isElderly ? 'text-sm font-bold px-5 py-2' : 'text-[10px] font-bold px-3 py-1.5'}`}
                 >
                     📝 手动录入
                 </button>
@@ -344,16 +490,6 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
 
       </div>
 
-      {/* [Safety] SOS 悬浮球 (仅高危/癫痫用户) */}
-      {(isEpilepsy || isCritical) && (
-          <button 
-            onClick={() => setShowSOSModal(true)}
-            className="fixed right-5 bottom-24 w-14 h-14 bg-[#FF4D4F] rounded-full shadow-lg shadow-red-600/40 flex items-center justify-center text-2xl z-40 active:scale-90 transition-transform animate-pulse"
-          >
-            🆘
-          </button>
-      )}
-
       {/* Modals */}
       {showAlertModal && <AlertModal />}
       
@@ -362,20 +498,6 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
             onClose={() => setShowRecordModal(false)} 
             onSubmit={handleRecordSubmit} 
         />
-      )}
-
-      {showSOSModal && (
-        <SOSConfirmModal 
-            onClose={() => setShowSOSModal(false)}
-            onConfirm={handleSOSConfirm}
-        />
-      )}
-
-      {/* Toast Feedback */}
-      {toastMsg && (
-        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[110] bg-slate-900/90 text-white px-4 py-2 rounded-full text-xs font-bold animate-fade-in shadow-lg backdrop-blur">
-            {toastMsg}
-        </div>
       )}
 
     </div>
@@ -404,31 +526,6 @@ const ManualRecordModal: React.FC<{ onClose: () => void; onSubmit: (hr: string) 
                         />
                     </div>
                     <Button fullWidth onClick={() => onSubmit(hr)} disabled={!hr}>确认提交</Button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const SOSConfirmModal: React.FC<{ onClose: () => void; onConfirm: () => void }> = ({ onClose, onConfirm }) => {
-    return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-            <div className="absolute inset-0 bg-red-900/40 backdrop-blur-md" onClick={onClose}></div>
-            <div className="bg-white w-full max-w-sm rounded-[24px] p-8 relative z-10 animate-shake shadow-2xl border-2 border-[#FF4D4F] text-center">
-                <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center text-4xl mx-auto mb-4 text-[#FF4D4F]">
-                    🚑
-                </div>
-                <h3 className="text-xl font-black text-slate-900 mb-2">确认呼叫 120 ?</h3>
-                <p className="text-sm text-slate-500 mb-8 px-2">
-                    系统将尝试获取您的 GPS 定位，并自动发送给紧急联系人。
-                </p>
-                <div className="space-y-3">
-                    <Button fullWidth className="bg-[#FF4D4F] py-4 shadow-red-500/30" onClick={onConfirm}>
-                        立即拨打
-                    </Button>
-                    <button onClick={onClose} className="text-slate-400 text-xs font-bold py-2">
-                        取消
-                    </button>
                 </div>
             </div>
         </div>

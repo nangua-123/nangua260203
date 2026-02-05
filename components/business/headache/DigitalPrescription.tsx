@@ -1,6 +1,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { usePayment } from '../../../hooks/usePayment';
+import { useApp } from '../../../context/AppContext';
+import { useToast } from '../../../context/ToastContext';
 import { PaywallModal } from '../payment/PaywallModal';
 
 interface PrescriptionData {
@@ -31,16 +33,19 @@ interface DigitalPrescriptionProps {
     diet: number;
     cycle: number;
   };
+  onGuideToNonDrug?: () => void; // [NEW] 导流回调
 }
 
 // 华西医院认证医师白名单
 const AUTHORIZED_DOCTORS = ["王德强 教授", "刘鸣 教授", "周东 教授"];
 
-export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highlight = false, factors }) => {
+export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highlight = false, factors, onGuideToNonDrug }) => {
+  const { state, dispatch } = useApp();
   const { hasFeature, PACKAGES } = usePayment();
+  const { showToast } = useToast();
   const [showPayModal, setShowPayModal] = useState(false);
+  const [showMOHModal, setShowMOHModal] = useState(false); // [NEW] MOH 拦截弹窗
   const [dailyMedsTaken, setDailyMedsTaken] = useState(false);
-  const [showToast, setShowToast] = useState(false); // [HS-001]
 
   // 权益校验：是否已购买“偏头痛1元破冰”或“偏头痛VIP”
   const isUnlocked = hasFeature('ICE_BREAKING_MIGRAINE') || hasFeature('VIP_MIGRAINE');
@@ -68,8 +73,7 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
   const isAuthorized = AUTHORIZED_DOCTORS.includes(prescription.doctor);
   const isInvalid = isExpired || !isAuthorized;
 
-  // [Safety] MOH 药物过度使用预警逻辑
-  // 规则升级：压力指数 > 80 或 生理周期影响 > 70 均视为高危诱发频繁用药场景
+  // [Safety] MOH 药物过度使用预警逻辑 (Banner Display Logic)
   const isStressRisk = (factors?.stress || 0) > 80;
   const isCycleRisk = (factors?.cycle || 0) > 70;
   const isMOHRisk = isStressRisk || isCycleRisk;
@@ -96,30 +100,69 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
     }).slice(0, 2); 
   }, [factors]);
 
-  // Handle meds click with visual feedback
-  const handleTakeMeds = () => {
-      if (!isUnlocked || isInvalid) return;
+  // [NEW] MOH Counter Check Logic
+  const checkMOHViolation = (): { violated: boolean; reason: string } => {
+      const logs = state.user.medicationLogs || [];
+      const now = Date.now();
+      const oneDay = 24 * 60 * 60 * 1000;
+      const sevenDays = 7 * oneDay;
+      
+      const count24h = logs.filter(l => l.timestamp > now - oneDay).length;
+      const count7d = logs.filter(l => l.timestamp > now - sevenDays).length;
+      
+      if (count24h >= 3) return { violated: true, reason: '24小时内用药已超 3 次' };
+      if (count7d >= 10) return { violated: true, reason: '7天内用药已超 10 次' };
+      
+      return { violated: false, reason: '' };
+  };
+
+  const executeLogMedication = () => {
+      dispatch({
+          type: 'LOG_MEDICATION',
+          payload: {
+              id: Date.now().toString(),
+              timestamp: Date.now(),
+              drugName: prescription.preventative.name,
+              dosage: prescription.preventative.dosage,
+              painLevel: 5,
+          }
+      });
       const newState = !dailyMedsTaken;
       setDailyMedsTaken(newState);
       if (newState) {
-          setShowToast(true);
-          setTimeout(() => setShowToast(false), 2000);
+          showToast('已记录用药，MOH 风险模型更新中...', 'success');
       }
+  };
+
+  // Handle meds click with visual feedback & Data Logging
+  const handleTakeMeds = () => {
+      if (!isUnlocked || isInvalid) return;
+      
+      // [NEW] Intercept Logic
+      const check = checkMOHViolation();
+      if (check.violated) {
+          setShowMOHModal(true);
+          return;
+      }
+
+      executeLogMedication();
+  };
+
+  const handleForceRecord = () => {
+      setShowMOHModal(false);
+      executeLogMedication();
+  };
+
+  const handleTryNonDrug = () => {
+      setShowMOHModal(false);
+      if (onGuideToNonDrug) onGuideToNonDrug();
   };
 
   return (
     <>
       <div className="relative group space-y-4">
         
-        {/* Toast for Medication Reminder */}
-        {showToast && (
-            <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs px-4 py-2 rounded-full shadow-lg z-50 animate-fade-in flex items-center gap-2">
-                <span className="text-emerald-400">✓</span>
-                已关联今日用药提醒
-            </div>
-        )}
-
-        {/* 0. 动态非药物干预 (生活方式) - [COMPLIANCE FIX] 移出付费墙，作为免费基础功能 */}
+        {/* 0. 动态非药物干预 (生活方式) */}
         <div className={`rounded-[24px] p-5 border shadow-sm transition-colors duration-500 bg-white ${highlight ? 'border-rose-100 ring-2 ring-rose-50' : 'border-slate-50'}`}>
              <h4 className={`text-[12px] font-black uppercase tracking-widest mb-3 flex items-center justify-between ${highlight ? 'text-rose-500' : 'text-slate-800'}`}>
                  <span className="flex items-center gap-1">
@@ -276,6 +319,48 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
                 </div>
             )}
         </div>
+
+        {/* [NEW] MOH Interceptor Modal (Mandatory Warning) */}
+        {showMOHModal && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-md animate-shake">
+                <div className="bg-white w-full max-w-sm rounded-[32px] p-6 text-center shadow-2xl border-4 border-orange-500 relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-full h-3 bg-orange-500 animate-pulse"></div>
+                    
+                    <div className="flex justify-center mb-4 mt-4">
+                        <div className="w-20 h-20 bg-orange-100 rounded-full flex items-center justify-center animate-pulse relative text-4xl text-orange-600 border border-orange-200">
+                            💊
+                        </div>
+                    </div>
+                    
+                    <h3 className="text-xl font-black text-slate-900 mb-2">用药频次过高警告</h3>
+                    
+                    <div className="bg-orange-50 p-4 rounded-2xl mb-6 border border-orange-100">
+                        <p className="text-xs text-orange-800 font-bold mb-1">
+                            {checkMOHViolation().reason}
+                        </p>
+                        <p className="text-[10px] text-slate-600 leading-relaxed text-justify">
+                            频繁使用止痛药可能诱发<strong className="text-orange-700">药物过度使用性头痛 (MOH)</strong>，导致头痛慢性化。
+                        </p>
+                    </div>
+                    
+                    <div className="space-y-3">
+                        <button 
+                            onClick={handleTryNonDrug}
+                            className="w-full bg-teal-600 hover:bg-teal-700 text-white rounded-full py-3.5 shadow-lg shadow-teal-500/30 text-xs font-black transition-all active:scale-95 flex items-center justify-center gap-2"
+                        >
+                            <span>🌿 尝试物理缓解 (推荐)</span>
+                        </button>
+                        
+                        <button 
+                            onClick={handleForceRecord}
+                            className="w-full py-3 rounded-full border border-slate-200 text-slate-400 font-bold text-[10px] hover:bg-slate-50 active:scale-95 transition-all"
+                        >
+                            已了解风险，仍需记录
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
 
         {/* Payment Modal */}
         <PaywallModal 

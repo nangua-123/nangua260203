@@ -74,16 +74,46 @@ export interface IoTStats {
   bpDia: number;   
   spo2: number;    
   isAbnormal: boolean; 
+  isFallDetected: boolean; // 跌倒监测
+  isSoundTriggered?: boolean; // [NEW] 声音识别触发 (持续抽搐声/呼救)
   lastUpdated: number;
+}
+
+// [NEW] 认知训练单次记录 (EMPI 归档结构)
+export interface CognitiveTrainingRecord {
+  id: string;
+  timestamp: number;
+  gameType: 'memory' | 'attention'; // 训练类型
+  score: number;       // 综合得分
+  durationSeconds: number; // 训练时长
+  accuracy: number;    // 正确率 (0-100)
+  difficultyLevel?: number; // 达到的难度等级 (记忆广度)
+  reactionSpeedMs?: number; // 平均反应速度 (毫秒)
 }
 
 export interface CognitiveStats {
   totalSessions: number;  
-  todaySessions: number;  
+  todaySessions: number;
+  todayDuration: number; 
   totalDuration: number;  
   lastScore: number;      
   aiRating: string;       
   lastUpdated: number;
+  trainingHistory?: CognitiveTrainingRecord[]; // [NEW] 全病程训练记录
+}
+
+// [NEW] 结构化病历记录 (OCR 提取结果)
+export interface MedicalRecord {
+  id: string;
+  date: string;       // 检查日期
+  hospital: string;   // 医院名称
+  diagnosis: string;  // 诊断结论
+  indicators: {       // 核心指标
+    name: string; 
+    value: string | number; 
+    trend?: 'up' | 'down' | 'flat';
+  }[];
+  rawImageUrl?: string; // 原始报告图
 }
 
 export interface HeadacheProfile {
@@ -95,6 +125,7 @@ export interface HeadacheProfile {
   medicationHistory: string[]; 
   diagnosisType: string; 
   symptomsTags: string[]; 
+  medicalRecords?: MedicalRecord[]; // [NEW] 关联的病历资产
   lastUpdated: number;
 }
 
@@ -124,6 +155,7 @@ export interface FamilyMember {
   name: string;
   relation: string; 
   avatar: string;
+  isElderly: boolean; // [NEW] 是否开启适老模式
   headacheProfile?: HeadacheProfile;
   epilepsyProfile?: EpilepsyProfile;
   cognitiveProfile?: CognitiveProfile;
@@ -137,6 +169,16 @@ export interface DoctorAssistantProof {
     employeeId: string;
     certificateUrl: string; // 模拟上传后的URL
     verified: boolean;
+}
+
+export interface MedLog {
+  id: string;
+  timestamp: number;
+  drugName: string;
+  dosage: string;
+  painLevel?: number; 
+  nature?: string[]; 
+  symptoms?: string[]; 
 }
 
 export interface User {
@@ -163,6 +205,9 @@ export interface User {
   
   iotStats?: IoTStats;             
   cognitiveStats?: CognitiveStats; 
+  
+  // [NEW] 用药记录 (用于MOH熔断监测)
+  medicationLogs?: MedLog[];
 
   familyMembers?: FamilyMember[];
   currentProfileId?: string; 
@@ -198,16 +243,6 @@ export interface ChatMessage {
   isThinking?: boolean;
   timestamp: number;
   suggestedOptions?: string[]; 
-}
-
-export interface MedLog {
-  id: string;
-  timestamp: number;
-  drugName: string;
-  dosage: string;
-  painLevel: number; 
-  nature: string[]; 
-  symptoms: string[]; 
 }
 
 export interface Prescription {

@@ -3,6 +3,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { RiskLevel, DiseaseType } from '../types';
 import Layout from '../components/common/Layout';
 import Button from '../components/common/Button';
+import { useToast } from '../context/ToastContext'; // [NEW]
 
 // Declare Chart.js type for TypeScript
 declare const Chart: any;
@@ -13,6 +14,142 @@ interface ReportViewProps {
   onBackToHome: () => void;
   onIntervention?: () => void;
 }
+
+// --- Minimalist SVG Illustrations ---
+const SleepSVG = () => (
+    <svg viewBox="0 0 100 60" className="w-full h-full opacity-80">
+        <path d="M20,50 Q40,10 60,50 T100,50" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" />
+        <circle cx="20" cy="40" r="2" fill="#64748B" />
+        <circle cx="80" cy="20" r="4" fill="#FEF08A" />
+        <path d="M70,15 L75,10 M85,15 L90,10 M80,28 L80,35" stroke="#FEF08A" strokeWidth="2" />
+    </svg>
+);
+
+const DietSVG = () => (
+    <svg viewBox="0 0 100 60" className="w-full h-full opacity-80">
+        <circle cx="50" cy="30" r="20" fill="none" stroke="#64748B" strokeWidth="2" />
+        <path d="M50,15 L50,45 M35,30 L65,30" stroke="#E2E8F0" strokeWidth="1" />
+        <circle cx="60" cy="25" r="3" fill="#F87171" />
+        <path d="M20,50 L80,50" stroke="#CBD5E1" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+);
+
+const EnvSVG = () => (
+    <svg viewBox="0 0 100 60" className="w-full h-full opacity-80">
+        <circle cx="50" cy="50" r="30" fill="none" stroke="#64748B" strokeWidth="1" strokeDasharray="4 4" />
+        <path d="M50,20 L50,50 L70,50" fill="none" stroke="#64748B" strokeWidth="2" />
+        <path d="M20,20 L30,30 L20,40" fill="none" stroke="#94A3B8" strokeWidth="2" />
+    </svg>
+);
+
+// --- Health Tips Swiper Component ---
+const HealthTipsSwiper: React.FC<{ diseaseType: DiseaseType }> = ({ diseaseType }) => {
+    const { showToast } = useToast();
+
+    const handleAction = (action: string) => {
+        // Simulate system API call
+        showToast(`✅ 已调用系统功能：${action}`, 'success');
+    };
+
+    const tips = diseaseType === DiseaseType.MIGRAINE ? [
+        { 
+            id: 1, 
+            title: '规律作息', 
+            desc: '周末不赖床，保持生物钟稳定，减少下丘脑功能紊乱。', 
+            icon: <SleepSVG />, 
+            bg: 'bg-blue-50',
+            actionLabel: '⏰ 设置睡眠闹钟',
+            action: '打开系统闹钟'
+        },
+        { 
+            id: 2, 
+            title: '饮食回避', 
+            desc: '少吃奶酪、巧克力及含咖啡因饮料，避免酪胺酸诱发头痛。', 
+            icon: <DietSVG />, 
+            bg: 'bg-orange-50',
+            actionLabel: '📅 记录饮食日记',
+            action: '打开饮食记录'
+        },
+        { 
+            id: 3, 
+            title: '环境调整', 
+            desc: '避免强光直射，室内使用暖色调灯光，减少视皮层过度兴奋。', 
+            icon: <EnvSVG />, 
+            bg: 'bg-emerald-50',
+            actionLabel: '💡 调节屏幕护眼',
+            action: '开启夜间模式'
+        },
+    ] : [
+        { 
+            id: 1, 
+            title: '社交互动', 
+            desc: '每周至少参加一次集体活动，保持语言中枢活跃度。', 
+            icon: <SleepSVG />, 
+            bg: 'bg-indigo-50',
+            actionLabel: '📞 联系亲友',
+            action: '打开通讯录'
+        },
+        { 
+            id: 2, 
+            title: '益智游戏', 
+            desc: '每天进行15分钟简单的计算或记忆练习，刺激前额叶功能。', 
+            icon: <DietSVG />, 
+            bg: 'bg-purple-50',
+            actionLabel: '🎮 开始训练',
+            action: '跳转认知游戏'
+        },
+        { 
+            id: 3, 
+            title: '有氧运动', 
+            desc: '散步或太极拳有助于脑部供血，提升神经突触可塑性。', 
+            icon: <EnvSVG />, 
+            bg: 'bg-rose-50',
+            actionLabel: '🏃 记录运动',
+            action: '打开计步器'
+        },
+    ];
+
+    return (
+        <div className="mb-6">
+            <div className="flex justify-between items-center mb-3 px-1">
+                <span className="text-[9px] bg-brand-50 text-brand-600 px-2 py-0.5 rounded font-bold">
+                    {diseaseType === DiseaseType.MIGRAINE ? '偏头痛科普' : '日常护理'}
+                </span>
+                <span className="text-[9px] text-slate-400">左滑查看更多 ›</span>
+            </div>
+            
+            <div className="flex gap-3 overflow-x-auto pb-4 snap-x snap-mandatory no-scrollbar px-1">
+                {tips.map(tip => (
+                    <div key={tip.id} className={`flex-shrink-0 w-[85%] snap-center rounded-[20px] p-5 shadow-sm border border-slate-50 ${tip.bg} flex flex-col justify-between min-h-[160px] relative overflow-hidden`}>
+                        <div className="relative z-10 flex-1">
+                            <h4 className="font-black text-slate-900 text-sm mb-2 flex items-center gap-2">
+                                <span className="w-5 h-5 rounded-full bg-white flex items-center justify-center text-xs font-bold border border-slate-100">{tip.id}</span>
+                                {tip.title}
+                            </h4>
+                            <p className="text-[11px] text-slate-600 leading-relaxed text-justify font-medium mb-3">
+                                {tip.desc}
+                            </p>
+                        </div>
+                        
+                        {/* Action Button */}
+                        <div className="relative z-10 mt-2">
+                            <button 
+                                onClick={() => handleAction(tip.action)}
+                                className="w-full py-2 bg-white/60 hover:bg-white text-slate-700 text-[10px] font-bold rounded-lg border border-white/50 shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1"
+                            >
+                                {tip.actionLabel}
+                            </button>
+                        </div>
+
+                        <div className="absolute bottom-0 right-0 w-24 h-16 pointer-events-none">
+                            {tip.icon}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
 
 const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHome, onIntervention }) => {
   const [risk, setRisk] = useState<RiskLevel>(RiskLevel.LOW);
@@ -167,31 +304,8 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
                         </div>
                     </div>
 
-                    {/* PRD Req: "按病种匹配，300字内+1张示意图" */}
-                    <div className="bg-white rounded-[24px] overflow-hidden shadow-sm border border-slate-50">
-                        <div className="h-32 bg-slate-200 relative">
-                            {/* Placeholder for "1张示意图" */}
-                            <div className="absolute inset-0 bg-gradient-to-r from-blue-100 to-indigo-100 flex items-center justify-center">
-                                <span className="text-4xl">🧘</span>
-                            </div>
-                        </div>
-                        <div className="p-5">
-                            <span className="text-[9px] bg-brand-50 text-brand-600 px-2 py-0.5 rounded font-bold">
-                                {diseaseType === DiseaseType.MIGRAINE ? '偏头痛科普' : '日常护理'}
-                            </span>
-                            <h4 className="font-black text-slate-900 text-sm mt-2 mb-2">
-                                {diseaseType === DiseaseType.MIGRAINE ? '日常避障 3 招 (免费干预)' : '保持大脑活力的 3 个习惯'}
-                            </h4>
-                            <p className="text-[11px] text-slate-600 leading-relaxed text-justify">
-                                {diseaseType === DiseaseType.MIGRAINE 
-                                    ? "1. 规律作息：周末不赖床，保持生物钟稳定。\n2. 饮食回避：少吃奶酪、巧克力及含咖啡因饮料。\n3. 环境调整：避免强光直射，室内使用暖色调灯光。"
-                                    : "1. 社交互动：每周至少参加一次集体活动。\n2. 益智游戏：每天进行15分钟简单的计算或记忆练习。\n3. 有氧运动：散步或太极拳有助于脑部供血。"}
-                            </p>
-                            <div className="mt-4 pt-3 border-t border-slate-100 text-[9px] text-slate-400">
-                                华西神经内科健康宣教中心 · 2024 更新
-                            </div>
-                        </div>
-                    </div>
+                    {/* PRD Req: "科普 3 招 - 卡片滑动流" */}
+                    <HealthTipsSwiper diseaseType={diseaseType} />
                 </>
             )}
 
