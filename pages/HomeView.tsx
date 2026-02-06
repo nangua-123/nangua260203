@@ -9,13 +9,17 @@
  * 3. 信息流 (Feed): 包含风险预警、智能推荐卡片及专病管理入口。
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { User, AppView, DiseaseType, IoTStats, CognitiveStats } from '../types';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { User, AppView, DiseaseType, IoTStats, CognitiveStats, UserRole } from '../types';
 import Button from '../components/common/Button';
 import { usePayment } from '../hooks/usePayment';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext'; // [NEW]
 import { NonDrugToolkit } from '../components/business/headache/NonDrugToolkit';
+import { useRole } from '../hooks/useRole';
+
+// Declare Chart.js type for TypeScript
+declare const Chart: any;
 
 interface HomeViewProps {
   user: User;
@@ -25,67 +29,107 @@ interface HomeViewProps {
   primaryCondition: DiseaseType | null;
 }
 
-// [NEW] Cognitive Circular Progress Component
-const CognitiveTrainingCard: React.FC<{ stats?: CognitiveStats; onClick: () => void; isElderly: boolean }> = ({ stats, onClick, isElderly }) => {
-    const todayDuration = stats?.todayDuration || 0;
-    const target = 20; // 20 mins goal
-    const percentage = Math.min(100, (todayDuration / target) * 100);
-    
-    // Circular calculations
-    const radius = 28;
-    const circumference = 2 * Math.PI * radius;
-    const strokeDashoffset = circumference - (percentage / 100) * circumference;
+// [NEW] Cognitive Radar Chart Card
+const CognitiveRadarCard: React.FC<{ stats?: CognitiveStats; onClick: () => void; isElderly: boolean }> = ({ stats, onClick, isElderly }) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const chartInstance = useRef<any>(null);
+
+    useEffect(() => {
+        if (!canvasRef.current || typeof Chart === 'undefined') return;
+
+        const ctx = canvasRef.current.getContext('2d');
+        if (!ctx) return;
+
+        // Destroy previous instance
+        if (chartInstance.current) {
+            chartInstance.current.destroy();
+        }
+
+        // Data Prep
+        const dataValues = [
+            stats?.dimensionStats?.memory || 60,
+            stats?.dimensionStats?.attention || 60,
+            stats?.dimensionStats?.reaction || 60,
+            stats?.dimensionStats?.stability || 60,
+            stats?.dimensionStats?.flexibility || 60
+        ];
+
+        // Chart Config
+        chartInstance.current = new Chart(ctx, {
+            type: 'radar',
+            data: {
+                labels: ['记忆', '专注', '反应', '稳定', '灵活'],
+                datasets: [{
+                    label: '今日脑力值',
+                    data: dataValues,
+                    backgroundColor: 'rgba(139, 92, 246, 0.2)', // Purple-500 alpha 0.2
+                    borderColor: 'rgba(139, 92, 246, 1)',     // Purple-500
+                    pointBackgroundColor: 'rgba(139, 92, 246, 1)',
+                    pointBorderColor: '#fff',
+                    pointHoverBackgroundColor: '#fff',
+                    pointHoverBorderColor: 'rgba(139, 92, 246, 1)',
+                    borderWidth: 2,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    r: {
+                        beginAtZero: true,
+                        max: 100,
+                        ticks: { display: false, stepSize: 20 },
+                        pointLabels: {
+                            font: { size: isElderly ? 14 : 10, weight: 'bold' },
+                            color: '#64748B' // slate-500
+                        },
+                        grid: { color: '#E2E8F0' }, // slate-200
+                        angleLines: { color: '#E2E8F0' }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { enabled: false } // Disable tooltip for cleaner view on mobile
+                },
+                animation: { duration: 1000 }
+            }
+        });
+
+        return () => {
+            if (chartInstance.current) {
+                chartInstance.current.destroy();
+            }
+        };
+    }, [stats, isElderly]);
 
     return (
-        <div onClick={onClick} className={`bg-white border border-purple-100 rounded-2xl p-5 shadow-sm mb-3 active:scale-[0.99] transition-transform relative overflow-hidden group ${isElderly ? 'min-h-[120px]' : ''}`}>
-            <div className="absolute top-0 right-0 w-32 h-32 bg-purple-50 rounded-full blur-2xl -translate-y-10 translate-x-10 opacity-60"></div>
+        <div onClick={onClick} className={`bg-white border border-purple-100 rounded-2xl p-4 shadow-sm mb-3 active:scale-[0.99] transition-transform relative overflow-hidden group flex justify-between items-center ${isElderly ? 'min-h-[160px]' : 'min-h-[140px]'}`}>
+            <div className="absolute top-0 right-0 w-32 h-32 bg-purple-50 rounded-full blur-2xl -translate-y-10 translate-x-10 opacity-60 pointer-events-none"></div>
             
-            <div className="flex items-center justify-between relative z-10">
-                <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                        <span className="text-2xl">🧠</span>
-                        <div>
-                            <h4 className={`text-slate-800 leading-tight ${isElderly ? 'text-lg font-black' : 'text-sm font-black'}`}>20分钟通用版认知训练</h4>
-                            <span className="text-[9px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded font-bold mt-0.5 inline-block">每日必做 · 预防衰退</span>
-                        </div>
+            <div className="flex-1 z-10 pr-2">
+                <div className="flex items-center gap-2 mb-2">
+                    <span className="text-2xl">🧠</span>
+                    <div>
+                        <h4 className={`text-slate-800 leading-tight ${isElderly ? 'text-lg font-black' : 'text-sm font-black'}`}>今日大脑雷达</h4>
+                        <span className="text-[9px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded font-bold mt-0.5 inline-block">多维度精准评估</span>
                     </div>
-                    <p className={`text-slate-500 font-bold mb-3 ${isElderly ? 'text-sm' : 'text-xs'}`}>
-                        {percentage >= 100 ? '今日目标已达成！真棒！' : `还差 ${target - todayDuration} 分钟，激活大脑活力`}
+                </div>
+                <div className="space-y-1 mt-2">
+                    <p className={`text-slate-500 font-bold ${isElderly ? 'text-sm' : 'text-xs'}`}>
+                        上次评分: <span className="text-purple-600 font-black">{stats?.lastScore || 0}</span>
                     </p>
-                    <button className={`bg-purple-600 text-white rounded-full shadow-lg shadow-purple-500/30 ${isElderly ? 'px-6 py-2.5 text-sm font-bold' : 'px-4 py-1.5 text-xs font-bold'}`}>
-                        {percentage >= 100 ? '继续挑战' : '开始训练'}
-                    </button>
+                    <p className="text-[9px] text-slate-400">
+                        今日已训练: {stats?.todayDuration || 0} min
+                    </p>
                 </div>
+                <button className={`mt-3 bg-purple-600 text-white rounded-full shadow-lg shadow-purple-500/30 active:scale-95 transition-all ${isElderly ? 'px-6 py-2.5 text-sm font-bold' : 'px-4 py-1.5 text-xs font-bold'}`}>
+                    开始训练
+                </button>
+            </div>
 
-                {/* Circular Progress */}
-                <div className="relative w-20 h-20 flex items-center justify-center">
-                    <svg className="transform -rotate-90 w-full h-full">
-                        <circle
-                            className="text-slate-100"
-                            strokeWidth="6"
-                            stroke="currentColor"
-                            fill="transparent"
-                            r={radius}
-                            cx="40"
-                            cy="40"
-                        />
-                        <circle
-                            className="text-purple-500 transition-all duration-1000 ease-out"
-                            strokeWidth="6"
-                            strokeDasharray={circumference}
-                            strokeDashoffset={strokeDashoffset}
-                            strokeLinecap="round"
-                            stroke="currentColor"
-                            fill="transparent"
-                            r={radius}
-                            cx="40"
-                            cy="40"
-                        />
-                    </svg>
-                    <div className="absolute flex flex-col items-center">
-                        <span className="text-sm font-black text-slate-800">{todayDuration}<span className="text-[9px] font-normal text-slate-400">min</span></span>
-                    </div>
-                </div>
+            {/* Chart Area */}
+            <div className="relative w-32 h-32 shrink-0">
+                <canvas ref={canvasRef} />
             </div>
         </div>
     );
@@ -94,6 +138,7 @@ const CognitiveTrainingCard: React.FC<{ stats?: CognitiveStats; onClick: () => v
 const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavigate, primaryCondition }) => {
   const { state, dispatch } = useApp();
   const { showToast } = useToast(); // [NEW]
+  const { checkPermission } = useRole(); // [NEW]
   const { mohAlertTriggered } = state; 
 
   const [wavePath, setWavePath] = useState('');
@@ -112,23 +157,44 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
   // --- IoT Simulation Logic ---
   const activeProfileId = user.currentProfileId || user.id;
   
+  // [SAFETY FENCE] Check Managed Mode
+  const isManagedView = user.role === UserRole.FAMILY && user.currentProfileId !== user.id;
+  const managedPatient = isManagedView ? user.familyMembers?.find(m => m.id === user.currentProfileId) : null;
+
   // 获取当前选中 Profile 的设备数据
   const currentIoTStats = useMemo(() => {
      if (user.id === activeProfileId) return user.iotStats;
      return user.familyMembers?.find(m => m.id === activeProfileId)?.iotStats;
   }, [user, activeProfileId]);
 
+  // 获取当前选中 Profile 的认知数据 (for Radar)
+  const currentCognitiveStats = useMemo(() => {
+      if (user.id === activeProfileId) return user.cognitiveStats;
+      return user.familyMembers?.find(m => m.id === activeProfileId)?.cognitiveStats;
+  }, [user, activeProfileId]);
+
   const recommendedPkg = getRecommendedPackage();
   const isPkgUnlocked = hasFeature(recommendedPkg.featureKey);
+
+  // [State Assertion] 禁止将 riskScore 锁死为 0
+  // 判断是否是“预测分值”：riskScore > 0 且未购买任何专业评估包
+  const isAssessmentPaid = hasFeature('ICE_BREAKING_MIGRAINE') || hasFeature('VIP_MIGRAINE') || hasFeature('VIP_EPILEPSY') || hasFeature('VIP_COGNITIVE');
+  const isPredictedScore = riskScore > 0 && !isAssessmentPaid;
 
   const displayScore = riskScore > 0 ? riskScore : 95;
   const finalHealthScore = riskScore > 0 ? (100 - riskScore) : 95;
   const isCritical = finalHealthScore < 60; // 阈值：低于60分为高危
 
   // [Compliance] 高危或癫痫用户，显示红色主题
-  // [Ant Design Fix] 强制使用 #FF4D4F 标准色
+  // [SAFETY FENCE] 代管模式下，强制切换为温润淡绿色 (Emerald-500)
   const isEpilepsy = primaryCondition === DiseaseType.EPILEPSY;
-  const themeColor = isCritical || isEpilepsy ? 'bg-[#FF4D4F]' : 'bg-[#1677FF]';
+  
+  let themeColor = 'bg-[#1677FF]';
+  if (isManagedView) {
+      themeColor = 'bg-emerald-500'; // Warm green for safety fence
+  } else if (isCritical || isEpilepsy) {
+      themeColor = 'bg-[#FF4D4F]';
+  }
 
   // [UPDATED] 监听全局 HR 异常并触发本地弹窗
   // 注意：跌倒检测 (Level 3) 由 GlobalSOS 接管，此处仅处理 Level 2 心率预警
@@ -175,6 +241,12 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
               setShowAlertModal(true);
           }
       }
+  };
+
+  // [SAFETY FENCE] 远程强制提醒
+  const handleRemoteReminder = () => {
+      showToast(`已向 ${managedPatient?.name || '患者'} 发送强制服药提醒`, 'success');
+      // In real app, this would push a notification or activate the patient's speaker
   };
 
   // --- Alert Modal (二级预警: 心率异常) ---
@@ -227,8 +299,52 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
 
   // --- Dynamic Priority Card Strategy ---
   const renderPrioritySection = () => {
-      // 1. AD (认知障碍): [REMOVED] 已移至全局置顶
-      // if (primaryCondition === DiseaseType.COGNITIVE) { ... }
+      // 1. [SAFETY FENCE] Managed Mode Card (Priority 1)
+      if (isManagedView && managedPatient) {
+          return (
+              <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 shadow-sm mb-3 active:scale-[0.99] transition-transform">
+                  <div className="flex items-center gap-3 mb-3">
+                      <div className="relative">
+                          <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center text-2xl">🚧</div>
+                          <span className="absolute -bottom-1 -right-1 w-4 h-4 bg-white rounded-full flex items-center justify-center"><span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse"></span></span>
+                      </div>
+                      <div>
+                          <h4 className="text-emerald-900 text-sm font-black">安全围栏已激活</h4>
+                          <p className="text-emerald-700 font-medium text-[10px] mt-0.5">
+                              正在实时同步 {managedPatient.name} 的数据
+                          </p>
+                      </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                      <div className="bg-white/60 rounded-lg p-2 flex items-center gap-2">
+                          <span className="text-lg">💓</span>
+                          <div>
+                              <div className="text-[9px] text-slate-500">心率</div>
+                              <div className={`text-sm font-black ${currentIoTStats?.isAbnormal ? 'text-red-500' : 'text-slate-800'}`}>{currentIoTStats?.hr} bpm</div>
+                          </div>
+                      </div>
+                      <div className="bg-white/60 rounded-lg p-2 flex items-center gap-2">
+                          <span className="text-lg">📍</span>
+                          <div>
+                              <div className="text-[9px] text-slate-500">位置</div>
+                              <div className="text-xs font-black text-slate-800">家中 (安全)</div>
+                          </div>
+                      </div>
+                  </div>
+
+                  {/* [Emergency Intervention] Remote Reminder Button */}
+                  {checkPermission('REMOTE_REMINDER') && (
+                      <button 
+                          onClick={(e) => { e.stopPropagation(); handleRemoteReminder(); }}
+                          className="mt-3 w-full bg-emerald-600 text-white text-xs font-bold py-2.5 rounded-lg shadow-lg shadow-emerald-500/30 active:scale-95 transition-all flex items-center justify-center gap-2"
+                      >
+                          <span>🔊 远程强制提醒服药</span>
+                      </button>
+                  )}
+              </div>
+          );
+      }
 
       // 2. Epilepsy (癫痫): 置顶安全哨兵
       if (primaryCondition === DiseaseType.EPILEPSY) {
@@ -334,10 +450,24 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
                 </svg>
                 <div className="absolute flex flex-col items-center">
                     <span className="text-sm font-black text-white">{finalHealthScore}</span>
-                    <span className="text-[7px] text-white/80 uppercase">健康分</span>
+                    {/* [Requirement] 状态断言：如果未付费且有分值，显示待临床确认 */}
+                    <span className="text-[7px] text-white/80 uppercase flex items-center gap-1">
+                        {isPredictedScore ? '待临床确认' : '健康分'}
+                        {isPredictedScore && <span className="w-1.5 h-1.5 rounded-full bg-orange-300 animate-pulse"></span>}
+                    </span>
                 </div>
             </div>
         </div>
+
+        {/* [SAFETY FENCE] Managed Mode Banner */}
+        {isManagedView && (
+            <div className="absolute bottom-4 left-4 right-4 bg-white/20 backdrop-blur-md rounded-xl p-2 flex items-center justify-center gap-2 border border-white/30 animate-slide-up">
+                <span className="w-2 h-2 bg-emerald-300 rounded-full animate-pulse"></span>
+                <span className="text-white text-xs font-bold tracking-wide">
+                    当前正在代管 {managedPatient?.name} 的健康状态
+                </span>
+            </div>
+        )}
       </div>
 
       {/* 2. 金刚区 */}
@@ -358,7 +488,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
       <div className="px-3 space-y-3 pb-24">
         
         {/* [NEW] MOH Alert Banner (Highest Priority) */}
-        {mohAlertTriggered && (
+        {mohAlertTriggered && !isManagedView && (
             <div className={`bg-orange-50 border border-orange-200 rounded-xl p-3 flex items-start gap-3 animate-slide-up shadow-sm ${touchClass}`}>
                 <div className="text-xl">⚠️</div>
                 <div>
@@ -371,9 +501,9 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
         )}
 
         {/* [NEW] Non-Drug Toolkit (Injected when Alert is active) */}
-        {mohAlertTriggered && <NonDrugToolkit />}
+        {mohAlertTriggered && !isManagedView && <NonDrugToolkit />}
 
-        {isCritical && !mohAlertTriggered && (
+        {isCritical && !mohAlertTriggered && !isManagedView && (
             <div onClick={() => onNavigate('report')} className={`bg-rose-50 border border-rose-100 rounded-xl p-3 flex items-center gap-3 animate-pulse ${touchClass}`}>
                 <div className="w-8 h-8 bg-rose-100 rounded-full flex items-center justify-center text-[#FF4D4F] font-bold">!</div>
                 <div className="flex-1">
@@ -384,9 +514,9 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
             </div>
         )}
 
-        {/* [MANDATORY] Universal Cognitive Training Card (Pinned to Top) */}
-        <CognitiveTrainingCard 
-            stats={user.cognitiveStats} 
+        {/* [MANDATORY] Cognitive Radar Card (Pinned to Top) */}
+        <CognitiveRadarCard 
+            stats={currentCognitiveStats} 
             onClick={() => onNavigate('service-cognitive')} 
             isElderly={isElderly} 
         />
@@ -395,7 +525,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
         {renderPrioritySection()}
 
         {/* 智能推荐卡片 (Fallback or Secondary) */}
-        {!isPkgUnlocked && !renderPrioritySection() && !isElderly && ( // [Elderly Patch] Hide payment anxiety
+        {!isPkgUnlocked && !renderPrioritySection() && !isElderly && !isManagedView && ( // [Elderly Patch] Hide payment anxiety
             <div className="bg-white rounded-xl p-4 shadow-sm relative overflow-hidden group" onClick={() => onNavigate('service-mall')}>
                 <div className="absolute top-0 right-0 w-24 h-24 bg-amber-50 rounded-full blur-2xl -translate-y-8 translate-x-8"></div>
                 <div className="flex justify-between items-start relative z-10">

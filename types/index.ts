@@ -34,6 +34,7 @@ export type Permission =
   | 'VIEW_LIMITED_DATA'   // 查看受限数据 (家属)
   | 'RECEIVE_ALERTS'      // 接收预警
   | 'SYNC_DATA'           // 同步数据 (医助)
+  | 'REMOTE_REMINDER'     // [NEW] 远程强制提醒 (家属代管紧急干预)
   | 'WRITE_FOLLOW_UP';    // 填写随访 (医助)
 
 export enum DiseaseType {
@@ -74,12 +75,12 @@ export interface IoTStats {
   bpDia: number;   
   spo2: number;    
   isAbnormal: boolean; 
-  isFallDetected: boolean; // 跌倒监测
+  isFallDetected: boolean; // 跌倒检测
   isSoundTriggered?: boolean; // [NEW] 声音识别触发 (持续抽搐声/呼救)
   lastUpdated: number;
 }
 
-// [NEW] 认知训练单次记录 (EMPI 归档结构)
+// [NEW] 认知训练单次记录 (精细化采集)
 export interface CognitiveTrainingRecord {
   id: string;
   timestamp: number;
@@ -87,10 +88,17 @@ export interface CognitiveTrainingRecord {
   score: number;       // 综合得分
   durationSeconds: number; // 训练时长
   accuracy: number;    // 正确率 (0-100)
-  difficultyLevel?: number; // 达到的难度等级 (记忆广度)
-  reactionSpeedMs?: number; // 平均反应速度 (毫秒)
+  difficultyLevel?: number; // 达到的难度等级
+  
+  // [Mandatory Collection]
+  reactionTimeAvg: number; // 平均反应耗时 (ms)
+  errorPattern: string[];  // 错误类型分布 (Tags)
+  stabilityIndex: number;  // 稳定性指数 (0-100)
+  
+  isCompleted?: boolean; 
 }
 
+// [NEW] 认知数据统计 (含雷达图维度)
 export interface CognitiveStats {
   totalSessions: number;  
   todaySessions: number;
@@ -99,7 +107,17 @@ export interface CognitiveStats {
   lastScore: number;      
   aiRating: string;       
   lastUpdated: number;
-  trainingHistory?: CognitiveTrainingRecord[]; // [NEW] 全病程训练记录
+  
+  // [UI Requirement] 多维度雷达图数据
+  dimensionStats: {
+      memory: number;      // 记忆力
+      attention: number;   // 专注力
+      reaction: number;    // 反应速度
+      stability: number;   // 稳定性
+      flexibility: number; // 灵活性
+  };
+  
+  trainingHistory?: CognitiveTrainingRecord[];
 }
 
 // [NEW] 结构化病历记录 (OCR 提取结果)
@@ -181,6 +199,13 @@ export interface MedLog {
   symptoms?: string[]; 
 }
 
+// [NEW] 健康趋势数据点
+export interface HealthTrendItem {
+  date: string;
+  score: number;
+  label: string;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -208,6 +233,9 @@ export interface User {
   
   // [NEW] 用药记录 (用于MOH熔断监测)
   medicationLogs?: MedLog[];
+  
+  // [NEW] 全局健康趋势 (OCR联动)
+  healthTrends?: HealthTrendItem[];
 
   familyMembers?: FamilyMember[];
   currentProfileId?: string; 

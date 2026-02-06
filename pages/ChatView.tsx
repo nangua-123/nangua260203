@@ -153,11 +153,14 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
 
   const handleSkip = () => {
       // [Compliance] 用户自愿选择免费基础服务
-      // 修正逻辑：使用 AI 问诊过程中动态计算的风险评分，不再硬编码为 0
+      // [Optimization] 使用 AI 问诊过程中动态计算的预测分值，不锁死为 0
       const currentRisk = chatSessionRef.current?.estimatedRisk || 15;
       
       dispatch({ type: 'SET_RISK_SCORE', payload: { score: currentRisk, type: activeDisease } });
-      const event = new CustomEvent('navigate-to', { detail: 'report' }); // 直接看基础报告，不回首页
+      
+      // [Router Instruction] 1元测评跳过后，路由必须立即 handleNavigate('home')
+      // 禁止跳转至深度报告页 (ReportView)，因为未付费解锁
+      const event = new CustomEvent('navigate-to', { detail: 'home' });
       window.dispatchEvent(event);
   };
 
@@ -275,14 +278,14 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                             <span className="bg-white/20 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">¥1.00</span>
                         </Button>
 
-                        {/* 免费跳过入口 - 按钮形式，而非隐蔽的文字链接 */}
+                        {/* 免费跳过入口 - [Mandatory] Opacity >= 0.6, clearly visible */}
                         <Button 
                             fullWidth 
                             variant="outline" 
                             onClick={handleSkip}
-                            className="border-slate-200 text-slate-600 bg-slate-50 hover:bg-slate-100 py-3"
+                            className="border-slate-200 text-slate-600 bg-slate-50 hover:bg-slate-100 py-3 font-bold opacity-90"
                         >
-                            跳过，查看免费基础建议
+                            暂不深度测评，进入首页
                         </Button>
                     </div>
                     <p className="text-[9px] text-slate-300 mt-4">依据《互联网诊疗监管细则》，您拥有完全的自主选择权</p>

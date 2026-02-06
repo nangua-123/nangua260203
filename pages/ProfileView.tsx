@@ -6,6 +6,7 @@ import { useApp } from '../context/AppContext';
 import { useRole } from '../hooks/useRole';
 import { FamilyManagedModal } from '../components/FamilyManagedModal';
 import { RoleManager } from '../components/RoleManager'; // [NEW]
+import { useToast } from '../context/ToastContext';
 
 interface ProfileViewProps {
     user: User;
@@ -18,15 +19,34 @@ interface ProfileViewProps {
 export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNavigate, onClearCache, onToggleElderly }) => {
     const { dispatch } = useApp();
     const { isPatient, isFamily, isDoctor, checkPermission } = useRole();
+    const { showToast } = useToast();
     const [showQR, setShowQR] = useState(false);
     const [showRoleManager, setShowRoleManager] = useState(false); // [NEW]
 
     // AD 患者判定
     const isADPatient = user.isElderlyMode || user.headacheProfile?.diagnosisType?.includes('AD') || false;
 
+    // 当前是否在查看关联患者视角
+    const isViewingPatient = user.associatedPatientId && user.currentProfileId === user.associatedPatientId;
+
     const handleLogout = () => {
         if (window.confirm('确定要退出登录吗？')) {
             dispatch({ type: 'LOGOUT' });
+        }
+    };
+
+    const handleSwitchContext = () => {
+        if (!user.associatedPatientId) return;
+        
+        if (isViewingPatient) {
+            // 切回自己
+            dispatch({ type: 'SWITCH_PATIENT', payload: user.id });
+            showToast('已切回个人视图', 'success');
+        } else {
+            // 切到患者
+            dispatch({ type: 'SWITCH_PATIENT', payload: user.associatedPatientId });
+            showToast('已切换至患者代管视图', 'success');
+            setTimeout(() => onNavigate('home'), 500); // 自动跳转到首页查看数据
         }
     };
 
@@ -72,13 +92,26 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNav
                         </div>
                     </div>
 
-                    {/* 家属代管状态提示 */}
+                    {/* 家属代管状态提示 - Clickable to Switch */}
                     {isFamily && user.associatedPatientId && (
-                        <div className="mt-6 bg-white/10 border border-white/20 rounded-xl p-3 flex items-center gap-3 backdrop-blur-md shadow-inner">
-                            <span className="text-2xl drop-shadow-sm">🔗</span>
-                            <div>
-                                <div className="text-xs font-bold text-orange-100 opacity-80">已关联患者</div>
-                                <div className="text-sm font-black text-white">陈建国 (ID: 8829)</div>
+                        <div 
+                            onClick={handleSwitchContext}
+                            className={`mt-6 border rounded-xl p-3 flex items-center gap-3 backdrop-blur-md shadow-inner cursor-pointer active:scale-95 transition-all ${isViewingPatient ? 'bg-emerald-500/30 border-emerald-200/50 ring-2 ring-emerald-400/50' : 'bg-white/10 border-white/20'}`}
+                        >
+                            <span className="text-2xl drop-shadow-sm">{isViewingPatient ? '👀' : '🔗'}</span>
+                            <div className="flex-1">
+                                <div className="flex justify-between items-center">
+                                    <div className="text-xs font-bold text-orange-100 opacity-80">
+                                        {isViewingPatient ? '当前正在查看' : '已关联患者'}
+                                    </div>
+                                    <span className="text-[9px] bg-white/20 px-2 py-0.5 rounded text-white font-bold">
+                                        {isViewingPatient ? '点击切回' : '点击切换视角'}
+                                    </span>
+                                </div>
+                                <div className="text-sm font-black text-white flex items-center gap-2">
+                                    陈建国 (ID: {user.associatedPatientId.split('_')[1] || '8829'})
+                                    {isViewingPatient && <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>}
+                                </div>
                             </div>
                         </div>
                     )}

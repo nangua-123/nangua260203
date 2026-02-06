@@ -8,13 +8,13 @@
  * 目前采用“规则引擎 + 状态机”混合模式，未来可无缝替换为真实 Gemini API。
  */
 
-import { ChatMessage, HeadacheProfile, EpilepsyProfile, CognitiveProfile, DiseaseType } from "../types";
+import { ChatMessage, HeadacheProfile, EpilepsyProfile, CognitiveProfile, DiseaseType, MedicalRecord } from "../types";
 
 // --- Types & Interfaces ---
 
 interface MockChatSession {
   step: number;        // 当前问诊节点
-  totalSteps: number;  // 动态总节点数，根据病种路径调整
+  totalSteps: number;  // 动态总节点数，根据病种调整
   diseaseType: DiseaseType; // 当前识别出的病种路径
   history: string[];   // 会话上下文快照
   estimatedRisk: number; // [NEW] 实时动态风险评分
@@ -231,4 +231,29 @@ export const generateCognitiveAssessment = async (score: number, accuracy: numbe
         else { rating = 'C'; advice = '存在注意力分散迹象。'; }
     }
     return { rating, advice };
+};
+
+/**
+ * [NEW] 医疗影像 OCR 结构化处理 (Gemini Vision 模拟)
+ * @param file 上传的图片文件
+ * @returns 结构化病历数据
+ */
+export const processMedicalImage = async (file: File): Promise<MedicalRecord> => {
+    // Simulate API latency
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // 这里在真实场景中会调用 ai.models.generateContent 传入 imagePart
+    
+    // Mock Response
+    return {
+        id: `rec_${Date.now()}`,
+        date: new Date().toISOString().split('T')[0],
+        hospital: '四川大学华西医院 (AI识别)',
+        diagnosis: '无先兆偏头痛 (MIdAS Grade IV)',
+        indicators: [
+            { name: 'VAS', value: Math.floor(Math.random() * 4 + 6), trend: 'up' }, // Random 6-10
+            { name: '发作频率', value: '4次/月', trend: 'flat' }
+        ],
+        rawImageUrl: URL.createObjectURL(file) 
+    };
 };

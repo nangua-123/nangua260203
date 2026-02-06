@@ -6,7 +6,7 @@
  */
 
 import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
-import { User, UserRole, FeatureKey, DiseaseType, ReferralData, HeadacheProfile, IoTStats, CognitiveStats, FamilyMember, SharingScope, PrivacySettings, DoctorAssistantProof, MedLog, MedicalRecord, CognitiveTrainingRecord } from '../types';
+import { User, UserRole, FeatureKey, DiseaseType, ReferralData, HeadacheProfile, IoTStats, CognitiveStats, FamilyMember, SharingScope, PrivacySettings, DoctorAssistantProof, MedLog, MedicalRecord, CognitiveTrainingRecord, HealthTrendItem } from '../types';
 
 // --- Security Utils (Simulated) ---
 const maskName = (name: string) => name ? name[0] + '*'.repeat(name.length - 1) : '';
@@ -28,6 +28,25 @@ interface AppState {
 }
 
 // --- Initial State ---
+const INITIAL_COGNITIVE_STATS: CognitiveStats = {
+    totalSessions: 0,
+    todaySessions: 0,
+    todayDuration: 0,
+    totalDuration: 0,
+    lastScore: 0,
+    aiRating: '-',
+    lastUpdated: 0,
+    trainingHistory: [],
+    // [NEW] Radar Init
+    dimensionStats: {
+        memory: 60,
+        attention: 60,
+        reaction: 60,
+        stability: 60,
+        flexibility: 60
+    }
+};
+
 const INITIAL_STATE: AppState = {
   isLoggedIn: false, 
   user: {
@@ -47,8 +66,9 @@ const INITIAL_STATE: AppState = {
         lastUpdated: Date.now()
     },
     iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, isFallDetected: false, isSoundTriggered: false, lastUpdated: 0 },
-    cognitiveStats: { totalSessions: 0, todaySessions: 0, todayDuration: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0, trainingHistory: [] },
+    cognitiveStats: INITIAL_COGNITIVE_STATS,
     medicationLogs: [],
+    healthTrends: [], // [NEW]
     familyMembers: [],
     currentProfileId: 'guest' 
   },
@@ -80,7 +100,7 @@ type Action =
   | { type: 'SWITCH_PATIENT'; payload: string }
   | { type: 'UPDATE_IOT_STATS'; payload: { id: string; stats: IoTStats } }
   | { type: 'UPDATE_COGNITIVE_STATS'; payload: { id: string; stats: Partial<CognitiveStats> } }
-  | { type: 'SYNC_TRAINING_DATA'; payload: { id: string; record: CognitiveTrainingRecord } } // [NEW] Train_Data_Sync
+  | { type: 'SYNC_TRAINING_DATA'; payload: { id: string; record: CognitiveTrainingRecord } } 
   | { type: 'TOGGLE_ELDERLY_MODE' }
   | { type: 'ADD_FAMILY_MEMBER'; payload: { name: string; relation: string; avatar: string; isElderly?: boolean } }
   | { type: 'EDIT_FAMILY_MEMBER'; payload: { id: string; updates: Partial<FamilyMember> } }
@@ -153,7 +173,7 @@ const appReducer = (state: AppState, action: Action): AppState => {
                         avatar: '👴',
                         isElderly: true,
                         iotStats: { hr: 75, bpSys: 120, bpDia: 80, spo2: 98, isAbnormal: false, isFallDetected: false, isSoundTriggered: false, lastUpdated: Date.now() },
-                        cognitiveStats: { totalSessions: 0, todaySessions: 0, todayDuration: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0, trainingHistory: [] }
+                        cognitiveStats: INITIAL_COGNITIVE_STATS
                     }
                 ]
             }
@@ -209,6 +229,15 @@ const appReducer = (state: AppState, action: Action): AppState => {
 
     case 'ADD_MEDICAL_RECORD': {
         const { profileId, record } = action.payload;
+        
+        // [OCR Linkage] Sync to global healthTrends
+        const newTrendItem: HealthTrendItem = {
+            date: record.date,
+            score: typeof record.indicators[0]?.value === 'number' ? record.indicators[0].value as number : 0,
+            label: record.diagnosis
+        };
+        const updatedTrends = [...(state.user.healthTrends || []), newTrendItem];
+
         const updateProfileWithRecord = (profile: HeadacheProfile | undefined) => {
             const currentProfile = profile || { 
                 isComplete: false, source: 'USER_INPUT', onsetAge: 0, frequency: '', 
@@ -226,13 +255,20 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 ...state,
                 user: {
                     ...state.user,
-                    headacheProfile: updateProfileWithRecord(state.user.headacheProfile)
+                    headacheProfile: updateProfileWithRecord(state.user.headacheProfile),
+                    healthTrends: updatedTrends
                 }
             };
         }
         const updatedFamily = state.user.familyMembers?.map(m => 
             m.id === profileId ? { ...m, headacheProfile: updateProfileWithRecord(m.headacheProfile) } : m
         ) || [];
+        
+        // Note: Currently healthTrends on User is global for the main user context. 
+        // If we want per-family trends, we'd need to add healthTrends to FamilyMember too. 
+        // For this demo requirement "push to state.user.healthTrends", we stick to root user updates or assume context switch.
+        // If profileId matches current logged in user, we update global trends.
+        
         return { ...state, user: { ...state.user, familyMembers: updatedFamily } };
     }
 
@@ -250,13 +286,39 @@ const appReducer = (state: AppState, action: Action): AppState => {
         return { ...state, user: { ...state.user, familyMembers: updatedFamily } };
     }
 
-    // [NEW] 训练数据同步至全病程档案
     case 'SYNC_TRAINING_DATA': {
         const { id, record } = action.payload;
         
         const appendRecord = (stats: CognitiveStats | undefined): CognitiveStats => {
-            const current = stats || { totalSessions: 0, todaySessions: 0, todayDuration: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0, trainingHistory: [] };
+            const current = stats || INITIAL_COGNITIVE_STATS;
             const history = current.trainingHistory || [];
+            
+            // [Radar Logic] 动态更新雷达图维度数据
+            // 基于本次训练的精细化指标 (reactionTimeAvg, stabilityIndex) 影响雷达图
+            const prevDims = current.dimensionStats || { memory: 60, attention: 60, reaction: 60, stability: 60, flexibility: 60 };
+            const newDims = { ...prevDims };
+
+            // 1. 更新反应速度 (Based on reactionTimeAvg: lower is better)
+            // Baseline ~800ms = 60pts. <400ms = 95pts.
+            const reactionScore = Math.max(40, Math.min(95, 100 - (record.reactionTimeAvg - 300) / 10));
+            newDims.reaction = Math.floor((prevDims.reaction * 0.7) + (reactionScore * 0.3));
+
+            // 2. 更新稳定性 (Direct mapping)
+            newDims.stability = Math.floor((prevDims.stability * 0.7) + (record.stabilityIndex * 0.3));
+
+            // 3. 更新主维度 (Memory or Attention)
+            if (record.gameType === 'memory') {
+                newDims.memory = Math.floor((prevDims.memory * 0.7) + (record.score * 0.3));
+            } else {
+                newDims.attention = Math.floor((prevDims.attention * 0.7) + (record.score * 0.3));
+            }
+
+            // 4. 更新灵活性 (Based on accuracy & difficulty)
+            // High accuracy at high difficulty = high flexibility
+            const diffBonus = (record.difficultyLevel || 1) * 5;
+            const flexScore = (record.accuracy * 0.8) + diffBonus;
+            newDims.flexibility = Math.floor((prevDims.flexibility * 0.8) + (flexScore * 0.2));
+
             return {
                 ...current,
                 lastScore: record.score,
@@ -264,7 +326,8 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 todaySessions: current.todaySessions + 1,
                 todayDuration: current.todayDuration + Math.ceil(record.durationSeconds / 60),
                 totalDuration: current.totalDuration + record.durationSeconds,
-                trainingHistory: [...history, record], // Append JSON record
+                dimensionStats: newDims,
+                trainingHistory: [...history, record], 
                 lastUpdated: Date.now()
             };
         };
@@ -284,7 +347,7 @@ const appReducer = (state: AppState, action: Action): AppState => {
     case 'UPDATE_COGNITIVE_STATS': {
         const { id, stats } = action.payload;
         const mergeStats = (prev: CognitiveStats | undefined, incoming: Partial<CognitiveStats>): CognitiveStats => {
-            const base = prev || { totalSessions: 0, todaySessions: 0, todayDuration: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0, trainingHistory: [] };
+            const base = prev || INITIAL_COGNITIVE_STATS;
             return { ...base, ...incoming, lastUpdated: Date.now() };
         };
 
@@ -318,7 +381,7 @@ const appReducer = (state: AppState, action: Action): AppState => {
             avatar: action.payload.avatar,
             isElderly: action.payload.isElderly || false,
             iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, isFallDetected: false, isSoundTriggered: false, lastUpdated: 0 },
-            cognitiveStats: { totalSessions: 0, todaySessions: 0, todayDuration: 0, totalDuration: 0, lastScore: 0, aiRating: '-', lastUpdated: 0, trainingHistory: [] }
+            cognitiveStats: INITIAL_COGNITIVE_STATS
         };
         return {
             ...state,

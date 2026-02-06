@@ -1,9 +1,10 @@
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { RiskLevel, DiseaseType } from '../types';
 import Layout from '../components/common/Layout';
 import Button from '../components/common/Button';
-import { useToast } from '../context/ToastContext'; // [NEW]
+import { useToast } from '../context/ToastContext';
+import { useApp } from '../context/AppContext';
 
 // Declare Chart.js type for TypeScript
 declare const Chart: any;
@@ -152,9 +153,12 @@ const HealthTipsSwiper: React.FC<{ diseaseType: DiseaseType }> = ({ diseaseType 
 };
 
 const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHome, onIntervention }) => {
+  const { state } = useApp();
+  const { mohAlertTriggered, lastDiagnosis, user } = state;
   const [risk, setRisk] = useState<RiskLevel>(RiskLevel.LOW);
   const [reportTitle, setReportTitle] = useState("");
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<any>(null);
@@ -162,12 +166,33 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
   // 0分代表未测评/基础模式 -> 低风险处理
   const actualScore = score || 5; 
 
+  // [GATEWAY] 判定条件：Risk > 75 OR MOH_Alert
+  const isGreenChannel = actualScore > 75 || mohAlertTriggered;
+
+  // [GATEWAY] 生成转诊码 (Encrypted Stub)
+  const referralCode = useMemo(() => {
+      if (!isGreenChannel) return '';
+      // 模拟加密：[HX]-[Desensitized ID]-[Disease]-[Timestamp]-[Hash]
+      const pid = user.id.slice(-6).toUpperCase();
+      const typeCode = diseaseType === DiseaseType.MIGRAINE ? 'MIG' : diseaseType === DiseaseType.EPILEPSY ? 'EPI' : 'COG';
+      const reasonCode = mohAlertTriggered ? 'MOH' : 'RSK';
+      return `HX-${pid}-${typeCode}-${reasonCode}-${Date.now().toString().slice(-4)}`;
+  }, [isGreenChannel, user.id, diseaseType, mohAlertTriggered]);
+
+  // 获取推荐医疗机构信息 (Fallback to Default if not in state)
+  const activeReferral = lastDiagnosis?.referral || {
+      hospitalName: '四川大学华西医院 (本部)',
+      distance: '2.3km',
+      address: '成都市武侯区国学巷37号'
+  };
+
   useEffect(() => {
     // 风险分级逻辑
     if (actualScore >= 60) {
         setRisk(RiskLevel.HIGH);
         setReportTitle("高风险 · 需就医");
         // PRD Req: "重症...强制弹窗'紧急就诊提醒'（仅医疗预警，无商业引导）"
+        // 仅在首次加载且未处理过 MOH 时弹窗，避免干扰
         setTimeout(() => setShowEmergencyModal(true), 800);
     } else if (actualScore >= 30) {
         setRisk(RiskLevel.MODERATE);
@@ -177,35 +202,46 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
         setReportTitle("低风险 · 正常");
     }
 
-    // Chart.js 渲染
+    // Chart.js 渲染 - [UPDATE] Use global healthTrends state
     if (canvasRef.current && typeof Chart !== 'undefined') {
         if (chartInstance.current) chartInstance.current.destroy();
         const ctx = canvasRef.current.getContext('2d');
         const color = actualScore >= 60 ? '#EF4444' : (actualScore >= 30 ? '#F59E0B' : '#10B981');
         
+        // Prepare data from OCR trends or fallback
+        const trends = state.user.healthTrends || [];
+        // Fallback dummy data if no OCR records
+        const labels = trends.length > 0 ? trends.map(t => t.date) : ['T-6', 'T-5', 'T-4', 'T-3', 'T-2', 'T-1', 'Today'];
+        const data = trends.length > 0 ? trends.map(t => t.score) : [30, 35, 40, 38, 45, 50, actualScore];
+
         chartInstance.current = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: ['T-6', 'T-5', 'T-4', 'T-3', 'T-2', 'T-1', 'Today'],
+                labels: labels,
                 datasets: [{
-                    label: 'Risk',
-                    data: [30, 35, 40, 38, 45, 50, actualScore],
+                    label: 'Risk/VAS',
+                    data: data,
                     borderColor: color,
                     borderWidth: 3,
                     tension: 0.4,
-                    pointRadius: 0
+                    pointRadius: 4, // Show points for real data
+                    pointBackgroundColor: '#fff',
+                    pointBorderColor: color
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: { legend: { display: false } },
-                scales: { x: { display: false }, y: { display: false } }
+                scales: { 
+                    x: { display: trends.length > 0, grid: { display: false }, ticks: { font: { size: 8 } } }, 
+                    y: { display: trends.length > 0, beginAtZero: true } 
+                }
             }
         });
     }
     return () => { if (chartInstance.current) chartInstance.current.destroy(); };
-  }, [actualScore]);
+  }, [actualScore, state.user.healthTrends]);
 
   // 根据风险等级配置样式
   const getTheme = () => {
@@ -220,7 +256,7 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
       <div className="min-h-screen bg-slate-50 pb-8">
         
         {/* 1. 风险仪表盘 (Header) - 颜色对标：红黄绿 */}
-        <div className={`${theme.bg} pt-12 pb-20 px-6 rounded-b-[40px] text-center shadow-lg transition-colors duration-500`}>
+        <div className={`${theme.bg} pt-12 pb-24 px-6 rounded-b-[40px] text-center shadow-lg transition-colors duration-500`}>
             <div className="text-[10px] text-white/80 font-black uppercase tracking-[0.2em] mb-2">CLINICAL RISK ASSESSMENT</div>
             <h2 className="text-3xl font-black text-white mb-2">{reportTitle}</h2>
             <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur px-4 py-1.5 rounded-full">
@@ -229,67 +265,88 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
             </div>
         </div>
 
-        <div className="px-5 -mt-14 relative z-10 space-y-5 animate-slide-up">
+        <div className="px-5 -mt-20 relative z-10 space-y-5 animate-slide-up">
             
-            {/* 2. 重症路径：就医凭证 & 协作医院 (PRD Req: "含深度测评报告、线上病史的就医二维码") */}
-            {risk === RiskLevel.HIGH && (
-                <>
-                    <div className="bg-white rounded-[24px] p-6 shadow-xl border-t-4 border-rose-500 text-center relative overflow-hidden">
-                        <div className="absolute top-2 right-2 text-[9px] bg-rose-100 text-rose-600 px-2 py-0.5 rounded font-bold">点击保存/打印</div>
-                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Offline Medical Pass</div>
-                        <div className="w-48 h-48 bg-slate-900 mx-auto rounded-xl p-3 flex items-center justify-center mb-4 shadow-lg">
-                            {/* 模拟二维码 */}
-                            <div className="w-full h-full bg-white rounded flex items-center justify-center text-slate-900 font-mono text-xs break-all px-2 bg-[url('https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=HuaxiMedicalPass')] bg-contain bg-no-repeat bg-center">
+            {/* [GATEWAY UI] 华西绿色通道卡片 (Forced Render at Top) */}
+            {isGreenChannel && (
+                <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-[24px] p-[2px] shadow-xl shadow-emerald-500/20 mb-2">
+                    <div className="bg-white rounded-[22px] p-5 relative overflow-hidden">
+                        {/* Decorative background */}
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50 rounded-full blur-2xl -translate-y-8 translate-x-8 opacity-60"></div>
+                        
+                        <div className="flex justify-between items-start relative z-10 mb-4">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-xl shadow-sm border border-emerald-200">
+                                    🏥
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                                        华西绿色通道已开启
+                                        <span className="animate-pulse w-2 h-2 bg-red-500 rounded-full"></span>
+                                    </h3>
+                                    <p className="text-[10px] text-emerald-600 font-bold mt-0.5">
+                                        {mohAlertTriggered ? '检测到药物过度使用风险' : '重症风险触发优先接诊'}
+                                    </p>
+                                </div>
+                            </div>
+                            <span className="bg-emerald-100 text-emerald-700 text-[9px] px-2 py-1 rounded-full font-bold border border-emerald-200">
+                                {activeReferral.distance}
+                            </span>
+                        </div>
+
+                        <div className="bg-slate-50 rounded-xl p-3 mb-4 border border-slate-100/80">
+                            <div className="flex justify-between text-[10px] text-slate-500 mb-1.5 border-b border-slate-200 pb-1.5">
+                                <span>推荐机构</span>
+                                <span className="font-bold text-slate-800">{activeReferral.hospitalName}</span>
+                            </div>
+                            <div className="flex justify-between text-[10px] text-slate-500">
+                                <span>推荐科室</span>
+                                <span className="font-bold text-slate-800">
+                                    {diseaseType === DiseaseType.EPILEPSY ? '神经外科功能组' : diseaseType === DiseaseType.MIGRAINE ? '头痛专科门诊' : '神经内科'}
+                                </span>
                             </div>
                         </div>
-                        <div className="text-sm font-black text-slate-800">线下就诊绿色通道凭证</div>
-                        <p className="text-[10px] text-slate-500 mt-1 mb-4">已包含您的深度测评报告及 AI 病史摘要</p>
-                    </div>
 
-                    {/* PRD Req: "LBS 算法自动匹配协作医院... 全免费" */}
-                    <div className="bg-white rounded-[24px] p-5 shadow-sm border border-slate-50">
-                        <h4 className="font-black text-slate-800 text-sm mb-3 flex items-center gap-2">
-                            <span>🏥</span> 推荐协作医院 (LBS 匹配)
-                        </h4>
-                        <div className="p-3 bg-slate-50 rounded-xl mb-3">
-                            <div className="font-bold text-xs text-slate-800">四川大学华西医院 (本部)</div>
-                            <div className="text-[10px] text-slate-500 mt-1">距离 2.3km · 神经内科 · 专家号源充足</div>
-                            <div className="mt-2 flex gap-2">
-                                <span className="text-[9px] border border-slate-200 px-1 rounded text-slate-400">三甲</span>
-                                <span className="text-[9px] border border-slate-200 px-1 rounded text-slate-400">医保定点</span>
+                        {/* QR Code Action */}
+                        <div 
+                            onClick={() => setShowQRModal(true)}
+                            className="flex items-center gap-3 bg-slate-900 text-white p-3 rounded-xl cursor-pointer active:scale-95 transition-transform shadow-lg"
+                        >
+                            <div className="w-8 h-8 bg-white rounded p-0.5 flex-shrink-0">
+                                 {/* Micro QR Visual */}
+                                 <div className="w-full h-full border border-slate-200 grid grid-cols-4 gap-[1px] bg-slate-50">
+                                     {[...Array(16)].map((_,i) => <div key={i} className={`bg-slate-900 ${i%2===0?'opacity-100':'opacity-20'}`}></div>)}
+                                 </div> 
                             </div>
-                        </div>
-                        <div className="p-3 bg-slate-50 rounded-xl">
-                            <div className="font-bold text-xs text-slate-800">成都市第三人民医院</div>
-                            <div className="text-[10px] text-slate-500 mt-1">距离 4.1km · 脑血管病中心</div>
+                            <div className="flex-1 overflow-hidden">
+                                <div className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">TAP TO SHOW QR CODE</div>
+                                <div className="text-[10px] font-mono font-bold truncate text-emerald-400">
+                                    {referralCode}
+                                </div>
+                            </div>
+                            <span className="text-lg text-slate-500">›</span>
                         </div>
                     </div>
-
-                    {/* PRD Req: "就诊前准备清单" & "针对性检查建议清单" */}
-                    <div className="bg-rose-50 rounded-[24px] p-5 border border-rose-100">
-                        <h4 className="font-black text-rose-800 text-sm mb-2">📋 就诊前准备清单</h4>
-                        <ul className="text-[11px] text-rose-700 space-y-2 list-disc list-inside mb-4">
-                            <li>携带身份证 / 医保卡原件</li>
-                            <li>携带既往 CT/MRI 胶片及报告</li>
-                            <li>记录近 3 天发作频率 (可导出 App 记录)</li>
-                            <li>建议家属陪同就诊</li>
-                        </ul>
-                        <div className="h-px bg-rose-200 w-full mb-3"></div>
-                        <h4 className="font-black text-rose-800 text-sm mb-2">💊 建议检查项目 (仅供参考)</h4>
-                        <ul className="text-[11px] text-rose-700 space-y-1 list-none">
-                            <li className="flex items-center gap-2">
-                                <span className="w-1 h-1 bg-rose-400 rounded-full"></span> 3.0T 头颅 MRI 平扫
-                            </li>
-                            <li className="flex items-center gap-2">
-                                <span className="w-1 h-1 bg-rose-400 rounded-full"></span> 长程视频脑电图 (24h)
-                            </li>
-                        </ul>
-                    </div>
-                </>
+                </div>
             )}
 
+            {/* [NEW] Trend Chart Card */}
+            <div className="bg-white rounded-[24px] p-5 shadow-xl shadow-brand-500/10 border border-slate-50">
+                <div className="flex justify-between items-center mb-4">
+                    <h4 className="text-[12px] font-black text-slate-800 flex items-center gap-2">
+                        <span>📈</span> 综合风险趋势 (OCR 联动)
+                    </h4>
+                    {state.user.healthTrends && state.user.healthTrends.length > 0 && (
+                        <span className="text-[9px] bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded font-bold">已同步检查单数据</span>
+                    )}
+                </div>
+                <div className="h-40 w-full">
+                    <canvas ref={canvasRef}></canvas>
+                </div>
+            </div>
+
             {/* 3. 轻症路径：健康科普 & 基础干预 (PRD Req: "享受线上全免费功能... 推送个性化健康科普") */}
-            {risk !== RiskLevel.HIGH && (
+            {risk !== RiskLevel.HIGH && !isGreenChannel && (
                 <>
                     {/* 基础免费功能入口 */}
                     <div className="bg-white rounded-[24px] p-5 shadow-sm border border-slate-50 flex flex-col items-center text-center">
@@ -334,6 +391,37 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
                         </Button>
                         <p className="text-[9px] text-slate-400">本提醒仅为医疗预警，不包含任何商业推广</p>
                     </div>
+                </div>
+            </div>
+        )}
+
+        {/* [NEW] QR Modal for Green Channel */}
+        {showQRModal && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/95 backdrop-blur-md animate-fade-in" onClick={() => setShowQRModal(false)}>
+                <div className="bg-white w-full max-w-sm rounded-[32px] p-8 text-center shadow-2xl relative">
+                    <div className="mb-6">
+                        <h3 className="text-xl font-black text-slate-900">华西转诊通行证</h3>
+                        <p className="text-xs text-slate-500 mt-1">请向分诊台护士出示</p>
+                    </div>
+                    
+                    <div className="bg-slate-50 p-4 rounded-2xl border-4 border-slate-900 mx-auto w-64 h-64 flex items-center justify-center mb-6">
+                        {/* Simulation of a complex QR */}
+                        <div className="grid grid-cols-8 gap-1 w-full h-full opacity-80">
+                             {[...Array(64)].map((_,i) => (
+                                 <div key={i} className={`rounded-[1px] ${Math.random() > 0.5 ? 'bg-slate-900' : 'bg-transparent'}`}></div>
+                             ))}
+                        </div>
+                    </div>
+
+                    <div className="bg-slate-50 rounded-xl p-3 mb-6">
+                        <p className="text-[10px] text-slate-400 font-mono uppercase tracking-widest break-all">
+                            {referralCode}
+                        </p>
+                    </div>
+
+                    <Button fullWidth onClick={() => setShowQRModal(false)} className="bg-slate-900 text-white">
+                        关闭
+                    </Button>
                 </div>
             </div>
         )}

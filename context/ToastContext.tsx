@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 
 type ToastType = 'success' | 'error' | 'info';
 
@@ -17,9 +17,13 @@ const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
 // 独立的 Toast 组件，负责生命周期和动画渲染
 const ToastItem: React.FC<{ msg: ToastMessage; onRemove: () => void }> = ({ msg, onRemove }) => {
-    // 动态注入 Keyframes 样式，确保动画行为精确符合 2.7s (0.3s fade-in + 2.1s stay + 0.3s fade-out)
+    // [Mandatory Constraint] Success feedback must persist for exactly 3000ms
+    // Error/Info can use slightly shorter duration (e.g. 2.5s) for snappy feel
+    const durationSec = msg.type === 'success' ? 3.0 : 2.5;
+
+    // 动态注入 Keyframes 样式，确保动画行为精确符合 duration
     const animationStyle: React.CSSProperties = {
-        animation: 'toastLifecycle 2.7s cubic-bezier(0.4, 0, 0.2, 1) forwards',
+        animation: `toastLifecycle ${durationSec}s cubic-bezier(0.4, 0, 0.2, 1) forwards`,
     };
 
     const iconMap = {
@@ -34,7 +38,7 @@ const ToastItem: React.FC<{ msg: ToastMessage; onRemove: () => void }> = ({ msg,
                 @keyframes toastLifecycle {
                     0% { opacity: 0; transform: translate(-50%, 20px) scale(0.95); }
                     10% { opacity: 1; transform: translate(-50%, 0) scale(1); }
-                    88% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+                    90% { opacity: 1; transform: translate(-50%, 0) scale(1); }
                     100% { opacity: 0; transform: translate(-50%, -20px) scale(0.95); }
                 }
             `}</style>
@@ -54,12 +58,12 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
   const showToast = useCallback((text: string, type: ToastType = 'success') => {
-    // 如果已有 Toast，先移除再重新添加，确保动画重置
+    // 强制打断：如果已有 Toast，先移除再重新添加，确保动画重置
     setToast(null);
-    // 使用 setTimeout 确保 React 重新渲染组件以触发动画
+    // 使用 setTimeout 确保 React 重新渲染组件以触发动画 (Tick shift)
     setTimeout(() => {
         setToast({ id: Date.now(), text, type });
-    }, 10);
+    }, 0);
   }, []);
 
   const removeToast = useCallback(() => {

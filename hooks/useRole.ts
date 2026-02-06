@@ -25,8 +25,8 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     [UserRole.FAMILY]: [
         'VIEW_LIMITED_DATA', // 仅查看基础数据
         'RECEIVE_ALERTS',    // 接收预警
-        'MANAGE_FAMILY'      // 切换家庭成员
-        // 无 EDIT_PRESCRIPTION 权限
+        'MANAGE_FAMILY',     // 切换家庭成员
+        'REMOTE_REMINDER'    // [NEW] 远程强制提醒 (安全围栏)
     ],
     [UserRole.DOCTOR_ASSISTANT]: [
         'VIEW_LIMITED_DATA', // 医助也只能看授权数据

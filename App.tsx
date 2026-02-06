@@ -130,6 +130,12 @@ const AppContent: React.FC = () => {
 
   return (
     <div className={`font-sans antialiased text-slate-900 bg-white min-h-screen max-w-[430px] mx-auto shadow-2xl relative overflow-hidden ${state.user.isElderlyMode ? 'text-lg' : ''}`}>
+       {state.user.isElderlyMode && (
+         <style>{`
+           .btn { height: 60px !important; font-size: 1.25rem !important; }
+         `}</style>
+       )}
+       
        {!isOnline && (
           <div className="absolute top-0 left-0 right-0 bg-slate-800 text-white text-[10px] font-bold py-2 text-center z-[9999] animate-slide-up flex items-center justify-center gap-2">
              <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>

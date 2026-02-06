@@ -34,6 +34,7 @@ export type Permission =
   | 'VIEW_LIMITED_DATA'   // 查看受限数据 (家属)
   | 'RECEIVE_ALERTS'      // 接收预警
   | 'SYNC_DATA'           // 同步数据 (医助)
+  | 'REMOTE_REMINDER'     // [NEW] 远程强制提醒 (安全围栏)
   | 'WRITE_FOLLOW_UP';    // 填写随访 (医助)
 
 export enum DiseaseType {
@@ -89,6 +90,12 @@ export interface CognitiveTrainingRecord {
   accuracy: number;    // 正确率 (0-100)
   difficultyLevel?: number; // 达到的难度等级 (记忆广度)
   reactionSpeedMs?: number; // 平均反应速度 (毫秒)
+  isCompleted?: boolean; // [NEW] 是否满足临床有效时长 (20min)
+  
+  // [NEW] Added fields for detailed analysis
+  reactionTimeAvg: number; // 平均反应耗时 (ms)
+  errorPattern: string[];  // 错误类型分布 (Tags)
+  stabilityIndex: number;  // 稳定性指数 (0-100)
 }
 
 export interface CognitiveStats {
@@ -99,6 +106,16 @@ export interface CognitiveStats {
   lastScore: number;      
   aiRating: string;       
   lastUpdated: number;
+  
+  // [NEW] Added dimension stats for Radar Chart
+  dimensionStats?: {
+      memory: number;
+      attention: number;
+      reaction: number;
+      stability: number;
+      flexibility: number;
+  };
+
   trainingHistory?: CognitiveTrainingRecord[]; // [NEW] 全病程训练记录
 }
 
@@ -181,6 +198,13 @@ export interface MedLog {
   symptoms?: string[]; 
 }
 
+// [NEW] 健康趋势数据点
+export interface HealthTrendItem {
+  date: string;
+  score: number;
+  label: string;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -208,6 +232,9 @@ export interface User {
   
   // [NEW] 用药记录 (用于MOH熔断监测)
   medicationLogs?: MedLog[];
+  
+  // [NEW] 全局健康趋势 (OCR联动)
+  healthTrends?: HealthTrendItem[];
 
   familyMembers?: FamilyMember[];
   currentProfileId?: string; 

@@ -33,18 +33,19 @@ interface DigitalPrescriptionProps {
     diet: number;
     cycle: number;
   };
-  onGuideToNonDrug?: () => void; // [NEW] 导流回调
+  onGuideToNonDrug?: () => void;
+  onMOHViolation?: () => void; // [NEW] Callback for MOH state switch
 }
 
 // 华西医院认证医师白名单
 const AUTHORIZED_DOCTORS = ["王德强 教授", "刘鸣 教授", "周东 教授"];
 
-export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highlight = false, factors, onGuideToNonDrug }) => {
+export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highlight = false, factors, onGuideToNonDrug, onMOHViolation }) => {
   const { state, dispatch } = useApp();
   const { hasFeature, PACKAGES } = usePayment();
   const { showToast } = useToast();
   const [showPayModal, setShowPayModal] = useState(false);
-  const [showMOHModal, setShowMOHModal] = useState(false); // [NEW] MOH 拦截弹窗
+  const [showMOHModal, setShowMOHModal] = useState(false); 
   const [dailyMedsTaken, setDailyMedsTaken] = useState(false);
 
   // 权益校验：是否已购买“偏头痛1元破冰”或“偏头痛VIP”
@@ -100,22 +101,6 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
     }).slice(0, 2); 
   }, [factors]);
 
-  // [NEW] MOH Counter Check Logic
-  const checkMOHViolation = (): { violated: boolean; reason: string } => {
-      const logs = state.user.medicationLogs || [];
-      const now = Date.now();
-      const oneDay = 24 * 60 * 60 * 1000;
-      const sevenDays = 7 * oneDay;
-      
-      const count24h = logs.filter(l => l.timestamp > now - oneDay).length;
-      const count7d = logs.filter(l => l.timestamp > now - sevenDays).length;
-      
-      if (count24h >= 3) return { violated: true, reason: '24小时内用药已超 3 次' };
-      if (count7d >= 10) return { violated: true, reason: '7天内用药已超 10 次' };
-      
-      return { violated: false, reason: '' };
-  };
-
   const executeLogMedication = () => {
       dispatch({
           type: 'LOG_MEDICATION',
@@ -138,11 +123,24 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
   const handleTakeMeds = () => {
       if (!isUnlocked || isInvalid) return;
       
-      // [NEW] Intercept Logic
-      const check = checkMOHViolation();
-      if (check.violated) {
-          setShowMOHModal(true);
-          return;
+      // [Mandatory Logic Update] 强制检索 state.user.medicationLogs 进行 24h 频次校验
+      const logs = state.user.medicationLogs || [];
+      const now = Date.now();
+      const oneDay = 24 * 60 * 60 * 1000;
+      
+      // Filter logs within last 24 hours
+      const count24h = logs.filter(l => l.timestamp > now - oneDay).length;
+      
+      // Assertion: If logs >= 3 in 24h, intercept submission
+      if (count24h >= 3) {
+          // Execution: Direct return and trigger view mode switch
+          if (onMOHViolation) {
+              onMOHViolation();
+          } else {
+              // Fallback (Legacy)
+              setShowMOHModal(true);
+          }
+          return; // Stop submission process
       }
 
       executeLogMedication();
@@ -320,7 +318,7 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
             )}
         </div>
 
-        {/* [NEW] MOH Interceptor Modal (Mandatory Warning) */}
+        {/* [NEW] MOH Interceptor Modal - Keeping for non-blocking scenarios or as fallback, but main logic now triggers view switch */}
         {showMOHModal && (
             <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-md animate-shake">
                 <div className="bg-white w-full max-w-sm rounded-[32px] p-6 text-center shadow-2xl border-4 border-orange-500 relative overflow-hidden">
@@ -336,7 +334,7 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
                     
                     <div className="bg-orange-50 p-4 rounded-2xl mb-6 border border-orange-100">
                         <p className="text-xs text-orange-800 font-bold mb-1">
-                            {checkMOHViolation().reason}
+                            24小时内用药已超 3 次
                         </p>
                         <p className="text-[10px] text-slate-600 leading-relaxed text-justify">
                             频繁使用止痛药可能诱发<strong className="text-orange-700">药物过度使用性头痛 (MOH)</strong>，导致头痛慢性化。
