@@ -1,4 +1,3 @@
-
 /**
  * @file HomeView.tsx
  * @description 应用首页 (Dashboard)
@@ -221,14 +220,29 @@ const AssistantPatientCard: React.FC<{ patient: FamilyMember; onAction: (p: Fami
     const statusInfo = state.patientStatusMap[patient.id] || { status: 'PENDING', lastUpdated: 0 };
     const myName = state.user.name || '我';
 
-    // 风险计算器 (Risk Logic)
+    // 风险计算器 (Risk Logic) - [UPDATED] With OCR & V4 Logic
     const getRiskLevel = (p: FamilyMember) => {
-        // High Risk: Fall detected OR Med overdose (>=3 logs in 24h)
+        // 1. Check OCR Risk (Headache Profile -> Medical Records -> Indicators)
+        // Check for '智能风险指数' > 80
+        const ocrHighRisk = p.headacheProfile?.medicalRecords?.some(rec => {
+            const riskVal = rec.indicators.find(i => i.name === '智能风险指数')?.value;
+            return typeof riskVal === 'number' && riskVal > 80;
+        });
+        if (ocrHighRisk) return { level: 'CRITICAL', reason: 'OCR风险指数 > 80' };
+
+        // 2. Check V4 Postpartum Hemorrhage (Epilepsy Profile -> FollowUp Schedule)
+        const v4Hemorrhage = p.epilepsyProfile?.followUpSchedule?.some(session => 
+            session.visitId === 'V4' && 
+            session.data?.complications?.includes('HEMORRHAGE')
+        );
+        if (v4Hemorrhage) return { level: 'CRITICAL', reason: 'V4随访: 产后出血' };
+
+        // 3. High Risk: Fall detected OR Med overdose (>=3 logs in 24h)
         const isFall = p.iotStats?.isFallDetected;
         const recentMeds = p.medicationLogs?.filter(l => Date.now() - l.timestamp < 24*60*60*1000).length || 0;
-        if (isFall || recentMeds >= 3) return { level: 'HIGH', reason: isFall ? '跌倒监测触发' : '药物过量风险' };
+        if (isFall || recentMeds >= 3) return { level: 'HIGH', reason: isFall ? '跌倒监测触发' : '药物过量风险 (MOH)' };
         
-        // Medium Risk: Low Duration (<10m) OR Abnormal Heart Rate
+        // 4. Medium Risk
         const duration = p.cognitiveStats?.todayDuration || 0;
         const isHrAbnormal = p.iotStats?.isAbnormal;
         if (duration < 10) return { level: 'MEDIUM', reason: '时长不足' };
@@ -241,6 +255,7 @@ const AssistantPatientCard: React.FC<{ patient: FamilyMember; onAction: (p: Fami
 
     const getTheme = () => {
         switch (level) {
+            case 'CRITICAL': return { border: 'border-purple-500 ring-2 ring-purple-100', bg: 'bg-purple-50', text: 'text-purple-700', icon: '🆘' };
             case 'HIGH': return { border: 'border-red-500 ring-2 ring-red-50', bg: 'bg-red-50', text: 'text-red-600', icon: '🚨' };
             case 'MEDIUM': return { border: 'border-amber-400', bg: 'bg-amber-50', text: 'text-amber-600', icon: '⚠️' };
             default: return { border: 'border-slate-100', bg: 'bg-white', text: 'text-emerald-600', icon: '✅' };
@@ -291,7 +306,7 @@ const AssistantPatientCard: React.FC<{ patient: FamilyMember; onAction: (p: Fami
                     </div>
                 </div>
                 
-                {level === 'HIGH' && !isResolved && (
+                {(level === 'HIGH' || level === 'CRITICAL') && !isResolved && (
                     <button 
                         onClick={() => onAction(patient, 'call')}
                         className="bg-red-600 text-white text-[0.625rem] font-black px-3 py-1.5 rounded-full shadow-lg shadow-red-500/30 animate-bounce"
@@ -302,11 +317,11 @@ const AssistantPatientCard: React.FC<{ patient: FamilyMember; onAction: (p: Fami
             </div>
 
             {/* Clinical Response Panel (One-Click Action List) */}
-            {level === 'HIGH' && !isResolved && (
+            {(level === 'HIGH' || level === 'CRITICAL') && !isResolved && (
                 <div className="bg-white/70 rounded-xl p-2 border border-red-100 grid grid-cols-3 gap-2 mt-1">
                     <button onClick={() => onAction(patient, 'guide')} className="flex flex-col items-center justify-center p-2 rounded-lg bg-red-50 hover:bg-red-100 active:scale-95 transition-all group">
                         <span className="text-lg mb-1 group-hover:scale-110 transition-transform">📖</span>
-                        <span className="text-[0.6rem] font-bold text-red-700">推急救指南</span>
+                        <span className="text-[0.6rem] font-bold text-red-700">推急救/用药建议</span>
                     </button>
                     <button onClick={() => onAction(patient, 'report')} className="flex flex-col items-center justify-center p-2 rounded-lg bg-blue-50 hover:bg-blue-100 active:scale-95 transition-all group">
                         <span className="text-lg mb-1 group-hover:scale-110 transition-transform">👨‍⚕️</span>
@@ -344,7 +359,7 @@ const AssistantPatientCard: React.FC<{ patient: FamilyMember; onAction: (p: Fami
                 >
                     查看档案
                 </Button>
-                {level !== 'HIGH' && !isResolved && (
+                {level !== 'HIGH' && level !== 'CRITICAL' && !isResolved && (
                     <Button 
                         size="sm" 
                         fullWidth 
@@ -426,13 +441,26 @@ const AssistantDashboard: React.FC<{ user: User }> = ({ user }) => {
     // Merge User patients with Mock data if empty
     const patients = (user.familyMembers && user.familyMembers.length > 0) ? user.familyMembers : mockPatients;
 
-    // Sorting Logic: High > Medium > Low
+    // Sorting Logic: CRITICAL > HIGH > MEDIUM > LOW
     const sortedPatients = useMemo(() => {
         const getScore = (p: FamilyMember) => {
+            // 1. Critical Logic (OCR Risk > 80 OR V4 Hemorrhage)
+            const ocrHighRisk = p.headacheProfile?.medicalRecords?.some(rec => {
+                const riskVal = rec.indicators.find(i => i.name === '智能风险指数')?.value;
+                return typeof riskVal === 'number' && riskVal > 80;
+            });
+            const v4Hemorrhage = p.epilepsyProfile?.followUpSchedule?.some(session => 
+                session.visitId === 'V4' && 
+                session.data?.complications?.includes('HEMORRHAGE')
+            );
+            if (ocrHighRisk || v4Hemorrhage) return 4; // CRITICAL
+
+            // 2. High Risk: Fall detected OR Med overdose (>=3 logs in 24h)
             const isFall = p.iotStats?.isFallDetected;
             const recentMeds = p.medicationLogs?.filter(l => Date.now() - l.timestamp < 24*60*60*1000).length || 0;
             if (isFall || recentMeds >= 3) return 3; // HIGH
             
+            // 3. Medium Logic
             const duration = p.cognitiveStats?.todayDuration || 0;
             const isHrAbnormal = p.iotStats?.isAbnormal;
             if (duration < 10 || isHrAbnormal) return 2; // MEDIUM
@@ -459,12 +487,17 @@ const AssistantDashboard: React.FC<{ user: User }> = ({ user }) => {
             showToast(`正在打开 ${p.name} 的完整健康档案...`, 'info');
         } else if (type === 'guide') {
             // Action A: Push Emergency Guide
-            const guideText = p.iotStats?.isFallDetected 
-                ? "【医助急救推送】检测到跌倒风险，请保持原地不动，大声呼救。已为您接通 120 绿色通道。"
-                : "【医助用药干预】检测到频繁用药 (MOH风险)，请立即停止服用止痛药，尝试冷敷头部。";
+            let guideText = "";
+            const isFall = p.iotStats?.isFallDetected;
+            const recentMeds = p.medicationLogs?.filter(l => Date.now() - l.timestamp < 24*60*60*1000).length || 0;
+            const isMOH = recentMeds >= 3;
+
+            if (isFall) guideText = "【医助急救推送】检测到跌倒风险，请保持原地不动，大声呼救。已为您接通 120 绿色通道。";
+            else if (isMOH) guideText = "【医助用药干预】检测到频繁用药 (MOH风险)，请立即停止服用止痛药，尝试冷敷头部。";
+            else guideText = "【医助健康提醒】请关注您的健康状况，如有不适请及时就医。";
             
             dispatch({ type: 'SEND_CLINICAL_MESSAGE', payload: { targetId: p.id, message: guideText } });
-            showToast('已向患者推送急救指南，聊天窗口已同步', 'success');
+            showToast('已向患者推送干预建议，聊天窗口已同步', 'success');
         } else if (type === 'report') {
             // Action C: Report
             showToast('已生成转诊摘要链接: hx.care/ref/8829 (已复制)', 'success');
@@ -492,7 +525,19 @@ const AssistantDashboard: React.FC<{ user: User }> = ({ user }) => {
                         {user.assistantProof?.hospitalName || '华西协作医院'}
                     </span>
                 </div>
-                <p className="text-xs text-slate-500">待处理患者: {patients.length} 人 · <span className="text-red-500 font-bold">高危 {sortedPatients.filter(p => (p.iotStats?.isFallDetected || (p.medicationLogs?.length || 0) >= 3)).length} 人</span></p>
+                {/* [UPDATED] Risk Summary */}
+                <p className="text-xs text-slate-500">
+                    待处理患者: {patients.length} 人 · 
+                    <span className="text-purple-600 font-bold ml-1">重症 {sortedPatients.filter(p => {
+                        const ocrHighRisk = p.headacheProfile?.medicalRecords?.some(rec => {
+                            const val = rec.indicators.find(i => i.name === '智能风险指数')?.value;
+                            return (typeof val === 'number' ? val : 0) > 80;
+                        });
+                        const v4Hemorrhage = p.epilepsyProfile?.followUpSchedule?.some(s => s.visitId === 'V4' && s.data?.complications?.includes('HEMORRHAGE'));
+                        return ocrHighRisk || v4Hemorrhage;
+                    }).length}</span> · 
+                    <span className="text-red-500 font-bold ml-1">高危 {sortedPatients.filter(p => (p.iotStats?.isFallDetected || (p.medicationLogs?.length || 0) >= 3)).length}</span>
+                </p>
             </div>
 
             {/* List */}
@@ -795,7 +840,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
                   <div className="flex justify-between items-start mb-2">
                       <div className="flex items-center gap-2">
                           <span className="text-xl">⚡</span>
-                          <h4 className={`text-slate-800 ${isElderly ? 'text-lg font-black' : 'text-xs font-black'}`}>环境诱因雷达</h4>
+                          <h4 className={`text-slate-800 ${isElderly ? 'text-lg font-black' : 'text-xs font-black'}`}>诱因雷达</h4>
                       </div>
                       <span className="text-[0.5625rem] text-sky-600 bg-sky-100 px-1.5 py-0.5 rounded font-bold">实时</span>
                   </div>

@@ -11,6 +11,9 @@ export enum AuthProvider {
   ALIPAY = 'ALIPAY'
 }
 
+// [NEW] 填表人身份 (用于动态文案替换)
+export type FillerType = 'SELF' | 'FAMILY';
+
 // [NEW] 登录表单状态接口
 export interface LoginFormState {
   phone: string;
@@ -84,13 +87,13 @@ export interface IoTStats {
 // [NEW] HaaS 设备信息
 export interface DeviceInfo {
   deviceId: string;
-  modelName: string; // e.g., "华西 01 号脑电贴"
-  batteryLevel: number; // 0-100
-  rentalExpireDate: number; // timestamp
+  modelName: string;
+  batteryLevel: number;
+  rentalExpireDate: number;
   status: 'ONLINE' | 'OFFLINE' | 'CHARGING';
 }
 
-// [NEW] 认知训练单次记录 (精细化采集)
+// [NEW] 认知训练单次记录 (EMPI 归档结构)
 export interface CognitiveTrainingRecord {
   id: string;
   timestamp: number;
@@ -107,7 +110,6 @@ export interface CognitiveTrainingRecord {
   stabilityIndex: number;  // 稳定性指数 (0-100)
 }
 
-// [NEW] 认知数据统计 (含雷达图维度)
 export interface CognitiveStats {
   totalSessions: number;  
   todaySessions: number;
@@ -163,6 +165,44 @@ export interface SeizureEvent {
   severity?: number; // 1-10
 }
 
+// [NEW] 临床级癫痫及高原研究数据模型 (West China Hospital Standard)
+export interface EpilepsyResearchData {
+    // ... (Reference existing fields, ensuring compatibility)
+    demographics: any;
+    highAltitudeHistory: any;
+    seizureDetails: any;
+    // ...
+}
+
+export interface MedicationDetail {
+    id: string;
+    drugName: string;
+    startDate: string;
+    dosage: {
+        am: number;   // 早上剂量 (mg)
+        noon: number; // 中午剂量 (mg)
+        pm: number;   // 晚上剂量 (mg)
+    };
+    adverseEvents?: string[]; // 不良反应
+    isCurrent: boolean; // 是否当前正在服用
+}
+
+// [NEW] 随访状态定义
+export type FollowUpStatus = 'LOCKED' | 'PENDING' | 'OPEN' | 'COMPLETED' | 'MISSED' | 'DROPPED_OUT';
+
+// [NEW] 随访节点定义
+export interface FollowUpSession {
+    visitId: 'V1' | 'V2' | 'V3' | 'V4' | 'V5';
+    title: string;
+    targetDate: number; // 计划随访日期 (Timestamp)
+    windowStart: number; // 窗口期开始
+    windowEnd: number; // 窗口期结束
+    status: FollowUpStatus;
+    completionDate?: number; // 实际完成日期
+    data?: any; // 随访表单数据快照
+}
+
+// 兼容旧版 Profile 接口，逐步迁移
 export interface EpilepsyProfile {
   isComplete: boolean;
   source: 'AI_GENERATED';
@@ -172,7 +212,13 @@ export interface EpilepsyProfile {
   triggers: string[];  
   consciousness: boolean; 
   lastUpdated: number;
-  seizureHistory?: SeizureEvent[]; // [NEW] 临床级发作日记
+  seizureHistory?: SeizureEvent[];
+  // [NEW] 挂载科研详细数据
+  researchData?: EpilepsyResearchData;
+  // [NEW] 随访基线日期 (V0 完成日)
+  baselineDate?: number;
+  // [NEW] 随访日程表
+  followUpSchedule?: FollowUpSession[];
 }
 
 export interface CognitiveProfile {
@@ -218,7 +264,7 @@ export interface FamilyMember {
 export interface ReviewReport {
     id: string;
     timestamp: number;
-    triggerReason: 'KEYWORD_DETECTED' | 'RESPONSE_TIMEOUT' | 'MANUAL_INTERVENTION'; // [Updated]
+    triggerReason: 'KEYWORD_DETECTED' | 'RESPONSE_TIMEOUT' | 'MANUAL_INTERVENTION';
     riskLevel: 'CRITICAL';
     chatHistorySnapshot: ChatMessage[];
     status: 'PENDING' | 'RESOLVED';
@@ -244,7 +290,7 @@ export interface HealthTrendItem {
 // [NEW] 量表测评草稿 (持久化中间态)
 export interface AssessmentDraft {
     diseaseType: DiseaseType;
-    answers: Record<number, number>;
+    answers: Record<string, any>; // [UPDATED] Relaxed type for complex forms
     currentStep: number;
     lastUpdated: number;
 }
@@ -267,11 +313,12 @@ export interface User {
   // [Modified] 核心角色字段
   role: UserRole; // 当前活跃角色
   availableRoles: UserRole[]; // 该账号已开通的所有角色列表
+  fillerType?: FillerType; // [NEW] 填表人身份：本人或家属代填
 
   vipLevel: number; 
   unlockedFeatures: FeatureKey[]; 
   hasHardware: boolean;
-  deviceInfo?: DeviceInfo; // [NEW] HaaS 硬件信息
+  deviceInfo?: DeviceInfo; // [NEW] HaaS 硬件信息 
   isElderlyMode: boolean; 
   
   privacySettings: PrivacySettings;
@@ -342,3 +389,35 @@ export type AppView =
   | 'service-cognitive' | 'service-epilepsy' | 'service-headache' 
   | 'service-family' | 'service-mall' | 'haas-checkout'
   | 'privacy-settings';
+
+// --- [NEW] Config Engine Types ---
+export interface FormFieldConfig {
+    id: string;
+    type: 'text' | 'number' | 'choice' | 'multiselect' | 'date' | 'group' | 'info';
+    label: string;
+    options?: { label: string; value: any; exclusion?: boolean }[];
+    visibleIf?: Record<string, any>; // Simple equality check: { "gender": "FEMALE" }
+    validation?: {
+        required?: boolean;
+        min?: number;
+        max?: number;
+        regex?: string;
+    };
+    suffix?: string; // e.g. "years", "mg"
+    children?: FormFieldConfig[]; // For nested groups
+    hint?: string;
+}
+
+export interface FormSectionConfig {
+    id: string;
+    title: string;
+    description?: string;
+    fields: FormFieldConfig[];
+}
+
+export interface FormConfig {
+    id: string;
+    title: string;
+    version: string;
+    sections: FormSectionConfig[];
+}

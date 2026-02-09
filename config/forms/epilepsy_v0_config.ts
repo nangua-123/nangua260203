@@ -1,0 +1,162 @@
+
+export const EPILEPSY_V0_CONFIG = {
+  "scaleId": "epilepsy_v0",
+  "title": "华西癫痫患者基线调查表 (V0)",
+  "version": "2.0-Clinical-Research",
+  "sections": [
+    {
+      "id": "env_socio",
+      "title": "一、环境与社会学特征",
+      "fields": [
+        { "id": "subject_initials", "type": "text", "label": "受试者姓名缩写", "validation": { "required": true } },
+        { "id": "id_card_mask", "type": "text", "label": "身份证号 (加密脱敏)", "validation": { "required": true, "regex": "^[0-9X]{18}$" } },
+        { "id": "ethnicity", "type": "choice", "label": "民族", "options": [{ "label": "汉族", "value": 1 }, { "label": "其他", "value": 2 }], "validation": { "required": true } },
+        { "id": "ethnicity_other", "type": "text", "label": "请输入具体民族名称", "visibleIf": { "ethnicity": 2 } },
+        { "id": "monthly_income", "type": "choice", "label": "家庭人均月收入", "options": [{ "label": "<5000元", "value": 1 }, { "label": "≥5000元", "value": 2 }] },
+        
+        { "id": "altitude_info", "type": "group", "label": "高原环境暴露参数" },
+        { "id": "altitude_m", "type": "number", "label": "常住地海拔", "suffix": "米", "validation": { "required": true } },
+        { "id": "barometric_pressure", "type": "number", "label": "当日气压", "suffix": "mmHg" },
+        { "id": "temp_c", "type": "number", "label": "当日温度", "suffix": "℃" },
+        { "id": "altitude_exposure_type", "type": "choice", "label": "高原暴露类型", "options": [{ "label": "首次进入", "value": "first" }, { "label": "多次往返", "value": "multiple" }, { "label": "世居", "value": "native" }] },
+        { "id": "altitude_measures", "type": "multiselect", "label": "防治措施 (多选)", "options": [
+            { "label": "吸氧", "value": "oxygen" },
+            { "label": "乙酰唑胺", "value": "acetazolamide" },
+            { "label": "地塞米松", "value": "dexamethasone" },
+            { "label": "红景天", "value": "rhodiola" },
+            { "label": "丹参", "value": "salvia" },
+            { "label": "黄芪", "value": "astragalus" },
+            { "label": "阶梯式习服", "value": "adaptation" },
+            { "label": "无", "value": "none", "exclusion": true }
+        ]}
+      ]
+    },
+    {
+      "id": "lifestyle",
+      "title": "二、精细生活习惯",
+      "fields": [
+        { "id": "tea_habit", "type": "choice", "label": "饮用浓茶/奶茶习惯", "options": [{ "label": "无", "value": 0 }, { "label": "有", "value": 1 }] },
+        { "id": "tea_frequency", "type": "choice", "label": "饮茶频率", "visibleIf": { "tea_habit": 1 }, "options": [
+            { "label": "每天", "value": 4 },
+            { "label": "≥3次/周", "value": 3 },
+            { "label": "1-2次/周", "value": 2 },
+            { "label": "<1次/周", "value": 1 }
+        ]},
+        { "id": "tea_volume", "type": "choice", "label": "单次饮用量", "visibleIf": { "tea_habit": 1 }, "options": [
+            { "label": "<200ml", "value": 1 },
+            { "label": "200-500ml", "value": 2 },
+            { "label": "500-800ml", "value": 3 },
+            { "label": ">800ml", "value": 4 }
+        ]},
+        { "id": "night_snack_habit", "type": "choice", "label": "入睡前2小时进食习惯", "options": [{ "label": "否", "value": 0 }, { "label": "是", "value": 1 }] },
+        { "id": "night_snack_days", "type": "number", "label": "每周进食天数", "suffix": "天", "visibleIf": { "night_snack_habit": 1 }, "validation": { "min": 1, "max": 7 } },
+        { "id": "night_snack_types", "type": "multiselect", "label": "夜宵种类", "visibleIf": { "night_snack_habit": 1 }, "options": [
+            { "label": "主食(粉/面/饭)", "value": "staple" },
+            { "label": "烧烤/炸串", "value": "bbq" },
+            { "label": "零食/甜点", "value": "snack" },
+            { "label": "饮品/酒水", "value": "drink" }
+        ]}
+      ]
+    },
+    {
+      "id": "epilepsy_history",
+      "title": "三、癫痫专病史 (ILAE 2017)",
+      "fields": [
+        { "id": "onset_age", "type": "number", "label": "首次发作年龄", "suffix": "岁" },
+        { "id": "is_intractable", "type": "choice", "label": "是否难治性癫痫", "hint": "定义：正规使用两种耐受性好的抗癫痫药物（单药或联合），治疗>6个月仍有发作。", "options": [{ "label": "否", "value": 0 }, { "label": "是", "value": 1 }, { "label": "无法判断", "value": 2 }] },
+        { "id": "seizure_type_count", "type": "number", "label": "发病至今发作类型总数", "suffix": "种" },
+        
+        { "id": "seizure_classification", "type": "choice", "label": "主要发作起源分类", "options": [
+            { "label": "局灶起源 (Focal)", "value": "focal" },
+            { "label": "全面起源 (Generalized)", "value": "generalized" },
+            { "label": "未知起源 (Unknown)", "value": "unknown" }
+        ]},
+        
+        { "id": "focal_awareness", "type": "choice", "label": "局灶-知觉状态", "visibleIf": { "seizure_classification": "focal" }, "options": [
+            { "label": "知觉保留 (Aware)", "value": "aware" },
+            { "label": "知觉障碍 (Impaired Awareness)", "value": "impaired" }
+        ]},
+        
+        { "id": "focal_motor_type", "type": "multiselect", "label": "局灶-运动起源特征", "visibleIf": { "seizure_classification": "focal" }, "options": [
+            { "label": "自动症", "value": "automatism" },
+            { "label": "失张力", "value": "atonic" },
+            { "label": "阵挛", "value": "clonic" },
+            { "label": "痉挛", "value": "spasm" },
+            { "label": "过度运动", "value": "hyperkinetic" },
+            { "label": "肌阵挛", "value": "myoclonic" },
+            { "label": "强直", "value": "tonic" },
+            { "label": "无运动特征", "value": "none", "exclusion": true }
+        ]},
+        
+        { "id": "focal_non_motor_type", "type": "multiselect", "label": "局灶-非运动起源特征", "visibleIf": { "seizure_classification": "focal" }, "options": [
+            { "label": "自主神经", "value": "autonomic" },
+            { "label": "行为停止", "value": "behavior_arrest" },
+            { "label": "认知", "value": "cognitive" },
+            { "label": "情绪", "value": "emotional" },
+            { "label": "感觉", "value": "sensory" }
+        ]},
+        
+        { "id": "fbtcs_flag", "type": "choice", "label": "是否演变为双侧强直阵挛 (FBTCS)", "visibleIf": { "seizure_classification": "focal" }, "options": [{ "label": "否", "value": false }, { "label": "是", "value": true }] },
+
+        { "id": "generalized_type", "type": "multiselect", "label": "全面起源特征", "visibleIf": { "seizure_classification": "generalized" }, "options": [
+             { "label": "强直-阵挛", "value": "tonic_clonic" },
+             { "label": "失神", "value": "absence" },
+             { "label": "肌阵挛", "value": "myoclonic" },
+             { "label": "强直", "value": "tonic" },
+             { "label": "失张力", "value": "atonic" }
+        ]}
+      ]
+    },
+    {
+      "id": "medication",
+      "title": "四、药物服用与叶酸",
+      "fields": [
+        { "id": "drug_name", "type": "text", "label": "目前主要抗癫痫药物名称" },
+        { "id": "start_date", "type": "date", "label": "开始服用日期" },
+        { "id": "dosage_calc_info", "type": "info", "label": "请分别填写早中晚剂量，系统将自动计算日总量" },
+        { "id": "morning_mg", "type": "number", "label": "早晨剂量", "suffix": "mg" },
+        { "id": "noon_mg", "type": "number", "label": "中午剂量", "suffix": "mg" },
+        { "id": "night_mg", "type": "number", "label": "晚上剂量", "suffix": "mg" },
+        
+        { "id": "folic_acid_flag", "type": "choice", "label": "是否服用叶酸", "options": [{ "label": "否", "value": 0 }, { "label": "是", "value": 1 }] },
+        { "id": "folic_dosage", "type": "number", "label": "叶酸日剂量", "suffix": "mg", "visibleIf": { "folic_acid_flag": 1 } },
+        { "id": "folic_start", "type": "date", "label": "叶酸开始日期", "visibleIf": { "folic_acid_flag": 1 } },
+        { "id": "folic_interrupted", "type": "choice", "label": "中间是否停用", "visibleIf": { "folic_acid_flag": 1 }, "options": [{ "label": "否", "value": 0 }, { "label": "是", "value": 1 }] },
+        { "id": "folic_stop_days", "type": "number", "label": "累计停用天数", "suffix": "天", "visibleIf": { "folic_interrupted": 1 } }
+      ]
+    },
+    {
+      "id": "mri_exam",
+      "title": "五、影像学检查 (MRI)",
+      "fields": [
+        { "id": "mri_lesion_nature", "type": "multiselect", "label": "MRI 异常病灶性质", "options": [
+            { "label": "软化灶", "value": "softening" },
+            { "label": "海马硬化", "value": "hs" },
+            { "label": "皮质发育不良", "value": "fcd" },
+            { "label": "脑肿瘤", "value": "tumor" },
+            { "label": "灰质异位", "value": "heterotopia" },
+            { "label": "脑血管畸形", "value": "vascular" },
+            { "label": "出血灶", "value": "hemorrhage" },
+            { "label": "瘢痕", "value": "scar" },
+            { "label": "无异常/未做", "value": "none", "exclusion": true }
+        ]}
+      ]
+    },
+    {
+      "id": "epds_scale",
+      "title": "六、爱丁堡产后抑郁量表 (EPDS)",
+      "fields": [
+        { "id": "epds_q1", "type": "choice", "label": "1. 我能看到事物有趣的一面，并笑得开心", "options": [{"label":"同以前一样", "value":0}, {"label":"没有以前那么多", "value":1}, {"label":"肯定比以前少", "value":2}, {"label":"完全不能", "value":3}] },
+        { "id": "epds_q2", "type": "choice", "label": "2. 我欣然期待未来的一切", "options": [{"label":"同以前一样", "value":0}, {"label":"没有以前那么多", "value":1}, {"label":"肯定比以前少", "value":2}, {"label":"完全不能", "value":3}] },
+        { "id": "epds_q3", "type": "choice", "label": "3. 当事情出错时，我会不必要地责备自己", "options": [{"label":"没有这样", "value":0}, {"label":"不经常这样", "value":1}, {"label":"有时候这样", "value":2}, {"label":"大部分时候这样", "value":3}] },
+        { "id": "epds_q4", "type": "choice", "label": "4. 我无缘无故感到焦虑和担心", "options": [{"label":"一点也没有", "value":0}, {"label":"极少有", "value":1}, {"label":"有时候这样", "value":2}, {"label":"经常这样", "value":3}] },
+        { "id": "epds_q5", "type": "choice", "label": "5. 我无缘无故感到害怕和恐慌", "options": [{"label":"一点也没有", "value":0}, {"label":"不经常这样", "value":1}, {"label":"有时候这样", "value":2}, {"label":"相当多时候这样", "value":3}] },
+        { "id": "epds_q6", "type": "choice", "label": "6. 很多事情冲着我过来，使我透不过气", "options": [{"label":"我一直能应付得好", "value":0}, {"label":"大部分时候我都能像平时那样应付得好", "value":1}, {"label":"有时候我不能像平时那样应付得好", "value":2}, {"label":"大多数时候我都不能应付", "value":3}] },
+        { "id": "epds_q7", "type": "choice", "label": "7. 我很不开心，以致失眠", "options": [{"label":"一点也没有", "value":0}, {"label":"不经常这样", "value":1}, {"label":"有时候这样", "value":2}, {"label":"大部分时候这样", "value":3}] },
+        { "id": "epds_q8", "type": "choice", "label": "8. 我感到难过和悲伤", "options": [{"label":"一点也没有", "value":0}, {"label":"不经常这样", "value":1}, {"label":"相当多时候这样", "value":2}, {"label":"大部分时候这样", "value":3}] },
+        { "id": "epds_q9", "type": "choice", "label": "9. 我不开心到哭", "options": [{"label":"没有这样", "value":0}, {"label":"只是偶尔这样", "value":1}, {"label":"有时候这样", "value":2}, {"label":"大部分时候这样", "value":3}] },
+        { "id": "epds_q10", "type": "choice", "label": "10. 我想过要伤害自己", "options": [{"label":"没有这样", "value":0}, {"label":"很少这样", "value":1}, {"label":"有时候这样", "value":2}, {"label":"相当多时候这样", "value":3}] }
+      ]
+    }
+  ]
+};

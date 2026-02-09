@@ -11,6 +11,9 @@ export enum AuthProvider {
   ALIPAY = 'ALIPAY'
 }
 
+// [NEW] 填表人身份 (用于动态文案替换)
+export type FillerType = 'SELF' | 'FAMILY';
+
 // [NEW] 登录表单状态接口
 export interface LoginFormState {
   phone: string;
@@ -168,6 +171,98 @@ export interface SeizureEvent {
   severity?: number; // 1-10
 }
 
+// [NEW] 临床级癫痫及高原研究数据模型 (West China Hospital Standard)
+export interface EpilepsyResearchData {
+    // 1. 人口学与环境特征 (Demographics & Environment)
+    demographics: {
+        ethnicity: 'HAN' | 'OTHER';
+        ethnicitySpecific?: string; // 具体民族
+        residence: {
+            province: string;
+            city: string;
+            district: string;
+            isRural: boolean;
+        };
+        altitude: number; // 海拔 (米)
+        pressure?: number; // 气压 (mmHg) - 可选，通常由海拔推算
+        temperature?: number; // 当日温度 (℃)
+        educationLevel: string;
+        occupation: string;
+        incomeLevel: string; // 收入分段
+    };
+
+    // 2. 高原暴露史 (High Altitude History)
+    highAltitudeHistory: {
+        isNative: boolean; // 是否世居
+        firstEntryDate?: string; // 首次进入日期 (YYYY-MM)
+        entryFrequency?: string; // 往返频率 (次/年)
+        acclimatizationMeasures: string[]; // 防治措施 ['OXYGEN', 'RHODIOLA', ...]
+        chronicSymptoms: string[]; // 慢性高原反应症状
+    };
+
+    // 3. 妊娠情况 (Pregnancy - Female Only)
+    pregnancyHistory?: {
+        gravidity: number; // 孕次
+        parity: number; // 产次
+        complications: string[]; // 并发症
+        lastMenstrualPeriod?: string; // LMP
+    };
+
+    // 4. 详细发作特征 (ILAE 2017 Classification)
+    seizureDetails: {
+        onsetAge: number; // 首次发作年龄
+        isIntractable: boolean | 'UNKNOWN'; // 是否难治性
+        seizureType: 'FOCAL' | 'GENERALIZED' | 'UNKNOWN';
+        consciousness: 'AWARE' | 'IMPAIRED' | 'UNKNOWN'; // 知觉保留/障碍
+        motorSigns: string[]; // ['TONIC', 'CLONIC', 'AUTOMATISM', ...]
+        nonMotorSigns: string[]; // ['SENSORY', 'COGNITIVE', 'EMOTIONAL', ...]
+        frequencyYear: number; // 年发作次数
+        lastSeizureDate: string;
+    };
+
+    // 5. 药物治疗追踪 (Medication Tracking)
+    medicationHistory: MedicationDetail[];
+    folicAcidTrack?: {
+        isTaking: boolean;
+        dosageMg: number;
+        startDate: string;
+        stopDays: number; // 中间停用天数
+    };
+    
+    // 6. 排除标准标记 (Eligibility Flags - System Generated)
+    exclusionFlags?: string[]; // e.g. ['ALCOHOL_ABUSE', 'SEVERE_ORGAN_FAILURE']
+    isEligible?: boolean;
+}
+
+export interface MedicationDetail {
+    id: string;
+    drugName: string;
+    startDate: string;
+    dosage: {
+        am: number;   // 早上剂量 (mg)
+        noon: number; // 中午剂量 (mg)
+        pm: number;   // 晚上剂量 (mg)
+    };
+    adverseEvents?: string[]; // 不良反应
+    isCurrent: boolean; // 是否当前正在服用
+}
+
+// [NEW] 随访状态定义
+export type FollowUpStatus = 'LOCKED' | 'PENDING' | 'OPEN' | 'COMPLETED' | 'MISSED' | 'DROPPED_OUT';
+
+// [NEW] 随访节点定义
+export interface FollowUpSession {
+    visitId: 'V1' | 'V2' | 'V3' | 'V4' | 'V5';
+    title: string;
+    targetDate: number; // 计划随访日期 (Timestamp)
+    windowStart: number; // 窗口期开始
+    windowEnd: number; // 窗口期结束
+    status: FollowUpStatus;
+    completionDate?: number; // 实际完成日期
+    data?: any; // 随访表单数据快照
+}
+
+// 兼容旧版 Profile 接口，逐步迁移
 export interface EpilepsyProfile {
   isComplete: boolean;
   source: 'AI_GENERATED';
@@ -178,6 +273,12 @@ export interface EpilepsyProfile {
   consciousness: boolean; 
   lastUpdated: number;
   seizureHistory?: SeizureEvent[]; // [NEW] 临床级发作日记
+  // [NEW] 挂载科研详细数据
+  researchData?: EpilepsyResearchData;
+  // [NEW] 随访基线日期 (V0 完成日)
+  baselineDate?: number;
+  // [NEW] 随访日程表
+  followUpSchedule?: FollowUpSession[];
 }
 
 export interface CognitiveProfile {
@@ -265,7 +366,7 @@ export interface HealthTrendItem {
 // [NEW] 量表测评草稿 (持久化中间态)
 export interface AssessmentDraft {
     diseaseType: DiseaseType;
-    answers: Record<number, number>;
+    answers: Record<string, any>; // [UPDATED] 放宽类型以支持复杂表单
     currentStep: number;
     lastUpdated: number;
 }
@@ -288,6 +389,7 @@ export interface User {
   // [Modified] 核心角色字段
   role: UserRole; // 当前活跃角色
   availableRoles: UserRole[]; // 该账号已开通的所有角色列表
+  fillerType?: FillerType; // [NEW] 填表人身份：本人或家属代填
 
   vipLevel: number; 
   unlockedFeatures: FeatureKey[]; 
@@ -353,3 +455,34 @@ export type AppView =
   | 'service-cognitive' | 'service-epilepsy' | 'service-headache' 
   | 'service-family' | 'service-mall' | 'haas-checkout'
   | 'privacy-settings';
+
+// --- [NEW] Config Engine Types ---
+export interface FormFieldConfig {
+    id: string;
+    type: 'text' | 'number' | 'choice' | 'multiselect' | 'date' | 'group' | 'info';
+    label: string;
+    options?: { label: string; value: any; exclusion?: boolean }[];
+    visibleIf?: Record<string, any>; // Simple equality check: { "gender": "FEMALE" }
+    validation?: {
+        required?: boolean;
+        min?: number;
+        max?: number;
+        regex?: string;
+    };
+    suffix?: string; // e.g. "years", "mg"
+    children?: FormFieldConfig[]; // For nested groups
+}
+
+export interface FormSectionConfig {
+    id: string;
+    title: string;
+    description?: string;
+    fields: FormFieldConfig[];
+}
+
+export interface FormConfig {
+    id: string;
+    title: string;
+    version: string;
+    sections: FormSectionConfig[];
+}
