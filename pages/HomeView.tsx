@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { User, AppView, DiseaseType, IoTStats, CognitiveStats, UserRole } from '../types';
+import { User, AppView, DiseaseType, IoTStats, CognitiveStats, UserRole, FamilyMember } from '../types';
 import Button from '../components/common/Button';
 import { usePayment } from '../hooks/usePayment';
 import { useApp } from '../context/AppContext';
@@ -215,13 +215,232 @@ const CognitiveRadarCard: React.FC<{ stats?: CognitiveStats; onClick: () => void
     );
 };
 
+// [NEW] Assistant Patient Card Component with Risk Logic
+const AssistantPatientCard: React.FC<{ patient: FamilyMember; onAction: (p: FamilyMember, type: 'call' | 'remind' | 'view') => void }> = ({ patient, onAction }) => {
+    // 风险计算器 (Risk Logic)
+    const getRiskLevel = (p: FamilyMember) => {
+        // High Risk: Fall detected OR Med overdose (>=3 logs in 24h)
+        const isFall = p.iotStats?.isFallDetected;
+        const recentMeds = p.medicationLogs?.filter(l => Date.now() - l.timestamp < 24*60*60*1000).length || 0;
+        if (isFall || recentMeds >= 3) return { level: 'HIGH', reason: isFall ? '跌倒监测触发' : '药物过量风险' };
+        
+        // Medium Risk: Low Duration (<10m) OR Abnormal Heart Rate
+        const duration = p.cognitiveStats?.todayDuration || 0;
+        const isHrAbnormal = p.iotStats?.isAbnormal;
+        if (duration < 10) return { level: 'MEDIUM', reason: '时长不足' };
+        if (isHrAbnormal) return { level: 'MEDIUM', reason: '心率异常' };
+        
+        return { level: 'LOW', reason: '状态平稳' };
+    };
+
+    const { level, reason } = getRiskLevel(patient);
+
+    const getTheme = () => {
+        switch (level) {
+            case 'HIGH': return { border: 'border-red-500 ring-4 ring-red-50 animate-pulse', bg: 'bg-red-50', text: 'text-red-600', icon: '🚨' };
+            case 'MEDIUM': return { border: 'border-amber-400', bg: 'bg-amber-50', text: 'text-amber-600', icon: '⚠️' };
+            default: return { border: 'border-slate-100', bg: 'bg-white', text: 'text-emerald-600', icon: '✅' };
+        }
+    };
+
+    const theme = getTheme();
+
+    return (
+        <div className={`rounded-2xl p-4 shadow-sm border mb-3 flex flex-col gap-3 transition-all ${theme.border} ${theme.bg}`}>
+            <div className="flex justify-between items-start">
+                <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-2xl shadow-sm border border-slate-100 relative">
+                        {patient.avatar}
+                        {level !== 'LOW' && (
+                            <span className="absolute -bottom-1 -right-1 w-5 h-5 bg-white rounded-full flex items-center justify-center shadow-sm">
+                                <span className="text-xs">{theme.icon}</span>
+                            </span>
+                        )}
+                    </div>
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-black text-slate-800">{patient.name}</h4>
+                            <span className="text-[10px] text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-100">{patient.relation}</span>
+                        </div>
+                        <p className={`text-[10px] font-bold mt-1 ${theme.text}`}>
+                            {reason} · HR: {patient.iotStats?.hr || '--'}
+                        </p>
+                    </div>
+                </div>
+                
+                {level === 'HIGH' && (
+                    <button 
+                        onClick={() => onAction(patient, 'call')}
+                        className="bg-red-600 text-white text-[10px] font-black px-3 py-1.5 rounded-full shadow-lg shadow-red-500/30 animate-bounce"
+                    >
+                        立即呼叫
+                    </button>
+                )}
+            </div>
+
+            {/* Data Grid */}
+            <div className="grid grid-cols-2 gap-2 text-[10px]">
+                <div className="bg-white/60 p-2 rounded-lg flex justify-between items-center">
+                    <span className="text-slate-500">今日训练</span>
+                    <span className="font-bold text-slate-800">{patient.cognitiveStats?.todayDuration || 0} min</span>
+                </div>
+                <div className="bg-white/60 p-2 rounded-lg flex justify-between items-center">
+                    <span className="text-slate-500">上次服药</span>
+                    <span className="font-bold text-slate-800">
+                        {patient.medicationLogs?.[0] ? '2h 前' : '无记录'}
+                    </span>
+                </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 mt-1">
+                <Button 
+                    variant="outline" 
+                    size="sm" 
+                    fullWidth 
+                    className="bg-white border-slate-200 h-8 text-[10px]"
+                    onClick={() => onAction(patient, 'view')}
+                >
+                    查看档案
+                </Button>
+                {level !== 'HIGH' && (
+                    <Button 
+                        size="sm" 
+                        fullWidth 
+                        className={`h-8 text-[10px] ${level === 'MEDIUM' ? 'bg-amber-500' : 'bg-brand-600'}`}
+                        onClick={() => onAction(patient, 'remind')}
+                    >
+                        {level === 'MEDIUM' ? '发送提醒' : '健康关怀'}
+                    </Button>
+                )}
+            </div>
+        </div>
+    );
+};
+
 // --- Assistant Dashboard (Role_Based_View_Resolver Target) ---
 const AssistantDashboard: React.FC<{ user: User }> = ({ user }) => {
-    // ... (Code remains unchanged, omitted for brevity in this specific update block)
-    // Assuming AssistantDashboard code is preserved from previous context
     const { showToast } = useToast();
-    // ... (rest of AssistantDashboard implementation)
-    return <div className="min-h-screen bg-[#F2F4F7] flex flex-col pb-safe"></div>; // Placeholder to respect XML structure
+    
+    // Mock Data Generator for Empty State
+    const mockPatients: FamilyMember[] = useMemo(() => [
+        {
+            id: 'p_high_1',
+            name: '张爷爷',
+            relation: '社区签约',
+            avatar: '👴',
+            isElderly: true,
+            iotStats: { hr: 45, hrStandardDeviation: 10, bpSys: 90, bpDia: 60, spo2: 92, isAbnormal: true, isFallDetected: true, lastUpdated: Date.now() },
+            cognitiveStats: { totalSessions: 5, todaySessions: 0, todayDuration: 0, totalDuration: 100, lastScore: 0, aiRating: 'C', lastUpdated: Date.now(), dimensionStats: { memory: 40, attention: 40, reaction: 30, stability: 20, flexibility: 30 } },
+            medicationLogs: []
+        },
+        {
+            id: 'p_high_2',
+            name: '李阿姨',
+            relation: '重点关注',
+            avatar: '👵',
+            isElderly: true,
+            iotStats: { hr: 80, hrStandardDeviation: 30, bpSys: 130, bpDia: 85, spo2: 98, isAbnormal: false, isFallDetected: false, lastUpdated: Date.now() },
+            cognitiveStats: { totalSessions: 10, todaySessions: 1, todayDuration: 15, totalDuration: 300, lastScore: 75, aiRating: 'B', lastUpdated: Date.now(), dimensionStats: { memory: 70, attention: 70, reaction: 70, stability: 70, flexibility: 70 } },
+            medicationLogs: [
+                { id: 'm1', timestamp: Date.now() - 10000, drugName: '布洛芬', dosage: '1' },
+                { id: 'm2', timestamp: Date.now() - 3600000, drugName: '布洛芬', dosage: '1' },
+                { id: 'm3', timestamp: Date.now() - 7200000, drugName: '曲普坦', dosage: '1' },
+                { id: 'm4', timestamp: Date.now() - 10800000, drugName: '布洛芬', dosage: '1' }
+            ]
+        },
+        {
+            id: 'p_med_1',
+            name: '王叔叔',
+            relation: '慢病随访',
+            avatar: '👨',
+            isElderly: false,
+            iotStats: { hr: 115, hrStandardDeviation: 55, bpSys: 140, bpDia: 90, spo2: 97, isAbnormal: true, isFallDetected: false, lastUpdated: Date.now() },
+            cognitiveStats: { totalSessions: 20, todaySessions: 1, todayDuration: 25, totalDuration: 500, lastScore: 85, aiRating: 'A', lastUpdated: Date.now(), dimensionStats: { memory: 80, attention: 80, reaction: 80, stability: 80, flexibility: 80 } },
+            medicationLogs: []
+        },
+        {
+            id: 'p_med_2',
+            name: '赵小弟',
+            relation: '康复期',
+            avatar: '🧒',
+            isElderly: false,
+            iotStats: { hr: 70, hrStandardDeviation: 30, bpSys: 110, bpDia: 70, spo2: 99, isAbnormal: false, isFallDetected: false, lastUpdated: Date.now() },
+            cognitiveStats: { totalSessions: 5, todaySessions: 0, todayDuration: 5, totalDuration: 100, lastScore: 60, aiRating: 'B', lastUpdated: Date.now(), dimensionStats: { memory: 60, attention: 60, reaction: 60, stability: 60, flexibility: 60 } },
+            medicationLogs: []
+        },
+        {
+            id: 'p_low_1',
+            name: '刘女士',
+            relation: '常规',
+            avatar: '👩',
+            isElderly: false,
+            iotStats: { hr: 72, hrStandardDeviation: 35, bpSys: 115, bpDia: 75, spo2: 98, isAbnormal: false, isFallDetected: false, lastUpdated: Date.now() },
+            cognitiveStats: { totalSessions: 50, todaySessions: 1, todayDuration: 20, totalDuration: 1000, lastScore: 90, aiRating: 'A', lastUpdated: Date.now(), dimensionStats: { memory: 90, attention: 90, reaction: 90, stability: 90, flexibility: 90 } },
+            medicationLogs: [{ id: 'm_ok', timestamp: Date.now() - 3600000, drugName: '维C', dosage: '1' }]
+        }
+    ], []);
+
+    // Merge User patients with Mock data if empty
+    const patients = (user.familyMembers && user.familyMembers.length > 0) ? user.familyMembers : mockPatients;
+
+    // Sorting Logic: High > Medium > Low
+    const sortedPatients = useMemo(() => {
+        const getScore = (p: FamilyMember) => {
+            const isFall = p.iotStats?.isFallDetected;
+            const recentMeds = p.medicationLogs?.filter(l => Date.now() - l.timestamp < 24*60*60*1000).length || 0;
+            if (isFall || recentMeds >= 3) return 3; // HIGH
+            
+            const duration = p.cognitiveStats?.todayDuration || 0;
+            const isHrAbnormal = p.iotStats?.isAbnormal;
+            if (duration < 10 || isHrAbnormal) return 2; // MEDIUM
+            
+            return 1; // LOW
+        };
+        return [...patients].sort((a, b) => getScore(b) - getScore(a));
+    }, [patients]);
+
+    const handleAction = (p: FamilyMember, type: 'call' | 'remind' | 'view') => {
+        if (type === 'call') {
+            window.location.href = "tel:120";
+        } else if (type === 'remind') {
+            showToast(`已向 ${p.name} 发送强提示：请按时服药/训练`, 'success');
+        } else {
+            showToast(`正在打开 ${p.name} 的完整健康档案...`, 'info');
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-[#F2F4F7] flex flex-col pb-safe">
+            {/* Header */}
+            <div className="bg-white px-5 pt-[calc(1rem+env(safe-area-inset-top))] pb-4 sticky top-0 z-20 shadow-sm">
+                <div className="flex justify-between items-center mb-1">
+                    <h2 className="text-lg font-black text-slate-900">医助工作台</h2>
+                    <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded font-bold border border-indigo-100">
+                        {user.assistantProof?.hospitalName || '华西协作医院'}
+                    </span>
+                </div>
+                <p className="text-xs text-slate-500">待处理患者: {patients.length} 人 · <span className="text-red-500 font-bold">高危 {sortedPatients.filter(p => (p.iotStats?.isFallDetected || (p.medicationLogs?.length || 0) >= 3)).length} 人</span></p>
+            </div>
+
+            {/* List */}
+            <div className="p-4 flex-1 overflow-y-auto">
+                {sortedPatients.map(patient => (
+                    <AssistantPatientCard 
+                        key={patient.id} 
+                        patient={patient} 
+                        onAction={handleAction} 
+                    />
+                ))}
+                
+                <div className="text-center py-6">
+                    <p className="text-[10px] text-slate-300">
+                        数据同步于: {new Date().toLocaleTimeString()}
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavigate, primaryCondition }) => {
@@ -500,7 +719,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
   ].filter(item => !isElderly || item.nav !== 'service-mall');
 
   if (user.role === UserRole.DOCTOR_ASSISTANT) {
-      return <AssistantDashboard user={user} />; // Assuming AssistantDashboard is defined
+      return <AssistantDashboard user={user} />; 
   }
 
   return (

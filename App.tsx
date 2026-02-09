@@ -82,6 +82,18 @@ const AppContent: React.FC = () => {
       );
   }
 
+  // [SECURITY] 档案切换原子锁 (Physical Isolation)
+  // 当处于切换状态时，强制卸载所有业务视图，显示安全隔离屏
+  if (state.isSwitching) {
+      return (
+          <div className="font-sans antialiased text-slate-900 bg-slate-50 min-h-screen max-w-[430px] mx-auto shadow-2xl flex flex-col items-center justify-center z-[99999] relative">
+              <div className="w-16 h-16 border-4 border-slate-200 border-t-[#1677FF] rounded-full animate-spin mb-4"></div>
+              <h3 className="text-lg font-black text-slate-900">安全环境重构中...</h3>
+              <p className="text-xs text-slate-500 mt-2">正在清除会话缓存与内存数据</p>
+          </div>
+      );
+  }
+
   const renderContent = () => {
     switch (currentView) {
       case 'home':

@@ -97,6 +97,7 @@ export interface CognitiveTrainingRecord {
   stabilityIndex: number;  // 稳定性指数 (0-100)
   
   isCompleted?: boolean; 
+  status?: 'COMPLETED' | 'INVALID_DURATION'; // [HARD_REQUIREMENT] 强制状态标记
 }
 
 // [NEW] 认知数据统计 (含雷达图维度)
@@ -180,6 +181,8 @@ export interface FamilyMember {
   cognitiveProfile?: CognitiveProfile;
   iotStats?: IoTStats; 
   cognitiveStats?: CognitiveStats; 
+  // [NEW] Medication logs for risk analysis
+  medicationLogs?: MedLog[];
 }
 
 // [NEW] 熔断审核报告

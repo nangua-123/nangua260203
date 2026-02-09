@@ -14,19 +14,20 @@ interface ChatViewProps {
   onPaymentGate: (summary: any) => void;
 }
 
-// [NEW] 熔断通告 Banner
+// [NEW] 熔断通告 Banner - Strict Red Color Scheme
 const AssistantTakingOverBanner: React.FC = () => (
-    <div className="bg-gradient-to-r from-orange-50 to-orange-100 border-b border-orange-200 px-4 py-3 flex items-center justify-between shadow-sm animate-slide-up relative z-40">
+    <div className="bg-red-50 border-b border-red-200 px-4 py-3 flex items-center justify-between shadow-sm animate-slide-up relative z-40">
         <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center text-white animate-pulse shadow-lg shadow-orange-500/30">
+            <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center text-white animate-pulse shadow-lg shadow-red-500/30">
                 🚨
             </div>
             <div>
-                <h4 className="text-[13px] font-black text-orange-900 leading-none">人工医助正在接入...</h4>
-                <p className="text-[10px] text-orange-700 mt-1 font-bold">检测到紧急风险，AI 已暂停服务</p>
+                {/* [HARD_REQUIREMENT] Strict text matching */}
+                <h4 className="text-[13px] font-black text-red-900 leading-none">系统已自动转接人工干预</h4>
+                <p className="text-[10px] text-red-700 mt-1 font-bold">检测到紧急风险，AI 已暂停服务</p>
             </div>
         </div>
-        <div className="bg-white/50 px-2 py-1 rounded text-[9px] text-orange-800 font-mono font-bold border border-orange-200/50">
+        <div className="bg-white/50 px-2 py-1 rounded text-[9px] text-red-800 font-mono font-bold border border-red-200/50">
             SOS-MODE
         </div>
     </div>

@@ -263,14 +263,15 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                         <div className="h-32 w-full bg-slate-50 rounded-xl relative flex items-end px-2 pb-2 gap-1 mb-3 border border-slate-100">
                             {(activePatient.profile?.medicalRecords && activePatient.profile.medicalRecords.length > 0) ? (
                                 activePatient.profile.medicalRecords.map((rec) => { 
-                                    const vasStr = rec.indicators.find(i => i.name.includes('VAS'))?.value || '5'; 
+                                    const vasStr = rec.indicators.find(i => i.name.includes('VAS') || i.name.includes('风险'))?.value || '5'; 
                                     const vas = parseInt(vasStr.toString()); 
-                                    const height = (vas / 10) * 100; 
+                                    // Scale: 0-10 for VAS, or 0-100 for Risk (normalized to 0-10 for visual consistency)
+                                    const height = vas > 10 ? vas : vas * 10; 
                                     return (
                                         <div key={rec.id} className="flex-1 flex flex-col items-center gap-1 group">
                                             <div className="relative w-full flex justify-center items-end h-full">
-                                                <div className="w-2/3 bg-brand-500 rounded-t-sm transition-all duration-500 group-hover:bg-brand-400" style={{ height: `${height}%` }}></div>
-                                                <div className="absolute -top-6 text-[9px] font-bold text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity bg-white px-1 rounded shadow-sm">VAS:{vas}</div>
+                                                <div className="w-2/3 bg-brand-500 rounded-t-sm transition-all duration-500 group-hover:bg-brand-400" style={{ height: `${Math.min(100, height)}%` }}></div>
+                                                <div className="absolute -top-6 text-[9px] font-bold text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity bg-white px-1 rounded shadow-sm whitespace-nowrap">{vas}</div>
                                             </div>
                                             <div className="text-[8px] text-slate-400 scale-75 whitespace-nowrap">{rec.date.slice(5)}</div>
                                         </div>
@@ -292,7 +293,7 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                                         <span className="text-lg">📄</span>
                                         <div>
                                             <div className="font-bold text-slate-700">[{rec.date}] {rec.hospital}</div>
-                                            <div className="text-slate-500">{rec.diagnosis} (VAS: {rec.indicators.find(i => i.name === 'VAS')?.value || '-'})</div>
+                                            <div className="text-slate-500">{rec.diagnosis} (Risk: {rec.indicators[0]?.value})</div>
                                         </div>
                                     </div>
                                 ))}
@@ -335,12 +336,6 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
 };
 
 export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    // ... (No changes needed for other components, kept as is or truncated for brevity as per instructions)
-    // To strictly follow instructions, I am providing FULL content of HeadacheServiceView which was modified. 
-    // The rest of the file content (CognitiveServiceView, EpilepsyServiceView, FamilyServiceView...) 
-    // is assumed to be unchanged and should be preserved.
-    // However, since I must return the file content, I will include the rest of the file.
-    
     const { state, dispatch } = useApp();
     const { showToast } = useToast();
     const [game, setGame] = useState<'none' | 'memory' | 'attention'>('none');
@@ -356,8 +351,10 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
     const handleGameComplete = (score: number, durationSeconds: number, accuracy: number, level: number = 1, reactionMs?: number) => {
         const activeProfileId = state.user.currentProfileId || state.user.id;
         
-        const realDurationMs = Date.now() - sessionStartTime;
-        const isClinicallyEffective = realDurationMs >= 1200000;
+        // [HARD_REQUIREMENT] Strict duration calculation
+        const actualDuration = Date.now() - sessionStartTime;
+        // 20 minutes = 1200000ms. 
+        const isClinicallyEffective = actualDuration >= 1200000;
 
         const avgReactionTime = reactionMs || (durationSeconds * 1000) / (score > 0 ? score/10 : 20) || 800;
         
@@ -369,6 +366,7 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
 
         const stability = Math.min(100, Math.max(0, 100 - (Math.random() * 20) - ((100-accuracy)/2)));
 
+        // [HARD_REQUIREMENT] Populate mandatory research fields and status
         const trainingRecord: CognitiveTrainingRecord = {
             id: `train_${Date.now()}`,
             timestamp: Date.now(),
@@ -377,11 +375,12 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
             isCompleted: isClinicallyEffective,
             reactionTimeAvg: avgReactionTime,
             errorPattern: errorTags,
-            stabilityIndex: Math.floor(stability)
+            stabilityIndex: Math.floor(stability),
+            status: isClinicallyEffective ? 'COMPLETED' : 'INVALID_DURATION'
         };
 
         if (!isClinicallyEffective) {
-            showToast('🧠 脑力值未满，今日训练尚未产生临床效益', 'error');
+            showToast('时长未达标，本次训练无法计入大脑康复进度', 'error');
         } else {
             showToast('✅ 训练达标，临床数据已归档', 'success');
         }
@@ -601,6 +600,7 @@ const ProfileForm: React.FC<{ onClose: () => void; onSubmit: (data: any) => void
 };
 
 const MedicalRecordOCRModal: React.FC<{ onClose: () => void; onSuccess: (record: MedicalRecord) => void }> = ({ onClose, onSuccess }) => {
+    const { showToast } = useToast();
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
 
@@ -616,10 +616,10 @@ const MedicalRecordOCRModal: React.FC<{ onClose: () => void; onSuccess: (record:
         try {
             const record = await processMedicalImage(selectedFile);
             onSuccess(record);
-        } catch (e) {
+        } catch (e: any) {
             console.error(e);
-            // Fallback for demo if error or empty file
             setIsProcessing(false);
+            showToast(e.message, 'error');
         }
     };
 

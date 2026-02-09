@@ -1,14 +1,16 @@
 
 /**
  * @file geminiService.ts
- * @description 华西医院神经内科 AI 核心服务层 (Mock)
+ * @description 华西医院神经内科 AI 核心服务层
  * @author Neuro-Link Architect
  * 
- * 本服务负责模拟 LLM 的多轮问诊交互、医学术语清洗及 CDSS 临床路径分流。
- * 目前采用“规则引擎 + 状态机”混合模式，未来可无缝替换为真实 Gemini API。
+ * 包含：
+ * 1. 模拟 LLM 问诊交互 (Mock)
+ * 2. 真实 Gemini Vision OCR (Real Integration)
  */
 
 import { ChatMessage, HeadacheProfile, EpilepsyProfile, CognitiveProfile, DiseaseType, MedicalRecord } from "../types";
+import { GoogleGenAI } from "@google/genai";
 
 // --- Types & Interfaces ---
 
@@ -42,6 +44,23 @@ const sanitizeTerminology = (text: string) => {
         .replace(/头痛/g, "血管性头痛/偏头痛")
         .replace(/发作/g, "临床发作事件")
         .replace(/看病/g, "就诊");
+};
+
+/**
+ * 将 File 对象转换为 Base64 字符串 (用于 Vision API)
+ */
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+        const result = reader.result as string;
+        // 移除 data:image/xxx;base64, 前缀
+        const base64 = result.split(',')[1];
+        resolve(base64);
+    };
+    reader.onerror = error => reject(error);
+  });
 };
 
 // --- Core Logic ---
@@ -243,26 +262,66 @@ export const generateCognitiveAssessment = async (score: number, accuracy: numbe
 };
 
 /**
- * [NEW] 医疗影像 OCR 结构化处理 (Gemini Vision 模拟)
+ * [REAL] 医疗影像 OCR 结构化处理 (Gemini Vision Integration)
  * @param file 上传的图片文件
- * @returns 结构化病历数据
+ * @returns 结构化病历数据 {MedicalRecord}
  */
 export const processMedicalImage = async (file: File): Promise<MedicalRecord> => {
-    // Simulate API latency
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const base64Data = await fileToBase64(file);
+        
+        // 调用 Gemini Vision 模型进行多模态分析
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash-image',
+            contents: {
+                parts: [
+                    { 
+                        inlineData: { 
+                            mimeType: file.type, 
+                            data: base64Data 
+                        } 
+                    },
+                    { 
+                        text: `You are an expert medical AI assistant. Analyze this medical report image. 
+                        Extract data into the following JSON structure exactly:
+                        { 
+                          "reportDate": "string (YYYY-MM-DD)", 
+                          "diagnosis": "string (brief clinical conclusion)", 
+                          "riskFactor": "number (0-100 integer, 100 being most critical/severe)",
+                          "hospital": "string (hospital name if visible, else '未知机构')"
+                        }
+                        If the image is not a legible medical report or lacks clinical indicators, return diagnosis as "Error" and riskFactor as 0.`
+                    }
+                ]
+            },
+            config: {
+                responseMimeType: "application/json"
+            }
+        });
 
-    // 这里在真实场景中会调用 ai.models.generateContent 传入 imagePart
-    
-    // Mock Response
-    return {
-        id: `rec_${Date.now()}`,
-        date: new Date().toISOString().split('T')[0],
-        hospital: '四川大学华西医院 (AI识别)',
-        diagnosis: '无先兆偏头痛 (MIdAS Grade IV)',
-        indicators: [
-            { name: 'VAS', value: Math.floor(Math.random() * 4 + 6), trend: 'up' }, // Random 6-10
-            { name: '发作频率', value: '4次/月', trend: 'flat' }
-        ],
-        rawImageUrl: URL.createObjectURL(file) 
-    };
+        const jsonText = response.text || "{}";
+        const result = JSON.parse(jsonText);
+        
+        // 校验关键字段
+        if (!result.diagnosis || result.diagnosis === "Error" || typeof result.riskFactor !== 'number') {
+             throw new Error("Invalid medical content");
+        }
+
+        return {
+            id: `ocr_${Date.now()}`,
+            date: result.reportDate || new Date().toISOString().split('T')[0],
+            hospital: result.hospital || 'AI 识别来源',
+            diagnosis: result.diagnosis,
+            indicators: [
+                // 映射 riskFactor 到 indicators[0].value，以便 AppContext 自动提取为趋势数据
+                { name: '智能风险指数', value: result.riskFactor, trend: 'flat' }
+            ],
+            rawImageUrl: URL.createObjectURL(file)
+        };
+
+    } catch (error) {
+        console.error("Gemini Vision Error:", error);
+        throw new Error("无法识别该检查单，请确保图片清晰且包含关键指标");
+    }
 };

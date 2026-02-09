@@ -19,8 +19,13 @@ const encryptData = (data: any) => {
 // [SECURITY] 内存熔断工具函数
 // 强制清除会话缓存，防止数据串扰
 const clearSessionCache = () => {
-    // 实际场景中应清除 sessionStorage 或内存中的临时状态
     console.warn("【内存熔断】🛡️ 正在执行原子化清理...");
+    
+    // 1. 清除本地存储中的敏感临时数据
+    const sensitiveKeys = ['NEURO_LINK_CHAT_TEMP', 'NEURO_LINK_FORM_DRAFT'];
+    sensitiveKeys.forEach(key => localStorage.removeItem(key));
+    
+    // 2. 模拟内存垃圾回收信号
     console.log("   - ChatHistory Cache: PURGED");
     console.log("   - MedicationLogs Temp: CLEARED");
     console.log("   - Session Token: ROTATED");
@@ -34,6 +39,7 @@ interface AppState {
   primaryCondition: DiseaseType; 
   lastDiagnosis: { reason: string; referral?: ReferralData } | null; 
   isLoading: boolean; 
+  isSwitching: boolean; // [NEW] 档案切换原子锁
   mohAlertTriggered: boolean; // [NEW] MOH 熔断预警状态
 }
 
@@ -96,6 +102,7 @@ const INITIAL_STATE: AppState = {
   primaryCondition: DiseaseType.MIGRAINE,
   lastDiagnosis: null,
   isLoading: false,
+  isSwitching: false,
   mohAlertTriggered: false
 };
 
@@ -115,6 +122,7 @@ type Action =
   | { type: 'UNLOCK_FEATURE'; payload: FeatureKey }
   | { type: 'BIND_HARDWARE'; payload: boolean }
   | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'SET_SWITCHING'; payload: boolean } // [NEW]
   | { type: 'RESET_USER' }
   | { type: 'UPDATE_PROFILE'; payload: { id: string; profile: HeadacheProfile } }
   | { type: 'SWITCH_PATIENT'; payload: string }
@@ -233,6 +241,8 @@ const appReducer = (state: AppState, action: Action): AppState => {
       };
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload };
+    case 'SET_SWITCHING':
+      return { ...state, isSwitching: action.payload };
     case 'RESET_USER':
       return INITIAL_STATE;
       
@@ -327,13 +337,18 @@ const appReducer = (state: AppState, action: Action): AppState => {
             const flexScore = (record.accuracy * 0.8) + diffBonus;
             newDims.flexibility = Math.floor((prevDims.flexibility * 0.8) + (flexScore * 0.2));
 
+            // [HARD_REQUIREMENT] Status check for progress bar logic
+            const isValid = record.status === 'COMPLETED';
+            const durationIncrement = isValid ? Math.ceil(record.durationSeconds / 60) : 0;
+            const totalDurationIncrement = isValid ? record.durationSeconds : 0;
+
             return {
                 ...current,
                 lastScore: record.score,
                 totalSessions: current.totalSessions + 1,
                 todaySessions: current.todaySessions + 1,
-                todayDuration: current.todayDuration + Math.ceil(record.durationSeconds / 60),
-                totalDuration: current.totalDuration + record.durationSeconds,
+                todayDuration: current.todayDuration + durationIncrement,
+                totalDuration: current.totalDuration + totalDurationIncrement,
                 dimensionStats: newDims,
                 trainingHistory: [...history, record], 
                 lastUpdated: Date.now()
@@ -532,30 +547,42 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
   }, [state]);
 
-  // [NEW] 核心档案切换逻辑
+  // [NEW] 核心档案切换逻辑 (重构版)
   const switchProfile = async (targetId: string) => {
-      // 1. 权限隔离 (Permission Isolation)
+      // 1. 原子锁：锁定 UI，防止并发操作和数据渲染
+      dispatch({ type: 'SET_SWITCHING', payload: true });
+
+      // 2. 权限校验
       if (targetId !== state.user.id) {
           console.log("【权限隔离】检测到代管模式切换...");
           // Mock Family_Token validation
-          const isTokenValid = true; // In real world, verify token from API
+          const isTokenValid = true; 
           if (!isTokenValid) {
               console.error("【权限阻断】Family_Token 校验失败");
-              return; // Block switch
+              dispatch({ type: 'SET_SWITCHING', payload: false });
+              return; 
           }
-          console.log("【权限隔离】Family_Token 校验通过");
       }
 
-      // 2. 原子化切换 & 内存熔断 (Atomic Memory Breaking)
-      clearSessionCache(); // 强制清除敏感缓存
+      // 3. 内存熔断与缓存清洗
+      clearSessionCache(); 
+      
+      // 模拟异步清洗过程，确保 React 状态树有时间响应 Unmount
+      // 这实际上强制 currentProfile 相关的所有视图组件卸载
+      await new Promise(resolve => setTimeout(resolve, 600));
+
+      // 4. 执行状态切换
       dispatch({ type: 'SWITCH_PATIENT', payload: targetId });
 
-      // 3. UI 强制行为 (Forced UI Reset)
-      // 延迟微任务，确保状态更新后立即执行路由重置，防止停留在敏感数据页
+      // 5. 强制路由重置
+      // 将路由切回 Home，确保 ChatView 等包含本地状态的组件被彻底销毁重建
+      window.dispatchEvent(new CustomEvent('navigate-to', { detail: 'home' }));
+
+      // 6. 解锁 UI
+      // 延迟解锁，确保新组件挂载时读取的是全新的 Profile 数据
       setTimeout(() => {
-          const event = new CustomEvent('navigate-to', { detail: 'home' });
-          window.dispatchEvent(event);
-      }, 0);
+          dispatch({ type: 'SET_SWITCHING', payload: false });
+      }, 100);
   };
 
   return (

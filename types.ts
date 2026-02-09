@@ -97,6 +97,8 @@ export interface CognitiveTrainingRecord {
   reactionTimeAvg: number; // 平均反应耗时 (ms)
   errorPattern: string[];  // 错误类型分布 (Tags)
   stabilityIndex: number;  // 稳定性指数 (0-100)
+  
+  status?: 'COMPLETED' | 'INVALID_DURATION'; // [NEW] Added for progress tracking
 }
 
 export interface CognitiveStats {
@@ -168,6 +170,26 @@ export interface CognitiveProfile {
   lastUpdated: number;
 }
 
+export interface MedLog {
+  id: string;
+  timestamp: number;
+  drugName: string;
+  dosage: string;
+  
+  // [Medical Compliance] Migraine Fields
+  painScale?: number; // NRS 1-10
+  concomitantSymptoms?: string[]; // e.g. ['nausea', 'photophobia']
+
+  // [Medical Compliance] Epilepsy Fields
+  seizureType?: string; // e.g. 'tonic-clonic', 'absence'
+  triggerFactors?: string[]; // e.g. ['missed_meds', 'stress']
+
+  // Generic/Legacy
+  painLevel?: number; 
+  nature?: string[]; 
+  symptoms?: string[]; 
+}
+
 export interface FamilyMember {
   id: string;
   name: string;
@@ -179,6 +201,7 @@ export interface FamilyMember {
   cognitiveProfile?: CognitiveProfile;
   iotStats?: IoTStats; 
   cognitiveStats?: CognitiveStats; 
+  medicationLogs?: MedLog[];
 }
 
 // [NEW] 熔断审核报告
@@ -200,26 +223,6 @@ export interface DoctorAssistantProof {
     reviewLogs?: ReviewReport[]; // [NEW] 关联的审核日志
 }
 
-export interface MedLog {
-  id: string;
-  timestamp: number;
-  drugName: string;
-  dosage: string;
-  
-  // [Medical Compliance] Migraine Fields
-  painScale?: number; // NRS 1-10
-  concomitantSymptoms?: string[]; // e.g. ['nausea', 'photophobia']
-
-  // [Medical Compliance] Epilepsy Fields
-  seizureType?: string; // e.g. 'tonic-clonic', 'absence'
-  triggerFactors?: string[]; // e.g. ['missed_meds', 'stress']
-
-  // Generic/Legacy
-  painLevel?: number; 
-  nature?: string[]; 
-  symptoms?: string[]; 
-}
-
 // [NEW] 健康趋势数据点
 export interface HealthTrendItem {
   date: string;
@@ -231,6 +234,7 @@ export interface User {
   id: string;
   name: string;
   phone: string;
+  idNumber?: string; // [NEW] 身份证号 (For Medical Report Export)
   avatar?: string; // 支持第三方头像
   authProvider?: AuthProvider; // 登录方式
   
