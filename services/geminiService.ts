@@ -5,12 +5,13 @@
  * @author Neuro-Link Architect
  * 
  * 包含：
- * 1. 模拟 LLM 问诊交互 (Mock)
+ * 1. 模拟 LLM 问诊交互 (Mock) - [UPGRADED] 基于 DiseaseContextConfig 的动态调度
  * 2. 真实 Gemini Vision OCR (Real Integration)
  */
 
 import { ChatMessage, HeadacheProfile, EpilepsyProfile, CognitiveProfile, DiseaseType, MedicalRecord } from "../types";
 import { GoogleGenAI } from "@google/genai";
+import { DISEASE_CONTEXT_CONFIG } from "../config/DiseaseContextConfig";
 
 // --- Types & Interfaces ---
 
@@ -81,18 +82,8 @@ export const createChatSession = (systemInstruction: string, diseaseType: Diseas
 };
 
 /**
- * 发送消息给 AI (CDSS 状态机模拟)
- * 
- * 逻辑流程:
- * 1. Step 0->1: 主动接诊
- * 2. Step 1->2: 基于正则(Regex)的 NLP 意图识别与分诊路由
- *    [Dynamic] 根据病种调整 totalSteps (癫痫4步急救优先，头痛6步详查)
- * 3. Step 2->N: 核心医学信息采集 (症状/频率/病史/先兆)
- * 4. Step N:    触发深度评估 (Commercial Hook)
- * 
- * @param session 当前会话状态
- * @param message 用户输入
- * @param fullContext 完整聊天记录
+ * [CLINICAL_CRITICAL] AI 响应生成核心
+ * 根据 DiseaseContextConfig 动态注入 System Prompt 和 Suggested Options
  */
 export const sendMessageToAI = async (session: MockChatSession, message: string, fullContext: ChatMessage[] = []): Promise<string> => {
   // 模拟网络延迟 (RRT Simulation)
@@ -100,22 +91,14 @@ export const sendMessageToAI = async (session: MockChatSession, message: string,
 
   const msg = message.trim();
   
-  // --- [NEW] 动态风险评分逻辑 (Dynamic Risk Scoring) ---
-  // 基于用户回复的关键词调整 estimatedRisk
+  // --- [Risk Engine] 动态风险评分逻辑 ---
+  if (/剧烈|炸裂|难以忍受|丧失|抽搐|倒地|迷路|不认识/.test(msg)) session.estimatedRisk += 30;
+  else if (/搏动|电击|紧箍|麻木|忘记/.test(msg)) session.estimatedRisk += 15;
   
-  // 1. 严重程度关键词
-  if (/剧烈|炸裂|难以忍受|丧失|抽搐|倒地/.test(msg)) session.estimatedRisk += 30;
-  else if (/搏动|电击|紧箍|麻木/.test(msg)) session.estimatedRisk += 15;
-  
-  // 2. 频率关键词
   if (/每天|总是|频繁/.test(msg)) session.estimatedRisk += 25;
-  else if (/每周|经常/.test(msg)) session.estimatedRisk += 15;
-  else if (/每月|偶尔/.test(msg)) session.estimatedRisk += 5;
   
-  // 3. 病史关键词
   if (/已确诊|服药/.test(msg)) session.estimatedRisk += 10;
-  
-  // ----------------------------------------------------
+  // ------------------------------------
 
   let response = "";
 
@@ -126,61 +109,141 @@ export const sendMessageToAI = async (session: MockChatSession, message: string,
 <OPTIONS>记忆力明显下降|反复肢体抽搐/意识丧失|剧烈头痛/偏头痛|其他神经系统不适</OPTIONS>`;
   } 
   else {
-      // [Phase 1] 智能分诊路由 (Intent Recognition) & 动态路径规划
+      // [Phase 1] 智能分诊路由 (Intent Recognition)
       if (session.step === 1) {
           session.step = 2;
+          
           // 规则引擎：关键词匹配 -> 路由至对应 CDSS 路径
           if (/头痛|头晕|偏头痛|胀痛/.test(msg)) {
               session.diseaseType = DiseaseType.MIGRAINE;
-              session.totalSteps = 6; // [Dynamic] 偏头痛需要更详细的先兆问询
-              session.estimatedRisk = 30; // 偏头痛基线分
-              response = `已为您匹配【华西头痛中心】路径。
-请点击选择疼痛的具体性质（无需输入）：
-<OPTIONS>搏动性跳痛|紧箍感/压迫感|电击样刺痛|炸裂样剧痛</OPTIONS>`;
+              session.totalSteps = 6;
+              session.estimatedRisk = 30;
           } else if (/抽搐|抖动|发作|意识丧失|愣神|倒地/.test(msg)) {
               session.diseaseType = DiseaseType.EPILEPSY;
-              session.totalSteps = 4; // [Dynamic] 癫痫强调快速急救分流，缩短问诊
-              session.estimatedRisk = 60; // 癫痫基线分 (高危)
-              response = `已为您匹配【华西癫痫中心】路径。
-请选择最近一次发作时的目击表现：
-<OPTIONS>意识丧失+肢体抽搐|仅发呆/愣神|肢体麻木/无力|跌倒/尿失禁</OPTIONS>`;
-          } else if (/记忆|忘|迷路|性格|变笨|糊涂/.test(msg)) {
+              session.totalSteps = 4; // 癫痫问诊更简短，快速进入监测
+              session.estimatedRisk = 60;
+          } else if (/记忆|忘|迷路|性格|变笨|糊涂|老人/.test(msg)) {
               session.diseaseType = DiseaseType.COGNITIVE;
-              session.totalSteps = 5; // 标准 5 步
-              session.estimatedRisk = 40; // 认知障碍基线分
-              response = `已为您匹配【认知记忆门诊】路径。
-除了记忆力问题，患者目前最明显的改变是？
-<OPTIONS>出门迷路/分不清方向|性格突变/多疑|算不清账/无法购物|近期事情记不住</OPTIONS>`;
-          } else {
-              // Fallback
-              session.diseaseType = DiseaseType.MIGRAINE;
               session.totalSteps = 5;
-              session.estimatedRisk = 20;
-              response = `症状已记录。为了更准确评估，请确认是否有以下情况：
-<OPTIONS>是否伴有剧烈头痛？|是否曾出现短暂意识丧失？|是否经常忘记近期发生的事？</OPTIONS>`;
+              session.estimatedRisk = 40;
+          } else {
+              // Default
+              session.diseaseType = DiseaseType.MIGRAINE;
+          }
+
+          // [INJECTION] 读取配置中心，获取 AI 人设与显示名称
+          const config = DISEASE_CONTEXT_CONFIG[session.diseaseType];
+          
+          if (session.diseaseType === DiseaseType.COGNITIVE) {
+              // [AD Mode] 简单短句，安抚，怀旧疗法
+              response = `好的，我明白了。
+我是${config.displayName}的数字助手。
+别担心，我们慢慢聊。
+除了记性不好，平时出门会迷路吗？
+<OPTIONS>偶尔迷路|经常找不到家|在家里也迷糊|方向感还好</OPTIONS>`;
+          } else if (session.diseaseType === DiseaseType.EPILEPSY) {
+              // [Epilepsy Mode] 安全第一，严谨
+              response = `已为您匹配${config.displayName}急救与管理路径。
+为了评估风险，请务必如实告知：
+最近一次发作是在什么时候？
+<OPTIONS>24小时内|一周内|一个月前|半年前</OPTIONS>`;
+          } else {
+              // [Migraine Mode] 详细症状，诱因探索
+              response = `已为您匹配${config.displayName}诊疗路径。
+请点击选择疼痛的具体性质（无需输入）：
+<OPTIONS>搏动性跳痛|紧箍感/压迫感|电击样刺痛|炸裂样剧痛</OPTIONS>`;
           }
       } 
-      // [Phase 2] 结构化信息采集 (Data Collection)
+      // [Phase 2] 结构化信息采集 (Data Collection) - 基于病种上下文
       else {
           session.step = Math.min(session.step + 1, session.totalSteps); // 动态步进控制
 
+          const config = DISEASE_CONTEXT_CONFIG[session.diseaseType];
+
           if (session.step < session.totalSteps) {
-              if (session.step === 3) {
+              
+              // --- 偏头痛逻辑 (Migraine Logic) ---
+              if (session.diseaseType === DiseaseType.MIGRAINE) {
+                  if (session.step === 3) {
+                      response = `发作频率是怎样的？这对判断是否为"慢性偏头痛"很重要。
+<OPTIONS>每天都会|每周2-3次|每月1-2次|偶尔/数月一次</OPTIONS>`;
+                  } else if (session.step === 4) {
+                      response = `是否服用过止痛药？(评估MOH风险)
+<OPTIONS>经常服用(>10天/月)|偶尔服用|从未服用|已在预防性治疗</OPTIONS>`;
+                  } else {
+                      response = `发作前是否有视觉先兆（如眼前闪光、暗点、视野缺损）？
+<OPTIONS>每次都有|偶尔有|完全没有|不确定</OPTIONS>`;
+                  }
+              }
+              // --- 癫痫逻辑 (Epilepsy Logic) ---
+              else if (session.diseaseType === DiseaseType.EPILEPSY) {
+                  if (session.step === 3) {
+                      response = `【重要】您是否正在规律服用抗癫痫药物(ASM)？漏服药是诱发持续状态的主要原因。
+<OPTIONS>严格规律服药|偶尔漏服|经常漏服/自行减量|从未服药</OPTIONS>`;
+                  } else {
+                      response = `最近生活环境是否安全？有没有接触闪光、熬夜或情绪激动？
+<OPTIONS>经常熬夜/疲劳|情绪波动大|接触闪光刺激|作息规律/环境安全</OPTIONS>`;
+                  }
+              }
+              // --- 认知障碍逻辑 (Cognitive Logic) ---
+              else if (session.diseaseType === DiseaseType.COGNITIVE) {
+                  if (session.step === 3) {
+                      // 短句，回忆引导
+                      response = `以前的事情记得清楚吗？
+比如年轻时候的工作，或者老房子的样子。
+<OPTIONS>记得很清楚|也有些模糊了|完全不记得|时好时坏</OPTIONS>`;
+                  } else {
+                      // 侧重照护
+                      response = `现在家里是谁在照顾您？
+是老伴，还是子女呢？
+<OPTIONS>老伴照顾|子女照顾|保姆/护工|自己独居</OPTIONS>`;
+                  }
+              }
+              else {
                   response = `这种情况出现的频率是？
 <OPTIONS>每天都会|每周2-3次|每月1-2次|偶尔/数月一次</OPTIONS>`;
-              } else if (session.step === 4) {
-                  response = `既往是否有相关确诊病史或用药史？
-<OPTIONS>已确诊并服药|曾确诊但未服药|从未就诊|不清楚</OPTIONS>`;
-              } else if (session.step === 5) {
-                  // [Dynamic] 仅偏头痛路径会进入第 5 步询问
-                  response = `发作前是否有视觉先兆（如眼前闪光、暗点、视野缺损）？
-<OPTIONS>每次都有|偶尔有|完全没有|不确定</OPTIONS>`;
               }
+
           } else {
               // [Phase 3] 采集结束，触发转化 (Conversion)
-              response = `基础信息采集完毕。
-为了精准判断病情分级，建议进行【华西标准量表深度测评】。
+              // [DYNAMIC TOOLS] 根据病种注入特定的 Action Button (来自配置中心)
+              
+              let actionButtons = config.recommendedTools.map(toolId => {
+                  // Map tool IDs to human-readable buttons
+                  switch(toolId) {
+                      case 'weather_radar': return '诱因分析';
+                      case 'pain_log': return '记录用药';
+                      case 'relax_audio': return '缓解指南';
+                      case 'seizure_diary': return '发作日志';
+                      case 'wave_monitor': return '安全检查';
+                      case 'sos_alert': return '紧急呼叫';
+                      case 'memory_game': return '大脑训练';
+                      case 'schulte_grid': return '专注练习';
+                      case 'family_guard': return '我的足迹'; // 或者是 '呼叫家属'
+                      default: return '查看详情';
+                  }
+              }).join('|');
+
+              // Fallback if empty (should not happen with correct config)
+              if (!actionButtons) actionButtons = "查看报告|完善档案";
+
+              if (session.diseaseType === DiseaseType.COGNITIVE) {
+                  response = `好的，情况我都记下来了。
+我们来做一个有趣的小游戏，测测脑力吧？
+很简单，别紧张。
+<OPTIONS>${actionButtons}</OPTIONS>
 <ACTION>OFFER_ASSESSMENT</ACTION>`;
+              } else if (session.diseaseType === DiseaseType.EPILEPSY) {
+                  response = `基础信息采集完毕。
+为了您的安全，建议立即开启【发作监测】或进行【${config.assessmentScaleId}】风险评估。
+<OPTIONS>${actionButtons}</OPTIONS>
+<ACTION>OFFER_ASSESSMENT</ACTION>`;
+              } else {
+                  response = `基础信息采集完毕。
+为了精准判断病情分级，建议进行【${config.assessmentScaleId} 深度测评】。
+<OPTIONS>${actionButtons}</OPTIONS>
+<ACTION>OFFER_ASSESSMENT</ACTION>`;
+              }
           }
       }
   }

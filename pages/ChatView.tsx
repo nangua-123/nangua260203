@@ -7,7 +7,8 @@ import Layout from '../components/common/Layout';
 import Button from '../components/common/Button';
 import { PaywallModal } from '../components/business/payment/PaywallModal'; // 复用支付组件
 import { usePayment } from '../hooks/usePayment';
-import { useToast } from '../context/ToastContext'; // [NEW]
+import { useToast } from '../context/ToastContext';
+import { DISEASE_CONTEXT_CONFIG } from '../config/DiseaseContextConfig';
 
 interface ChatViewProps {
   onBack: () => void;
@@ -61,6 +62,25 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const timeoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // [NEW] Inbox Listener for Clinical Push Messages
+  useEffect(() => {
+      const inbox = state.user.inbox || [];
+      if (inbox.length > 0) {
+          // Check if latest inbox message is already in displayed messages
+          const lastPush = inbox[inbox.length - 1];
+          const isDisplayed = messages.some(m => m.id === lastPush.id);
+          
+          if (!isDisplayed) {
+              setMessages(prev => [...prev, lastPush]);
+              if (lastPush.isClinicalPush) {
+                  // Trigger visual takeover or alert sound if needed
+                  // For now just auto-scroll
+                  scrollToBottom();
+              }
+          }
+      }
+  }, [state.user.inbox, messages]);
+
   useEffect(() => {
     loadHistory();
   }, []);
@@ -78,7 +98,14 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
   }, [isLoading, isTakeoverMode]);
 
   const loadHistory = () => {
-    setMessages([]);
+    // Only load initial history if messages empty, otherwise respect current session
+    // Actually, on mount we usually want to start fresh or load persisted.
+    // For this demo, let's reset but check inbox first.
+    
+    // Check if we have inbox messages to show initially
+    const initialInbox = state.user.inbox || [];
+    
+    setMessages([...initialInbox]);
     setLatestOptions([]);
     setIsLoading(false);
     setShowAssessmentOffer(false);
@@ -89,8 +116,12 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
     chatSessionRef.current = createChatSession("系统初始化", DiseaseType.UNKNOWN);
     // 更新动态步数 (Initial state)
     setTotalSteps(chatSessionRef.current.totalSteps || 5);
-    // 直接开始分诊，AI 主动接诊
-    handleSend("开始分诊", true);
+    
+    // Only start triage if no critical push messages exist
+    if (initialInbox.length === 0) {
+        // 直接开始分诊，AI 主动接诊
+        handleSend("开始分诊", true);
+    }
   };
 
   const scrollToBottom = () => {
@@ -173,7 +204,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
       // If takeover happened during await (e.g. timeout), abort processing response
       if (isTakeoverMode) return;
 
-      // Update disease type
+      // Update disease type - [VISUAL SYNC]
       if (chatSessionRef.current.diseaseType !== DiseaseType.UNKNOWN) {
           setActiveDisease(chatSessionRef.current.diseaseType);
       }
@@ -222,6 +253,10 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
   };
 
   const handleAssessmentPaid = () => {
+      // [CRITICAL FIX] Update global disease type before navigation
+      // Ensure AssessmentView receives the correct disease type detected by AI
+      dispatch({ type: 'SET_RISK_SCORE', payload: { score: 0, type: activeDisease } });
+
       // 支付成功，跳转到测评页
       const event = new CustomEvent('navigate-to', { detail: 'assessment' });
       window.dispatchEvent(event);
@@ -240,17 +275,22 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
       window.dispatchEvent(event);
   };
 
-  const getDiseaseLabel = (type: DiseaseType) => {
-      switch (type) {
-          case DiseaseType.MIGRAINE: return '华西头痛中心';
-          case DiseaseType.EPILEPSY: return '华西癫痫中心';
-          case DiseaseType.COGNITIVE: return '认知/记忆门诊';
-          default: return '华西神经内科';
-      }
+  // 根据当前病种状态动态加载配置
+  const getDiseaseConfig = (type: DiseaseType) => {
+      return DISEASE_CONTEXT_CONFIG[type] || DISEASE_CONTEXT_CONFIG[DiseaseType.UNKNOWN];
   };
 
+  const currentConfig = getDiseaseConfig(activeDisease);
+
+  // 动态决定需要展示的付费包
   const getTargetPackage = () => {
-      return PACKAGES.ICE_BREAKING_MIGRAINE; 
+      // 根据病种返回不同的 VIP 包
+      switch (activeDisease) {
+          case DiseaseType.COGNITIVE: return PACKAGES.VIP_COGNITIVE;
+          case DiseaseType.EPILEPSY: return PACKAGES.VIP_EPILEPSY;
+          case DiseaseType.MIGRAINE: return PACKAGES.VIP_MIGRAINE;
+          default: return PACKAGES.ICE_BREAKING_MIGRAINE;
+      }
   };
 
   return (
@@ -269,7 +309,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                  <div className="flex-1 px-2">
                      <div className="flex justify-between items-end mb-1.5">
                          {/* [Typography Update] 12px -> 14px (Requirement 3) */}
-                         <span className="text-[14px] font-bold text-slate-900">{getDiseaseLabel(activeDisease)}</span>
+                         <span className="text-[14px] font-bold text-slate-900">{currentConfig.displayName}</span>
                          {/* [Typography Update] 10px -> 12px (Requirement 3) */}
                          <span className="text-[12px] text-brand-600 font-bold">
                              {currentStep >= totalSteps ? '问诊完成' : `进度 ${currentStep}/${totalSteps}`}
@@ -293,22 +333,34 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
           <div className="space-y-6 pb-4">
             {messages.map((msg, index) => (
                 <div key={msg.id} className="flex flex-col gap-3 animate-slide-up">
+                    {/* [NEW] Clinical Push Style */}
+                    {msg.isClinicalPush && (
+                        <div className="flex w-full justify-center my-2">
+                            <span className="text-[10px] bg-red-100 text-red-600 px-3 py-1 rounded-full font-bold shadow-sm">
+                                👨‍⚕️ 医助介入: 临床急救推送
+                            </span>
+                        </div>
+                    )}
+
                     <div className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start items-start gap-3'}`}>
-                        {msg.role === 'model' && (
-                            <div className="w-10 h-10 rounded-full bg-white border border-slate-100 flex items-center justify-center flex-shrink-0 mt-1 shadow-sm">
-                                <span className="text-xl">👨‍⚕️</span>
+                        {msg.role === 'model' || msg.role === 'system' ? (
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 mt-1 shadow-sm ${msg.isClinicalPush ? 'bg-red-50 text-red-500 border border-red-200' : 'bg-white border border-slate-100'}`}>
+                                <span className="text-xl">{msg.isClinicalPush ? '🚨' : '👨‍⚕️'}</span>
                             </div>
-                        )}
+                        ) : null}
+                        
                         <div className={`max-w-[85%] p-4 rounded-2xl text-[15px] leading-relaxed shadow-sm whitespace-pre-wrap ${
                             msg.role === 'user' 
                             ? 'bg-[#1677FF] text-white rounded-tr-sm shadow-brand-500/20' 
-                            : 'bg-white text-slate-800 rounded-tl-sm border border-slate-100'
+                            : msg.isClinicalPush
+                                ? 'bg-red-50 text-red-900 rounded-tl-sm border border-red-200 font-medium'
+                                : 'bg-white text-slate-800 rounded-tl-sm border border-slate-100'
                         }`}>
                             {msg.text}
                         </div>
                     </div>
                     {/* Render Options: Only if no assessment offer is showing AND not in takeover mode */}
-                    {index === messages.length - 1 && msg.role === 'model' && latestOptions.length > 0 && !showAssessmentOffer && !isTakeoverMode && (
+                    {index === messages.length - 1 && (msg.role === 'model' || msg.role === 'system') && latestOptions.length > 0 && !showAssessmentOffer && !isTakeoverMode && (
                         <div className="pl-14 pr-2 space-y-2.5 w-full animate-fade-in">
                             {latestOptions.map((opt, idx) => (
                                 <button 
@@ -353,7 +405,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                     <div className="space-y-3">
                         {/* 1元付费入口 - 视觉强调但非唯一 */}
                         <Button fullWidth onClick={handleUnlockAssessment} className="shadow-lg shadow-brand-500/20 py-4 h-auto flex items-center justify-center gap-2">
-                            <span className="text-sm">深度分级测评 (含MIDAS量表)</span>
+                            <span className="text-sm">深度分级测评 (含{currentConfig.assessmentScaleId}量表)</span>
                             <span className="bg-white/20 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">¥1.00</span>
                         </Button>
 
@@ -407,7 +459,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
         {/* Payment Modal */}
         <PaywallModal 
             visible={showPayModal} 
-            pkg={getTargetPackage()} 
+            pkg={getTargetPackage()} // 动态选择当前病种的 VIP 包
             onClose={() => setShowPayModal(false)}
             onSuccess={handleAssessmentPaid}
         />

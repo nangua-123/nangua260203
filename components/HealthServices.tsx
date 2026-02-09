@@ -6,7 +6,7 @@ import { usePayment } from '../hooks/usePayment';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
 import { VisualMemoryGame, AttentionGame, CognitiveDashboard } from './CognitiveGames';
-import { HeadacheProfile, FamilyMember, MedicalRecord, CognitiveTrainingRecord } from '../types';
+import { HeadacheProfile, FamilyMember, MedicalRecord, CognitiveTrainingRecord, SeizureEvent } from '../types';
 import { processMedicalImage } from '../services/geminiService';
 
 import { DigitalPrescription } from './business/headache/DigitalPrescription';
@@ -422,49 +422,62 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
 };
 
 export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+    const { state, dispatch } = useApp();
     const { hasFeature, PACKAGES } = usePayment();
     const { showToast } = useToast(); 
     const [showPay, setShowPay] = useState(false);
-    const [showManualRecord, setShowManualRecord] = useState(false); 
+    const [showDiaryModal, setShowDiaryModal] = useState(false); // [NEW] Enhanced Modal
     const isVip = hasFeature('VIP_EPILEPSY');
 
-    const handleSaveRecord = () => {
-        setShowManualRecord(false);
-        showToast("记录已保存至本地缓存 (HS-007)");
+    // [NEW] Seizure Diary State
+    const [diaryForm, setDiaryForm] = useState({
+        type: '强直阵挛 (大发作)' as string,
+        duration: '' as string,
+        triggers: [] as string[]
+    });
+
+    const activeProfileId = state.user.currentProfileId || state.user.id;
+
+    const handleDiarySubmit = () => {
+        if (!diaryForm.duration) {
+            showToast('请填写持续时间', 'error');
+            return;
+        }
+
+        const newEvent: SeizureEvent = {
+            id: `seiz_${Date.now()}`,
+            timestamp: Date.now(),
+            type: diaryForm.type,
+            duration: parseInt(diaryForm.duration) || 0,
+            triggers: diaryForm.triggers
+        };
+
+        dispatch({ type: 'ADD_SEIZURE_EVENT', payload: { id: activeProfileId, event: newEvent } });
+        setShowDiaryModal(false);
+        setDiaryForm({ type: '强直阵挛 (大发作)', duration: '', triggers: [] }); // Reset
+        showToast("发作记录已归档，AI 风险模型更新中...", 'success');
+    };
+
+    const toggleDiaryTrigger = (t: string) => {
+        setDiaryForm(prev => {
+            if (prev.triggers.includes(t)) return { ...prev, triggers: prev.triggers.filter(x => x !== t) };
+            return { ...prev, triggers: [...prev.triggers, t] };
+        });
     };
 
     return (
         <Layout headerTitle="癫痫生命守护" showBack onBack={onBack}>
-            <div className="p-5 space-y-5">
+            <div className="p-5 space-y-5 pb-24">
                 <WaveMonitor />
                 <div className="flex justify-center">
                      <button 
-                         onClick={() => setShowManualRecord(!showManualRecord)}
-                         className="text-xs font-bold text-slate-500 underline decoration-slate-300"
+                         onClick={() => setShowDiaryModal(true)}
+                         className="bg-white border-2 border-slate-100 rounded-full px-6 py-3 text-xs font-black text-slate-700 shadow-sm active:scale-95 transition-transform flex items-center gap-2"
                      >
-                         设备无法连接？切换手动记录模式
+                         <span>📝</span> 记录临床发作日记
                      </button>
                 </div>
-                {showManualRecord && (
-                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 animate-slide-up">
-                         <h3 className="font-black text-slate-800 text-sm mb-3">手动记录发作事件</h3>
-                         <div className="space-y-3">
-                             <div>
-                                 <label className="text-[10px] font-bold text-slate-500 block mb-1">发作形式</label>
-                                 <div className="flex gap-2">
-                                     <button className="flex-1 bg-brand-50 text-brand-600 py-2 rounded-lg text-xs font-bold border border-brand-200">大发作</button>
-                                     <button className="flex-1 bg-slate-50 text-slate-500 py-2 rounded-lg text-xs font-bold border border-slate-100">失神</button>
-                                     <button className="flex-1 bg-slate-50 text-slate-500 py-2 rounded-lg text-xs font-bold border border-slate-100">局灶</button>
-                                 </div>
-                             </div>
-                             <div>
-                                 <label className="text-[10px] font-bold text-slate-500 block mb-1">持续时间 (秒)</label>
-                                 <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold" placeholder="例如: 120" />
-                             </div>
-                             <Button fullWidth size="sm" onClick={handleSaveRecord}>保存记录</Button>
-                         </div>
-                    </div>
-                )}
+
                 <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-50">
                     <h3 className="font-black text-slate-800 text-sm mb-3">最近24小时监测日志</h3>
                     {isVip ? (
@@ -498,6 +511,64 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                     </div>
                 )}
                 <PaywallModal visible={showPay} pkg={PACKAGES.VIP_EPILEPSY} onClose={() => setShowPay(false)} />
+
+                {/* [NEW] Seizure Diary Modal */}
+                {showDiaryModal && (
+                    <div className="fixed inset-0 z-[100] flex items-end justify-center">
+                        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowDiaryModal(false)}></div>
+                        <div className="bg-white w-full rounded-t-[32px] p-6 relative z-10 animate-slide-up max-w-[430px] mx-auto pb-safe">
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-lg font-black text-slate-900">记录发作详情</h3>
+                                <button onClick={() => setShowDiaryModal(false)} className="bg-slate-50 p-2 rounded-full text-slate-400">✕</button>
+                            </div>
+                            
+                            <div className="space-y-6">
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 block mb-2">发作类型</label>
+                                    <div className="flex gap-2">
+                                        {['强直阵挛 (大发作)', '失神 (小发作)', '局灶性发作'].map(t => (
+                                            <button 
+                                                key={t}
+                                                onClick={() => setDiaryForm({...diaryForm, type: t})}
+                                                className={`flex-1 py-2.5 rounded-xl text-[10px] font-bold border transition-colors ${diaryForm.type === t ? 'bg-brand-50 border-brand-200 text-brand-600' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
+                                            >
+                                                {t}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 block mb-2">持续时长 (秒)</label>
+                                    <input 
+                                        type="number" 
+                                        placeholder="例如: 120" 
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold focus:border-brand-500 outline-none"
+                                        value={diaryForm.duration}
+                                        onChange={e => setDiaryForm({...diaryForm, duration: e.target.value})}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 block mb-2">可能诱因 (多选)</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {['漏服药', '疲劳/熬夜', '饮酒', '情绪激动', '闪光刺激', '月经期'].map(t => (
+                                            <button 
+                                                key={t}
+                                                onClick={() => toggleDiaryTrigger(t)}
+                                                className={`px-3 py-2 rounded-lg text-[10px] font-bold border transition-colors ${diaryForm.triggers.includes(t) ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-white border-slate-200 text-slate-500'}`}
+                                            >
+                                                {t}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <Button fullWidth onClick={handleDiarySubmit} className="shadow-lg shadow-brand-500/20 mt-4">确认归档</Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </Layout>
     );

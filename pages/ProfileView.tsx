@@ -5,8 +5,9 @@ import Layout from '../components/common/Layout';
 import { useApp } from '../context/AppContext';
 import { useRole } from '../hooks/useRole';
 import { FamilyManagedModal } from '../components/FamilyManagedModal';
-import { RoleManager } from '../components/RoleManager'; // [NEW]
+import { RoleManager } from '../components/RoleManager'; 
 import { useToast } from '../context/ToastContext';
+import { HardwareStatus } from '../components/business/profile/HardwareStatus'; // [NEW]
 
 interface ProfileViewProps {
     user: User;
@@ -17,11 +18,11 @@ interface ProfileViewProps {
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNavigate, onClearCache, onToggleElderly }) => {
-    const { dispatch, switchProfile } = useApp(); // [NEW] Use switchProfile
+    const { dispatch, switchProfile } = useApp(); 
     const { isPatient, isFamily, isDoctor, checkPermission } = useRole();
     const { showToast } = useToast();
     const [showQR, setShowQR] = useState(false);
-    const [showRoleManager, setShowRoleManager] = useState(false); // [NEW]
+    const [showRoleManager, setShowRoleManager] = useState(false); 
 
     // AD 患者判定
     const isADPatient = user.isElderlyMode || user.headacheProfile?.diagnosisType?.includes('AD') || false;
@@ -35,7 +36,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNav
         }
     };
 
-    // [SECURITY] 使用 switchProfile 替代 dispatch
     const handleSwitchContext = async () => {
         if (!user.associatedPatientId) return;
         
@@ -47,8 +47,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNav
             // 切到患者 (代管模式)
             await switchProfile(user.associatedPatientId);
             showToast('已切换至患者代管视图', 'success');
-            // 注意：switchProfile 已包含强制路由重置到 Home，此处无需手动 navigate
         }
+    };
+
+    const handleRenewDevice = () => {
+        onNavigate('haas-checkout');
     };
 
     const getRoleLabel = (role: UserRole) => {
@@ -60,7 +63,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNav
         }
     };
 
-    // [UPDATED] 蚂蚁阿福风格配色：统一使用品牌蓝，通过透明度区分角色
     const headerBgClass = isFamily ? 'bg-gradient-to-br from-orange-500 to-orange-600' : 
                           isDoctor ? 'bg-gradient-to-br from-indigo-500 to-indigo-600' : 
                           'bg-gradient-to-b from-[#1677FF] to-[#1D4ED8]';
@@ -68,9 +70,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNav
     return (
         <Layout headerTitle="个人中心" hideHeader>
             <div className="min-h-screen bg-[#F5F5F5] pb-24 relative animate-fade-in">
-                {/* Header - [UPDATED] 更明亮的视觉风格 */}
+                {/* Header */}
                 <div className={`relative pt-16 pb-24 px-6 overflow-hidden ${headerBgClass} shadow-lg shadow-blue-500/10`}>
-                    {/* 装饰性背景纹理 */}
                     <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4"></div>
                     <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/4"></div>
                     
@@ -93,7 +94,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNav
                         </div>
                     </div>
 
-                    {/* 家属代管状态提示 - Clickable to Switch */}
+                    {/* 家属代管状态提示 */}
                     {isFamily && user.associatedPatientId && (
                         <div 
                             onClick={handleSwitchContext}
@@ -121,7 +122,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNav
                 {/* Dashboard Content */}
                 <div className="px-5 -mt-16 relative z-20 space-y-4">
                     
-                    {/* [NEW] 角色管理入口 */}
+                    {/* [NEW] Hardware Status Dashboard (HaaS Loop) */}
+                    {user.hasHardware && user.deviceInfo && (
+                        <HardwareStatus info={user.deviceInfo} onRenew={handleRenewDevice} />
+                    )}
+
+                    {/* 角色管理入口 */}
                     <div 
                         onClick={() => setShowRoleManager(true)}
                         className="bg-white rounded-[24px] p-4 shadow-sm border border-slate-100 flex items-center justify-between active:scale-[0.98] transition-transform cursor-pointer"
@@ -147,7 +153,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNav
                         </div>
                     </div>
 
-                    {/* AD 患者专属：家属代管入口 */}
+                    {/* AD 家属代管入口 */}
                     {checkPermission('GENERATE_QR') && isADPatient && (
                         <div 
                             onClick={() => setShowQR(true)}

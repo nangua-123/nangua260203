@@ -58,12 +58,35 @@
       }
     </script>
     <style>
+      :root {
+        /* Base font-size on mobile usually defaults to 16px */
+      }
+
       body { 
         background-color: #F1F5F9; 
         margin: 0;
         -webkit-tap-highlight-color: transparent;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       }
+
+      /* Elderly Mode Global Overrides */
+      html {
+        transition: font-size 0.3s ease;
+      }
+
+      html.elderly-mode {
+        font-size: 120%; /* Scale base REM by 20% */
+      }
+
+      /* Force accessibility heights in elderly mode */
+      html.elderly-mode button,
+      html.elderly-mode input,
+      html.elderly-mode select,
+      html.elderly-mode .btn {
+        min-height: 60px !important;
+      }
+
+      /* Container Logic */
       #root {
         max-width: 430px;
         margin: 0 auto;
@@ -71,18 +94,25 @@
         background-color: #FFFFFF;
         box-shadow: 0 0 20px rgba(0,0,0,0.05);
         position: relative;
-        overflow: hidden;
+        overflow-x: hidden; /* Prevent horizontal scroll */
       }
+      
       .hide-scrollbar::-webkit-scrollbar { display: none; }
       .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
       
-      /* 全局点击反馈 */
+      /* Utility for text safety */
+      .break-words {
+        word-break: break-word;
+        overflow-wrap: break-word;
+      }
+      
+      /* Global Active State */
       button:active {
         transform: scale(0.97);
         transition: transform 0.1s;
       }
 
-      /* 横屏警告层 */
+      /* Orientation Warning */
       #orientation-warning {
         display: none;
         position: fixed;

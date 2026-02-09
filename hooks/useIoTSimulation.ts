@@ -8,6 +8,7 @@
  * 1. 模拟心率、血压、血氧等生命体征的实时变化。
  * 2. 模拟突发事件: 心率异常、跌倒检测 (Fall Detection)、声音识别。
  * 3. [Requirement 4] 离线预警补丁: 弱网/离线状态下触发物理震动和本地短信。
+ * 4. [HaaS] 设备长期离线故障诊断。
  */
 
 import { useEffect, useRef } from 'react';
@@ -28,10 +29,31 @@ export const useIoTSimulation = () => {
     const activeIdRef = useRef(activeProfileId);
     useEffect(() => { activeIdRef.current = activeProfileId; }, [activeProfileId]);
 
+    // [HaaS] Offline Diagnosis Effect
+    useEffect(() => {
+        // Run check every minute in real app, here checking once on mount/change for demo simplicity 
+        // or integrate into the interval loop below.
+        // For demo: Check if device is hasHardware but lastUpdated is old (simulated by initial state being 0 or very old)
+        if (hasDevice && user.deviceInfo?.status === 'ONLINE') {
+             // In a real app, this would check against current time.
+             // Here we simulate the event triggering randomly or based on specific prop if we want to force it.
+        }
+    }, [hasDevice]);
+
     useEffect(() => {
         if (!state.isLoggedIn || !hasDevice) return;
 
         const interval = setInterval(() => {
+            // [HaaS] Offline Diagnosis Logic
+            // Simulate that sometimes the device stops updating (isOffline)
+            // But for this requirement: "if device offline > 24h". 
+            // We simulate checking the last update time.
+            const lastUpdate = user.iotStats?.lastUpdated || 0;
+            // Mock condition: If we artificially set lastUpdated to >24h ago in state (not done here, but handled if it happens)
+            // OR randomly trigger this alert for the demo verification.
+            
+            // Let's rely on standard updates here for live data
+            
             // 1. 基础生命体征模拟
             const isHrAnomaly = Math.random() > 0.98; // 2% 概率心率异常
             let hr = 75 + Math.floor(Math.random() * 20 - 10); 
@@ -55,6 +77,21 @@ export const useIoTSimulation = () => {
             
             // 声音识别 (持续抽搐声): 0.5% 概率
             const isSound = isEpilepsyUser && Math.random() > 0.995; 
+
+            // [HaaS] Offline Simulation Trigger (Very low prob for demo, or force via devtools)
+            const isLongTermOffline = Math.random() > 0.998; 
+
+            if (isLongTermOffline) {
+                // Trigger Family Alert
+                dispatch({ 
+                    type: 'SEND_CLINICAL_MESSAGE', 
+                    payload: { targetId: activeProfileId, message: "【严重故障】监测设备已离线超过24小时，请检查电量或联系客服，建议立即确认患者安全。" } 
+                });
+                // Note: We don't update stats if offline, so we return or just log
+                // But to make user see it in inbox, we dispatched above.
+                // We won't update IoT stats this tick to simulate offline.
+                return;
+            }
 
             const stats: IoTStats = {
                 hr, 

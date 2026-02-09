@@ -6,7 +6,7 @@
  */
 
 import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
-import { User, UserRole, FeatureKey, DiseaseType, ReferralData, HeadacheProfile, IoTStats, CognitiveStats, FamilyMember, SharingScope, PrivacySettings, DoctorAssistantProof, MedLog, MedicalRecord, CognitiveTrainingRecord, HealthTrendItem, ReviewReport, ChatMessage } from '../types';
+import { User, UserRole, FeatureKey, DiseaseType, ReferralData, HeadacheProfile, IoTStats, CognitiveStats, FamilyMember, SharingScope, PrivacySettings, DoctorAssistantProof, MedLog, MedicalRecord, CognitiveTrainingRecord, HealthTrendItem, ReviewReport, ChatMessage, SeizureEvent, EpilepsyProfile, AssessmentDraft, PatientProcessStatus, DeviceInfo } from '../types';
 
 // --- Security Utils (Simulated) ---
 const maskName = (name: string) => name ? name[0] + '*'.repeat(name.length - 1) : '';
@@ -41,6 +41,9 @@ interface AppState {
   isLoading: boolean; 
   isSwitching: boolean; // [NEW] 档案切换原子锁
   mohAlertTriggered: boolean; // [NEW] MOH 熔断预警状态
+  seizureAlertTriggered: boolean; // [NEW] 癫痫频率异常告警
+  assessmentDraft?: AssessmentDraft; // [NEW] 量表进度暂存
+  patientStatusMap: Record<string, PatientProcessStatus>; // [NEW] 医助处理状态表
 }
 
 // --- Initial State ---
@@ -63,6 +66,16 @@ const INITIAL_COGNITIVE_STATS: CognitiveStats = {
     }
 };
 
+// [HaaS] Init Mock Device Data
+// 模拟一个还有 2 天到期的设备
+const MOCK_DEVICE_INFO: DeviceInfo = {
+    deviceId: 'HaaS-8829',
+    modelName: '华西 01 号脑电贴',
+    batteryLevel: 18, // Low battery for demo
+    rentalExpireDate: Date.now() + 2 * 24 * 60 * 60 * 1000, // 2 days left
+    status: 'ONLINE'
+};
+
 const INITIAL_STATE: AppState = {
   isLoggedIn: false, 
   user: {
@@ -73,7 +86,8 @@ const INITIAL_STATE: AppState = {
     availableRoles: [], // [NEW] 初始无角色
     vipLevel: 0,
     unlockedFeatures: [],
-    hasHardware: false,
+    hasHardware: false, // Default false, will be true if testing HaaS
+    // deviceInfo: MOCK_DEVICE_INFO, // In real app, only present if hasHardware is true. In demo, toggle.
     isElderlyMode: false,
     privacySettings: {
         allowCloudStorage: true,
@@ -96,14 +110,17 @@ const INITIAL_STATE: AppState = {
     medicationLogs: [],
     healthTrends: [], // [NEW]
     familyMembers: [],
-    currentProfileId: 'guest' 
+    currentProfileId: 'guest',
+    inbox: [] // [NEW]
   },
   riskScore: 0,
   primaryCondition: DiseaseType.MIGRAINE,
   lastDiagnosis: null,
   isLoading: false,
   isSwitching: false,
-  mohAlertTriggered: false
+  mohAlertTriggered: false,
+  seizureAlertTriggered: false,
+  patientStatusMap: {} // [NEW]
 };
 
 // --- Persistence Key ---
@@ -121,6 +138,7 @@ type Action =
   | { type: 'SET_DIAGNOSIS'; payload: { reason: string; referral?: ReferralData } }
   | { type: 'UNLOCK_FEATURE'; payload: FeatureKey }
   | { type: 'BIND_HARDWARE'; payload: boolean }
+  | { type: 'RENEW_DEVICE'; payload: number } // [NEW] Days to add
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_SWITCHING'; payload: boolean } // [NEW]
   | { type: 'RESET_USER' }
@@ -137,7 +155,12 @@ type Action =
   | { type: 'UPDATE_PRIVACY_SETTINGS'; payload: Partial<PrivacySettings> }
   | { type: 'LOG_MEDICATION'; payload: MedLog }
   | { type: 'ADD_MEDICAL_RECORD'; payload: { profileId: string; record: MedicalRecord } }
-  | { type: 'GENERATE_REVIEW_REPORT'; payload: { reason: 'KEYWORD_DETECTED' | 'RESPONSE_TIMEOUT'; history: ChatMessage[] } };
+  | { type: 'GENERATE_REVIEW_REPORT'; payload: { reason: 'KEYWORD_DETECTED' | 'RESPONSE_TIMEOUT' | 'MANUAL_INTERVENTION'; history: ChatMessage[]; processorId?: string } }
+  | { type: 'ADD_SEIZURE_EVENT'; payload: { id: string; event: SeizureEvent } }
+  | { type: 'SAVE_ASSESSMENT_DRAFT'; payload: AssessmentDraft }
+  | { type: 'CLEAR_ASSESSMENT_DRAFT' }
+  | { type: 'UPDATE_PATIENT_STATUS'; payload: { patientId: string; status: PatientProcessStatus } } // [NEW]
+  | { type: 'SEND_CLINICAL_MESSAGE'; payload: { targetId: string; message: string } }; // [NEW]
 
 // --- Reducer ---
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -232,13 +255,25 @@ const appReducer = (state: AppState, action: Action): AppState => {
         },
       };
     case 'BIND_HARDWARE':
+      // [HaaS] Binding triggers demo data injection
       return {
         ...state,
         user: {
           ...state.user,
           hasHardware: action.payload,
+          deviceInfo: action.payload ? MOCK_DEVICE_INFO : undefined
         },
       };
+    case 'RENEW_DEVICE':
+        const currentExpire = state.user.deviceInfo?.rentalExpireDate || Date.now();
+        const newExpire = currentExpire + (action.payload * 24 * 60 * 60 * 1000);
+        return {
+            ...state,
+            user: {
+                ...state.user,
+                deviceInfo: state.user.deviceInfo ? { ...state.user.deviceInfo, rentalExpireDate: newExpire } : undefined
+            }
+        };
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload };
     case 'SET_SWITCHING':
@@ -303,13 +338,23 @@ const appReducer = (state: AppState, action: Action): AppState => {
 
     case 'UPDATE_IOT_STATS': {
         const { id, stats } = action.payload;
+        // [HaaS] Update device battery randomly during usage if user has hardware
+        let updatedUser = { ...state.user };
+        if (state.user.hasHardware && state.user.deviceInfo) {
+             const drain = Math.random() > 0.8 ? 1 : 0; // Slow drain
+             updatedUser.deviceInfo = {
+                 ...state.user.deviceInfo,
+                 batteryLevel: Math.max(0, state.user.deviceInfo.batteryLevel - drain)
+             };
+        }
+
         if (state.user.id === id) {
-            return { ...state, user: { ...state.user, iotStats: stats } };
+            return { ...state, user: { ...updatedUser, iotStats: stats } };
         }
         const updatedFamily = state.user.familyMembers?.map(m => 
             m.id === id ? { ...m, iotStats: stats } : m
         ) || [];
-        return { ...state, user: { ...state.user, familyMembers: updatedFamily } };
+        return { ...state, user: { ...updatedUser, familyMembers: updatedFamily } };
     }
 
     case 'SYNC_TRAINING_DATA': {
@@ -479,14 +524,15 @@ const appReducer = (state: AppState, action: Action): AppState => {
     }
 
     case 'GENERATE_REVIEW_REPORT': {
-        const { reason, history } = action.payload;
+        const { reason, history, processorId } = action.payload;
         const newReport: ReviewReport = {
             id: `rev_${Date.now()}`,
             timestamp: Date.now(),
             triggerReason: reason,
             riskLevel: 'CRITICAL',
             chatHistorySnapshot: [...history],
-            status: 'PENDING'
+            status: processorId ? 'RESOLVED' : 'PENDING',
+            processorId: processorId
         };
         
         const currentProof = state.user.assistantProof || {
@@ -511,9 +557,97 @@ const appReducer = (state: AppState, action: Action): AppState => {
         };
     }
 
+    case 'ADD_SEIZURE_EVENT': {
+        const { id, event } = action.payload;
+        let isAlert = false;
+        
+        const updateEpilepsyProfile = (profile?: EpilepsyProfile): EpilepsyProfile => {
+            const currentProfile = profile || { 
+                isComplete: true, source: 'AI_GENERATED', seizureType: '未知', 
+                frequency: '未知', lastSeizure: new Date().toISOString(), triggers: [], 
+                consciousness: true, lastUpdated: Date.now(), seizureHistory: [] 
+            };
+            const history = [...(currentProfile.seizureHistory || []), event].sort((a, b) => b.timestamp - a.timestamp); // Descending
+            
+            const now = Date.now();
+            const oneDay = 86400000;
+            const currentWeekCount = history.filter(e => e.timestamp > now - 7 * oneDay).length;
+            const prevWeekCount = history.filter(e => e.timestamp > now - 14 * oneDay && e.timestamp <= now - 7 * oneDay).length;
+            
+            if (prevWeekCount > 0) {
+                if ((currentWeekCount - prevWeekCount) / prevWeekCount >= 0.2) isAlert = true;
+            } else if (currentWeekCount >= 2) {
+                isAlert = true;
+            }
+
+            return {
+                ...currentProfile,
+                seizureHistory: history,
+                lastSeizure: new Date(event.timestamp).toISOString().split('T')[0],
+                lastUpdated: Date.now()
+            };
+        };
+
+        let updatedUser = { ...state.user };
+        
+        if (state.user.id === id) {
+            updatedUser.epilepsyProfile = updateEpilepsyProfile(state.user.epilepsyProfile);
+        } else {
+            updatedUser.familyMembers = state.user.familyMembers?.map(m => 
+                m.id === id ? { ...m, epilepsyProfile: updateEpilepsyProfile(m.epilepsyProfile) } : m
+            );
+        }
+
+        return {
+            ...state,
+            user: updatedUser,
+            seizureAlertTriggered: isAlert
+        };
+    }
+
+    case 'SAVE_ASSESSMENT_DRAFT':
+        return {
+            ...state,
+            assessmentDraft: action.payload
+        };
+
+    case 'CLEAR_ASSESSMENT_DRAFT':
+        return {
+            ...state,
+            assessmentDraft: undefined
+        };
+
     case 'CLEAR_CACHE':
         localStorage.removeItem(STORAGE_KEY);
         return INITIAL_STATE;
+
+    case 'UPDATE_PATIENT_STATUS':
+        return {
+            ...state,
+            patientStatusMap: {
+                ...state.patientStatusMap,
+                [action.payload.patientId]: action.payload.status
+            }
+        };
+
+    case 'SEND_CLINICAL_MESSAGE':
+        const { message } = action.payload;
+        // 简单模拟: 无论 targetId 是谁，如果当前登录用户是患者本人，就加到 inbox
+        // 在真实场景中，这应该是 socket 推送
+        const newMsg: ChatMessage = {
+            id: `sys_push_${Date.now()}`,
+            role: 'system',
+            text: message,
+            timestamp: Date.now(),
+            isClinicalPush: true
+        };
+        return {
+            ...state,
+            user: {
+                ...state.user,
+                inbox: [...(state.user.inbox || []), newMsg]
+            }
+        };
         
     default:
       return state;
@@ -547,15 +681,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
   }, [state]);
 
-  // [NEW] 核心档案切换逻辑 (重构版)
   const switchProfile = async (targetId: string) => {
-      // 1. 原子锁：锁定 UI，防止并发操作和数据渲染
       dispatch({ type: 'SET_SWITCHING', payload: true });
 
-      // 2. 权限校验
       if (targetId !== state.user.id) {
           console.log("【权限隔离】检测到代管模式切换...");
-          // Mock Family_Token validation
           const isTokenValid = true; 
           if (!isTokenValid) {
               console.error("【权限阻断】Family_Token 校验失败");
@@ -564,22 +694,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           }
       }
 
-      // 3. 内存熔断与缓存清洗
       clearSessionCache(); 
-      
-      // 模拟异步清洗过程，确保 React 状态树有时间响应 Unmount
-      // 这实际上强制 currentProfile 相关的所有视图组件卸载
       await new Promise(resolve => setTimeout(resolve, 600));
 
-      // 4. 执行状态切换
       dispatch({ type: 'SWITCH_PATIENT', payload: targetId });
-
-      // 5. 强制路由重置
-      // 将路由切回 Home，确保 ChatView 等包含本地状态的组件被彻底销毁重建
       window.dispatchEvent(new CustomEvent('navigate-to', { detail: 'home' }));
 
-      // 6. 解锁 UI
-      // 延迟解锁，确保新组件挂载时读取的是全新的 Profile 数据
       setTimeout(() => {
           dispatch({ type: 'SET_SWITCHING', payload: false });
       }, 100);

@@ -76,9 +76,18 @@ export interface IoTStats {
   bpDia: number;   
   spo2: number;    
   isAbnormal: boolean; 
-  isFallDetected: boolean; // 跌倒检测
+  isFallDetected: boolean; // [NEW] 跌倒检测状态位
   isSoundTriggered?: boolean; // [NEW] 声音识别触发 (持续抽搐声/呼救)
   lastUpdated: number;
+}
+
+// [NEW] HaaS 设备信息
+export interface DeviceInfo {
+  deviceId: string;
+  modelName: string; // e.g., "华西 01 号脑电贴"
+  batteryLevel: number; // 0-100
+  rentalExpireDate: number; // timestamp
+  status: 'ONLINE' | 'OFFLINE' | 'CHARGING';
 }
 
 // [NEW] 认知训练单次记录 (精细化采集)
@@ -90,14 +99,12 @@ export interface CognitiveTrainingRecord {
   durationSeconds: number; // 训练时长
   accuracy: number;    // 正确率 (0-100)
   difficultyLevel?: number; // 达到的难度等级
-  
-  // [Mandatory Collection]
+  reactionSpeedMs?: number; // 平均反应速度 (毫秒)
+  isCompleted?: boolean; 
+  status?: 'COMPLETED' | 'INVALID_DURATION'; // [HARD_REQUIREMENT] 强制状态标记
   reactionTimeAvg: number; // 平均反应耗时 (ms)
   errorPattern: string[];  // 错误类型分布 (Tags)
   stabilityIndex: number;  // 稳定性指数 (0-100)
-  
-  isCompleted?: boolean; 
-  status?: 'COMPLETED' | 'INVALID_DURATION'; // [HARD_REQUIREMENT] 强制状态标记
 }
 
 // [NEW] 认知数据统计 (含雷达图维度)
@@ -109,8 +116,6 @@ export interface CognitiveStats {
   lastScore: number;      
   aiRating: string;       
   lastUpdated: number;
-  
-  // [UI Requirement] 多维度雷达图数据
   dimensionStats: {
       memory: number;      // 记忆力
       attention: number;   // 专注力
@@ -118,7 +123,6 @@ export interface CognitiveStats {
       stability: number;   // 稳定性
       flexibility: number; // 灵活性
   };
-  
   trainingHistory?: CognitiveTrainingRecord[];
 }
 
@@ -149,6 +153,16 @@ export interface HeadacheProfile {
   lastUpdated: number;
 }
 
+// [NEW] 癫痫发作事件结构
+export interface SeizureEvent {
+  id: string;
+  timestamp: number;
+  type: string; // '强直阵挛' | '失神' | '局灶'
+  duration: number; // 秒
+  triggers: string[]; // ['漏服药', '疲劳', ...]
+  severity?: number; // 1-10
+}
+
 export interface EpilepsyProfile {
   isComplete: boolean;
   source: 'AI_GENERATED';
@@ -158,16 +172,32 @@ export interface EpilepsyProfile {
   triggers: string[];  
   consciousness: boolean; 
   lastUpdated: number;
+  seizureHistory?: SeizureEvent[]; // [NEW] 临床级发作日记
 }
 
 export interface CognitiveProfile {
   isComplete: boolean;
   source: 'AI_GENERATED';
-  mmseScoreEstimate: string; 
+  mmseScoreEstimate: string;
+  miniMentalScore?: number; // [NEW] MMSE 数字华佗版评分
   symptoms: string[];        
   adlScore: string;          
   caregiver: string;         
   lastUpdated: number;
+}
+
+export interface MedLog {
+  id: string;
+  timestamp: number;
+  drugName: string;
+  dosage: string;
+  painScale?: number; // NRS 1-10
+  concomitantSymptoms?: string[]; 
+  seizureType?: string; 
+  triggerFactors?: string[]; 
+  painLevel?: number; 
+  nature?: string[]; 
+  symptoms?: string[]; 
 }
 
 export interface FamilyMember {
@@ -175,13 +205,12 @@ export interface FamilyMember {
   name: string;
   relation: string; 
   avatar: string;
-  isElderly: boolean; // [NEW] 是否开启适老模式
+  isElderly: boolean; 
   headacheProfile?: HeadacheProfile;
   epilepsyProfile?: EpilepsyProfile;
   cognitiveProfile?: CognitiveProfile;
   iotStats?: IoTStats; 
   cognitiveStats?: CognitiveStats; 
-  // [NEW] Medication logs for risk analysis
   medicationLogs?: MedLog[];
 }
 
@@ -189,10 +218,11 @@ export interface FamilyMember {
 export interface ReviewReport {
     id: string;
     timestamp: number;
-    triggerReason: 'KEYWORD_DETECTED' | 'RESPONSE_TIMEOUT';
+    triggerReason: 'KEYWORD_DETECTED' | 'RESPONSE_TIMEOUT' | 'MANUAL_INTERVENTION'; // [Updated]
     riskLevel: 'CRITICAL';
     chatHistorySnapshot: ChatMessage[];
     status: 'PENDING' | 'RESOLVED';
+    processorId?: string; // [New]
 }
 
 // 医生助理认证信息
@@ -201,28 +231,7 @@ export interface DoctorAssistantProof {
     employeeId: string;
     certificateUrl: string; // 模拟上传后的URL
     verified: boolean;
-    // [NEW] 关联的审核日志
-    reviewLogs?: ReviewReport[];
-}
-
-export interface MedLog {
-  id: string;
-  timestamp: number;
-  drugName: string;
-  dosage: string;
-  
-  // [Medical Compliance] Migraine Fields
-  painScale?: number; // NRS 1-10
-  concomitantSymptoms?: string[]; // e.g. ['nausea', 'photophobia']
-
-  // [Medical Compliance] Epilepsy Fields
-  seizureType?: string; // e.g. 'tonic-clonic', 'absence'
-  triggerFactors?: string[]; // e.g. ['missed_meds', 'stress']
-
-  // Generic/Legacy
-  painLevel?: number; 
-  nature?: string[]; 
-  symptoms?: string[]; 
+    reviewLogs?: ReviewReport[]; // [NEW] 关联的审核日志
 }
 
 // [NEW] 健康趋势数据点
@@ -230,6 +239,21 @@ export interface HealthTrendItem {
   date: string;
   score: number;
   label: string;
+}
+
+// [NEW] 量表测评草稿 (持久化中间态)
+export interface AssessmentDraft {
+    diseaseType: DiseaseType;
+    answers: Record<number, number>;
+    currentStep: number;
+    lastUpdated: number;
+}
+
+// [NEW] 医助处理状态
+export interface PatientProcessStatus {
+    status: 'PENDING' | 'PROCESSING' | 'RESOLVED';
+    processorName?: string;
+    lastUpdated: number;
 }
 
 export interface User {
@@ -246,7 +270,8 @@ export interface User {
 
   vipLevel: number; 
   unlockedFeatures: FeatureKey[]; 
-  hasHardware: boolean; 
+  hasHardware: boolean;
+  deviceInfo?: DeviceInfo; // [NEW] HaaS 硬件信息
   isElderlyMode: boolean; 
   
   privacySettings: PrivacySettings;
@@ -266,6 +291,9 @@ export interface User {
 
   familyMembers?: FamilyMember[];
   currentProfileId?: string; 
+
+  // [NEW] 临床通知收件箱 (Assistant Push)
+  inbox?: ChatMessage[];
 
   // 角色特定字段
   associatedPatientId?: string; // 家属角色：关联的患者ID
@@ -298,6 +326,7 @@ export interface ChatMessage {
   isThinking?: boolean;
   timestamp: number;
   suggestedOptions?: string[]; 
+  isClinicalPush?: boolean; // [NEW] 标记是否为医助推送
 }
 
 export interface Prescription {

@@ -15,7 +15,9 @@ const Button: React.FC<ButtonProps> = ({
   className = '',
   ...props 
 }) => {
-  const baseStyles = "inline-flex items-center justify-center rounded-full font-black transition-all focus:outline-none disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.97] select-none min-h-[44px]";
+  // Use h-11 (2.75rem = 44px) as baseline. Global CSS overrides this in elderly mode.
+  // Added flex-shrink-0 to prevent button collapse in tight layouts.
+  const baseStyles = "inline-flex items-center justify-center rounded-full font-black transition-all focus:outline-none disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.97] select-none flex-shrink-0";
   
   const variants = {
     primary: "bg-[#1677FF] hover:bg-[#0958D9] text-white shadow-md shadow-brand-500/20",
@@ -24,10 +26,11 @@ const Button: React.FC<ButtonProps> = ({
     ghost: "text-[#1677FF] hover:bg-brand-50",
   };
 
+  // Mapped sizes to rem-based heights
   const sizes = {
-    sm: "px-5 py-2 text-[11px] tracking-tight",
-    md: "px-8 py-3 text-xs tracking-widest",
-    lg: "px-10 py-4 text-sm tracking-widest",
+    sm: "h-9 px-5 text-[0.6875rem] tracking-tight", // 36px
+    md: "h-11 px-8 text-xs tracking-widest",       // 44px (Standard)
+    lg: "h-14 px-10 text-sm tracking-widest",      // 56px
   };
 
   return (

@@ -21,10 +21,19 @@ import { GlobalSOS } from './components/GlobalSOS';
 const AppContent: React.FC = () => {
   const { state, dispatch } = useApp();
   const [currentView, setCurrentView] = useState<AppView>('home');
-  const [assessmentType, setAssessmentType] = useState<DiseaseType>(DiseaseType.MIGRAINE);
+  // [REMOVED] const [assessmentType, setAssessmentType] = useState<DiseaseType>(DiseaseType.MIGRAINE);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   useIoTSimulation();
+
+  // [Elderly Mode] Toggle global class for CSS variables
+  useEffect(() => {
+    if (state.user.isElderlyMode) {
+      document.documentElement.classList.add('elderly-mode');
+    } else {
+      document.documentElement.classList.remove('elderly-mode');
+    }
+  }, [state.user.isElderlyMode]);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -55,7 +64,7 @@ const AppContent: React.FC = () => {
 
   const handleTriageComplete = (summary: any) => {
     dispatch({ type: 'SET_RISK_SCORE', payload: { score: summary.risk || 85, type: DiseaseType.MIGRAINE } });
-    setAssessmentType(DiseaseType.MIGRAINE); 
+    // setAssessmentType(DiseaseType.MIGRAINE); // Removed
     handleNavigate('report');
   };
 
@@ -70,7 +79,8 @@ const AppContent: React.FC = () => {
   };
 
   const handleScoreUpdate = (score: number) => {
-      dispatch({ type: 'SET_RISK_SCORE', payload: { score, type: assessmentType } });
+      // Use state.primaryCondition as the disease type since we are in assessment flow
+      dispatch({ type: 'SET_RISK_SCORE', payload: { score, type: state.primaryCondition } });
       handleNavigate('report');
   };
 
@@ -115,9 +125,9 @@ const AppContent: React.FC = () => {
                   onToggleElderly={() => dispatch({type: 'TOGGLE_ELDERLY_MODE'})}
                />;
       case 'assessment':
-        return <div className="animate-slide-up"><AssessmentView type={assessmentType} onComplete={handleScoreUpdate} onBack={() => handleNavigate('home')} /></div>;
+        return <div className="animate-slide-up"><AssessmentView type={state.primaryCondition} onComplete={handleScoreUpdate} onBack={() => handleNavigate('home')} /></div>;
       case 'report':
-        return <div className="animate-slide-up"><ReportView score={state.riskScore} diseaseType={assessmentType} onBackToHome={() => handleNavigate('home')} onIntervention={handleIntervention} /></div>;
+        return <div className="animate-slide-up"><ReportView score={state.riskScore} diseaseType={state.primaryCondition} onBackToHome={() => handleNavigate('home')} onIntervention={handleIntervention} /></div>;
       case 'service-headache':
         return <div className="animate-slide-up"><HeadacheServiceView onBack={() => handleNavigate('home')} /></div>;
       case 'service-cognitive':
@@ -141,13 +151,7 @@ const AppContent: React.FC = () => {
   const showBottomNav = ['home', 'chat', 'profile'].includes(currentView);
 
   return (
-    <div className={`font-sans antialiased text-slate-900 bg-white min-h-screen max-w-[430px] mx-auto shadow-2xl relative overflow-hidden ${state.user.isElderlyMode ? 'text-lg' : ''}`}>
-       {state.user.isElderlyMode && (
-         <style>{`
-           .btn { height: 60px !important; font-size: 1.25rem !important; }
-         `}</style>
-       )}
-       
+    <div className={`font-sans antialiased text-slate-900 bg-white min-h-screen max-w-[430px] mx-auto shadow-2xl relative overflow-hidden`}>
        {!isOnline && (
           <div className="absolute top-0 left-0 right-0 bg-slate-800 text-white text-[10px] font-bold py-2 text-center z-[9999] animate-slide-up flex items-center justify-center gap-2">
              <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>

@@ -1,9 +1,10 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { DiseaseType } from '../types';
 import Layout from '../components/common/Layout';
 import Button from '../components/common/Button';
-import { useToast } from '../context/ToastContext'; // [NEW]
+import { useToast } from '../context/ToastContext';
+import { InteractiveMMSE } from '../components/InteractiveMMSE'; // [NEW] Import
 
 interface AssessmentViewProps {
   type: DiseaseType;
@@ -11,7 +12,9 @@ interface AssessmentViewProps {
   onBack: () => void;
 }
 
-interface Question {
+// --- 1. Scale Definition Architecture ---
+
+interface ScaleQuestion {
   id: number;
   text: string;
   type: 'choice' | 'number' | 'slider';
@@ -19,67 +22,83 @@ interface Question {
   min?: number;
   max?: number;
   suffix?: string;
+  weight: number; // [CRITICAL] Weight for dynamic scoring
 }
 
+interface ScaleDefinition {
+  title: string;
+  description: string;
+  questions: ScaleQuestion[];
+}
+
+// --- 2. Scale Registry (The Knowledge Base) ---
+
+const ScaleRegistry: Record<string, ScaleDefinition> = {
+  [DiseaseType.MIGRAINE]: {
+    title: "偏头痛残疾评估 (MIDAS)",
+    description: "请回顾过去 3 个月的情况，评估头痛对您生活的影响。",
+    questions: [
+      { id: 1, text: "过去3个月，有多少天您因头痛【完全无法】工作、上学或做家务？", type: 'number', max: 90, suffix: "天", weight: 1 },
+      { id: 2, text: "过去3个月，有多少天您的工作或学习效率【降低了一半以上】？(不含完全无法工作的天数)", type: 'number', max: 90, suffix: "天", weight: 1 },
+      { id: 3, text: "过去3个月，有多少天您【没有】进行家务劳动？", type: 'number', max: 90, suffix: "天", weight: 1 },
+      { id: 4, text: "过去3个月，有多少天您做家务的效率【降低了一半以上】？", type: 'number', max: 90, suffix: "天", weight: 1 },
+      { id: 5, text: "过去3个月，有多少天您因头痛漏掉了家庭或社交活动？", type: 'number', max: 90, suffix: "天", weight: 1 },
+      // VAS Score is typically distinct from MIDAS disability days sum, setting weight to 0 to exclude from total score
+      { id: 6, text: "您通常头痛时的疼痛程度是多少？(VAS 0-10)", type: 'slider', min: 0, max: 10, weight: 0 }
+    ]
+  },
+  // [MODIFIED] COGNITIVE uses specialized component, removed from registry to avoid confusion, or keep as fallback? 
+  // Keeping keys here but Logic will bypass for InteractiveMMSE
+  [DiseaseType.EPILEPSY]: {
+    title: "癫痫发作影响评估 (Seizure Impact)",
+    description: "请根据最近一次发作或近3个月情况如实评估。",
+    questions: [
+      { id: 1, text: "近三个月内的发作频率", type: 'choice', options: [{label: "无发作", value: 0}, {label: "<1次/月", value: 2}, {label: "1-4次/月", value: 5}, {label: ">1次/周", value: 10}], weight: 1 },
+      { id: 2, text: "发作平均持续时间", type: 'choice', options: [{label: "<1分钟", value: 1}, {label: "1-5分钟", value: 3}, {label: ">5分钟", value: 5}], weight: 1 },
+      { id: 3, text: "发作时的意识状态", type: 'choice', options: [{label: "意识清醒", value: 0}, {label: "意识模糊", value: 3}, {label: "意识丧失", value: 5}], weight: 1 },
+      { id: 4, text: "是否伴有肢体抽搐或跌倒", type: 'choice', options: [{label: "无", value: 0}, {label: "有", value: 5}], weight: 1 }
+    ]
+  }
+};
+
+// --- Component Implementation ---
+
 const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBack }) => {
-  const { showToast } = useToast(); // [NEW]
+  const { showToast } = useToast();
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [inputValue, setInputValue] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showCompletionToast, setShowCompletionToast] = useState(false);
 
-  // --- SCALE DEFINITIONS ---
-  const midasQuestions: Question[] = [
-    { id: 1, text: "过去3个月，有多少天您因头痛【完全无法】工作、上学或做家务？", type: 'number', max: 90, suffix: "天" },
-    { id: 2, text: "过去3个月，有多少天您的工作或学习效率【降低了一半以上】？(不包括完全无法工作的天数)", type: 'number', max: 90, suffix: "天" },
-    { id: 3, text: "过去3个月，有多少天您【没有】进行家务劳动？", type: 'number', max: 90, suffix: "天" },
-    { id: 4, text: "过去3个月，有多少天您做家务的效率【降低了一半以上】？", type: 'number', max: 90, suffix: "天" },
-    { id: 5, text: "过去3个月，您共有多少天出现过头痛？(临床发作频率)", type: 'number', max: 90, suffix: "天" },
-    { id: 6, text: "您通常头痛时的疼痛程度是多少？(VAS评分 0-10)", type: 'slider', min: 0, max: 10 }
-  ];
+  // [ROUTE LOCK] Security Check: Validate DiseaseType parameter
+  useEffect(() => {
+      // Allow COGNITIVE even if not in standard registry because it has special handler
+      const isValid = (type && type !== DiseaseType.UNKNOWN) && (ScaleRegistry[type] || type === DiseaseType.COGNITIVE);
+      
+      if (!isValid) {
+          console.warn("[AssessmentView] Security Block: Invalid or missing DiseaseType parameter.");
+          onBack(); // Force return to home
+      }
+  }, [type, onBack]);
 
-  const ad8Questions: Question[] = [
-    { id: 1, text: "判断力出现问题（如做决定困难、财务混乱、判断错误）", type: 'choice', options: [{label: "是，有改变", value: 1}, {label: "否，无改变", value: 0}, {label: "不知道", value: 0}] },
-    { id: 2, text: "对活动和嗜好的兴趣降低", type: 'choice', options: [{label: "是，有改变", value: 1}, {label: "否，无改变", value: 0}, {label: "不知道", value: 0}] },
-    { id: 3, text: "重复相同的问题、故事或陈述", type: 'choice', options: [{label: "是，有改变", value: 1}, {label: "否，无改变", value: 0}, {label: "不知道", value: 0}] },
-    { id: 4, text: "学习使用小器具（遥控器、微波炉）有困难", type: 'choice', options: [{label: "是，有改变", value: 1}, {label: "否，无改变", value: 0}, {label: "不知道", value: 0}] },
-    { id: 5, text: "记不清当前的月份或年份", type: 'choice', options: [{label: "是，有改变", value: 1}, {label: "否，无改变", value: 0}, {label: "不知道", value: 0}] },
-    { id: 6, text: "处理复杂的财务问题有困难（如个人所得税、缴费）", type: 'choice', options: [{label: "是，有改变", value: 1}, {label: "否，无改变", value: 0}, {label: "不知道", value: 0}] },
-    { id: 7, text: "记不住约会的时间", type: 'choice', options: [{label: "是，有改变", value: 1}, {label: "否，无改变", value: 0}, {label: "不知道", value: 0}] },
-    { id: 8, text: "日常记忆和思维能力出现持续的问题", type: 'choice', options: [{label: "是，有改变", value: 1}, {label: "否，无改变", value: 0}, {label: "不知道", value: 0}] },
-  ];
+  // [NEW] Dispatch to Interactive MMSE for Cognitive Disorder
+  if (type === DiseaseType.COGNITIVE) {
+      return <InteractiveMMSE onComplete={onComplete} onBack={onBack} />;
+  }
 
-  const epilepsyQuestions: Question[] = [
-    { id: 1, text: "近三个月内，是否出现过意识突然丧失或倒地？", type: 'choice', options: [{label: "有", value: 5}, {label: "无", value: 0}] },
-    { id: 2, text: "发作时是否伴有肢体抽搐、口吐白沫 or 尿失禁？", type: 'choice', options: [{label: "有", value: 5}, {label: "无", value: 0}] },
-    { id: 3, text: "发作后是否感到极度疲劳、头痛 or 意识模糊？", type: 'choice', options: [{label: "是", value: 3}, {label: "否", value: 0}] },
-    { id: 4, text: "是否有各种形式的先兆（如闻到怪味、眼前闪光、心慌）？", type: 'choice', options: [{label: "经常", value: 3}, {label: "偶尔", value: 1}, {label: "无", value: 0}] },
-  ];
+  // Dynamic Scale Loading
+  const currentScale = ScaleRegistry[type];
 
-  const getQuestions = () => {
-    switch (type) {
-      case DiseaseType.MIGRAINE: return midasQuestions;
-      case DiseaseType.COGNITIVE: return ad8Questions;
-      case DiseaseType.EPILEPSY: return epilepsyQuestions;
-      default: return epilepsyQuestions;
-    }
-  };
+  // Prevent rendering if invalid (Safety net)
+  if (!currentScale) return null;
 
-  const getTitle = () => {
-    switch (type) {
-      case DiseaseType.MIGRAINE: return "偏头痛致残评估 (WCH-MIDAS)";
-      case DiseaseType.COGNITIVE: return "早期痴呆筛查 (AD8)";
-      case DiseaseType.EPILEPSY: return "癫痫发作特征筛查";
-      default: return "神经内科通用评估";
-    }
-  };
-
-  const questions = getQuestions();
+  const questions = currentScale.questions;
   const currentQ = questions[step];
   const progress = ((step + 1) / questions.length) * 100;
 
   const handleNext = (val: number) => {
-    // Basic validation check
+    // Basic validation
     if (val === undefined || val === null || (typeof val === 'number' && isNaN(val))) {
         setErrorMsg("请完成此题后继续");
         return;
@@ -99,16 +118,16 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
          return;
       }
 
+      // [DYNAMIC ENGINE] Weighted Score Calculation
+      // Formula: Sum(Answer_i * Weight_i)
       let totalScore = 0;
-      if (type === DiseaseType.MIGRAINE) {
-        Object.entries(newAnswers).forEach(([k, v]) => {
-           if (parseInt(k) <= 5) totalScore += (v as number);
-        });
-      } else {
-        (Object.values(newAnswers) as number[]).forEach(v => totalScore += v);
-      }
+      questions.forEach(q => {
+          const ans = newAnswers[q.id] || 0;
+          totalScore += ans * q.weight;
+      });
       
-      // Global Toast
+      // UX Feedback
+      setShowCompletionToast(true);
       showToast('测评已完成，报告生成中...', 'success');
       setTimeout(() => {
           onComplete(totalScore);
@@ -120,19 +139,28 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
     <Layout headerTitle="专业风险评估" showBack onBack={onBack}>
       <div className="p-6 pb-safe relative">
         
+        {/* Completion Toast */}
+        {showCompletionToast && (
+            <div className="absolute top-48 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 backdrop-blur px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 animate-fade-in w-max">
+                <span className="text-xl">📊</span>
+                <span className="text-white text-xs font-bold">正在计算 {currentScale.title.split(' ')[0]} 评分...</span>
+            </div>
+        )}
+
         <div className="mb-6">
            <div className="flex justify-between text-xs text-slate-400 mb-1">
-               <span className="font-bold text-slate-500">{getTitle()}</span>
+               <span className="font-bold text-slate-500 truncate max-w-[200px]">{currentScale.title}</span>
                <span>{step + 1}/{questions.length}</span>
            </div>
            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                 <div className="bg-brand-600 h-2 rounded-full transition-all duration-500 ease-out" style={{ width: `${progress}%` }}></div>
            </div>
+           <p className="text-[10px] text-slate-400 mt-2">{currentScale.description}</p>
         </div>
 
-        <div className={`bg-white rounded-2xl p-6 shadow-card min-h-[360px] flex flex-col border border-slate-50 relative transition-opacity duration-300`}>
+        <div className={`bg-white rounded-2xl p-6 shadow-card min-h-[360px] flex flex-col border border-slate-50 relative transition-opacity duration-300 ${showCompletionToast ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
             {errorMsg && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-red-500 text-white text-xs px-3 py-1 rounded-full animate-shake shadow-lg">
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-red-500 text-white text-xs px-3 py-1 rounded-full animate-shake shadow-lg z-20">
                     {errorMsg}
                 </div>
             )}
@@ -192,9 +220,9 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
                                 className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-brand-600"
                             />
                             <div className="flex justify-between text-xs text-slate-400 mt-4">
-                                <span>0 (无痛)</span>
-                                <span>5 (中度)</span>
-                                <span>10 (剧痛)</span>
+                                <span>0</span>
+                                <span>{(currentQ.max || 10)/2}</span>
+                                <span>{currentQ.max}</span>
                             </div>
                             <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-brand-600 text-white px-3 py-1 rounded-lg font-bold text-lg shadow-lg">
                                 {inputValue || '0'}

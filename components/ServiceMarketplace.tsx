@@ -50,7 +50,7 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
       <div className="flex flex-col h-screen bg-white max-w-[430px] mx-auto overflow-hidden">
         <div className="flex-1 flex flex-col items-center justify-center p-8 animate-fade-in relative">
           
-          <div className="w-20 h-20 bg-[#1677FF] rounded-full flex items-center justify-center text-white mb-6 shadow-xl shadow-blue-200">
+          <div className="w-20 h-20 bg-[#1677FF] rounded-full flex items-center justify-center text-white mb-6 shadow-xl shadow-blue-200 shrink-0">
              <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
           </div>
 
@@ -68,7 +68,7 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
           </div>
         </div>
         <div className="p-6 pb-safe animate-fade-in">
-          <Button fullWidth onClick={onComplete} className="bg-[#1677FF] py-4">完成</Button>
+          <Button fullWidth onClick={onComplete} className="bg-[#1677FF] py-4 h-auto min-h-[3.5rem]">完成</Button>
         </div>
       </div>
     );
@@ -79,12 +79,12 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
       return (
         <Layout headerTitle="支付失败" showBack onBack={() => setStep('confirm')}>
             <div className="flex flex-col h-full bg-white items-center justify-center p-8 text-center animate-shake">
-                <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-6 border border-red-100">
+                <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-6 border border-red-100 shrink-0">
                    <span className="text-4xl">✕</span>
                 </div>
                 <h3 className="text-xl font-black text-slate-900 mb-2">订单支付失败</h3>
-                <p className="text-xs text-slate-500 mb-10">{errorMsg}</p>
-                <Button fullWidth onClick={handlePay} className="bg-brand-600 shadow-lg shadow-brand-500/20 py-4">
+                <p className="text-xs text-slate-500 mb-10 break-words">{errorMsg}</p>
+                <Button fullWidth onClick={handlePay} className="bg-brand-600 shadow-lg shadow-brand-500/20 py-4 h-auto min-h-[3.5rem]">
                     重新提交订单
                 </Button>
             </div>
@@ -98,14 +98,15 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
         
         {/* 1. 地址卡片 (Ant Style) */}
         <div className="bg-white rounded-xl p-4 flex items-center gap-3 shadow-sm active:opacity-70 transition-opacity">
-           <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-[#1677FF]">
+           <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-[#1677FF] shrink-0">
                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 103 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 002.273 1.765 11.842 11.842 0 00.976.544l.062.029.018.008.006.003zM10 11.25a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5z" clipRule="evenodd" /></svg>
            </div>
-           <div className="flex-1">
-               <div className="text-[13px] font-bold text-slate-800 flex items-center gap-2">
-                   {formData.name} <span className="text-slate-400 font-normal">{formData.phone}</span>
+           <div className="flex-1 min-w-0">
+               <div className="text-[13px] font-bold text-slate-800 flex items-center gap-2 flex-wrap">
+                   <span className="whitespace-nowrap">{formData.name}</span>
+                   <span className="text-slate-400 font-normal">{formData.phone}</span>
                </div>
-               <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">{formData.address}</div>
+               <div className="text-[11px] text-slate-500 mt-0.5 break-words leading-tight">{formData.address}</div>
            </div>
            <span className="text-slate-300">›</span>
         </div>
@@ -116,13 +117,13 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
                 <div className="w-20 h-20 bg-slate-50 rounded-lg flex items-center justify-center text-4xl border border-slate-100 shrink-0">
                     ⌚
                 </div>
-                <div className="flex-1 py-0.5">
-                    <div className="text-[13px] font-bold text-slate-900 mb-1">癫痫生命守护包 (年卡)</div>
+                <div className="flex-1 py-0.5 min-w-0">
+                    <div className="text-[13px] font-bold text-slate-900 mb-1 break-words">癫痫生命守护包 (年卡)</div>
                     <div className="flex flex-wrap gap-1 mb-2">
-                        <span className="bg-slate-50 text-slate-500 text-[9px] px-1.5 py-0.5 rounded">医疗级监测</span>
-                        <span className="bg-slate-50 text-slate-500 text-[9px] px-1.5 py-0.5 rounded">坏件包赔</span>
+                        <span className="bg-slate-50 text-slate-500 text-[9px] px-1.5 py-0.5 rounded whitespace-nowrap">医疗级监测</span>
+                        <span className="bg-slate-50 text-slate-500 text-[9px] px-1.5 py-0.5 rounded whitespace-nowrap">坏件包赔</span>
                     </div>
-                    <div className="text-[#1677FF] font-bold text-[13px]">
+                    <div className="text-[#1677FF] font-bold text-[13px] break-words">
                         ¥ {pricing.plan.price} <span className="text-slate-300 font-normal text-[10px]">/ {pricing.plan.days}天</span>
                     </div>
                 </div>
@@ -131,12 +132,12 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
             {/* SKU Selector */}
             <div className="space-y-3">
                  <div className="text-[11px] font-bold text-slate-700">租期选择</div>
-                 <div className="flex gap-2">
+                 <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                       {RENTAL_PLANS.map(plan => (
                           <button
                             key={plan.id}
                             onClick={() => setSelectedPlanId(plan.id)}
-                            className={`flex-1 py-2 rounded-lg text-[10px] font-bold border transition-all ${
+                            className={`flex-1 min-w-[80px] py-2 rounded-lg text-[10px] font-bold border transition-all whitespace-nowrap ${
                                 selectedPlanId === plan.id 
                                 ? 'bg-blue-50 border-[#1677FF] text-[#1677FF]' 
                                 : 'bg-white border-slate-200 text-slate-600'
@@ -181,7 +182,7 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
                <div className="text-[12px] font-bold text-slate-900">开启亲情代付</div>
                <div className="text-[10px] text-slate-400 mt-0.5">支付后自动绑定家属账号</div>
            </div>
-           <div className={`w-10 h-6 rounded-full relative transition-colors ${isFamilyPay ? 'bg-[#1677FF]' : 'bg-slate-200'}`}>
+           <div className={`w-10 h-6 rounded-full relative transition-colors shrink-0 ${isFamilyPay ? 'bg-[#1677FF]' : 'bg-slate-200'}`}>
                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${isFamilyPay ? 'left-5' : 'left-1'}`}></div>
            </div>
         </div>
@@ -190,14 +191,14 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
 
       {/* 底部结算栏 (Fixed) */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 p-3 pb-safe z-50 flex items-center justify-between max-w-[430px] mx-auto shadow-[0_-4px_16px_rgba(0,0,0,0.05)]">
-         <div className="pl-2">
-            <div className="flex items-baseline gap-1">
+         <div className="pl-2 flex-1 min-w-0 pr-2">
+            <div className="flex items-baseline gap-1 flex-wrap">
                <span className="text-xs font-bold text-red-500">¥</span>
-               <span className="text-2xl font-black text-red-500 tracking-tighter">{pricing.total}</span>
+               <span className="text-2xl font-black text-red-500 tracking-tighter break-all">{pricing.total}</span>
             </div>
-            <div className="text-[9px] text-slate-400">已优惠 ¥{pricing.discount}</div>
+            <div className="text-[9px] text-slate-400 truncate">已优惠 ¥{pricing.discount}</div>
          </div>
-         <Button onClick={handlePay} disabled={isProcessing} className="w-[140px] bg-[#1677FF] h-10 text-[13px]">
+         <Button onClick={handlePay} disabled={isProcessing} className="w-[140px] bg-[#1677FF] h-11 text-[13px] flex-shrink-0">
              {isProcessing ? '处理中...' : '提交订单'}
          </Button>
       </div>
@@ -212,12 +213,12 @@ export const ServiceMallView: React.FC<ServiceMarketplaceProps> = ({ onNavigate,
       <div className="p-4 space-y-4 pb-24 animate-slide-up bg-[#F5F5F5] min-h-screen">
         
         {/* Banner */}
-        <div className="bg-[#1677FF] rounded-xl p-5 text-white shadow-lg shadow-blue-500/20 relative overflow-hidden">
+        <div className="bg-[#1677FF] rounded-xl p-5 text-white shadow-lg shadow-blue-500/20 relative overflow-hidden h-auto min-h-[6rem]">
              <div className="relative z-10">
-                <div className="font-black text-lg mb-1">华西专病 · 租赁中心</div>
-                <p className="text-xs opacity-80">医疗级监测设备 / 坏件包赔 / 专家解读</p>
+                <div className="font-black text-lg mb-1 break-words">华西专病 · 租赁中心</div>
+                <p className="text-xs opacity-80 break-words">医疗级监测设备 / 坏件包赔 / 专家解读</p>
              </div>
-             <div className="absolute -right-4 -bottom-4 text-8xl opacity-20 rotate-12">🎁</div>
+             <div className="absolute -right-4 -bottom-4 text-8xl opacity-20 rotate-12 pointer-events-none">🎁</div>
         </div>
 
         {/* List Grid */}
@@ -228,12 +229,12 @@ export const ServiceMallView: React.FC<ServiceMarketplaceProps> = ({ onNavigate,
                  { title: '深度评估', price: '1.00', icon: '📋', tag: '基础', nav: 'payment' },
                  { title: '专家复核', price: '299', icon: '👨‍⚕️', tag: 'VIP', nav: 'payment' },
              ].map((item, i) => (
-                 <div key={i} onClick={() => onNavigate(item.nav as AppView)} className="bg-white p-4 rounded-xl shadow-sm border border-slate-50 flex flex-col justify-between h-32 active:scale-[0.98] transition-transform relative overflow-hidden">
+                 <div key={i} onClick={() => onNavigate(item.nav as AppView)} className="bg-white p-4 rounded-xl shadow-sm border border-slate-50 flex flex-col justify-between min-h-[8rem] active:scale-[0.98] transition-transform relative overflow-hidden h-auto">
                      {item.tag && <span className="absolute top-0 right-0 bg-orange-50 text-orange-600 text-[9px] px-2 py-1 rounded-bl-lg font-bold">{item.tag}</span>}
-                     <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-xl mb-2">{item.icon}</div>
-                     <div>
-                         <div className="text-[13px] font-bold text-slate-800">{item.title}</div>
-                         <div className="text-red-500 font-black text-sm mt-0.5">¥{item.price}</div>
+                     <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-xl mb-2 shrink-0">{item.icon}</div>
+                     <div className="flex-1 flex flex-col justify-end">
+                         <div className="text-[13px] font-bold text-slate-800 break-words leading-tight">{item.title}</div>
+                         <div className="text-red-500 font-black text-sm mt-1">¥{item.price}</div>
                      </div>
                  </div>
              ))}

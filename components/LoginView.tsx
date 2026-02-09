@@ -134,15 +134,15 @@ export const LoginView: React.FC = () => {
                     <div className="w-20 h-20 bg-gradient-to-br from-brand-500 to-brand-700 rounded-3xl flex items-center justify-center text-4xl shadow-xl shadow-brand-500/30 mx-auto mb-6 transform rotate-3">
                         🧠
                     </div>
-                    <h1 className="text-2xl font-black text-slate-900 tracking-tight mb-2">华西神经专病<br/>数字医院</h1>
-                    <p className="text-xs text-slate-400 font-bold tracking-widest uppercase">Neuro-Link Digital Health</p>
+                    <h1 className="text-2xl font-black text-slate-900 tracking-tight mb-2 break-words">华西神经专病<br/>数字医院</h1>
+                    <p className="text-xs text-slate-400 font-bold tracking-widest uppercase break-words">Neuro-Link Digital Health</p>
                 </div>
 
                 {/* [LR-012] Error Message Display */}
                 {errorMsg && (
-                    <div className="bg-red-50 text-red-500 text-xs font-bold px-4 py-3 rounded-xl mb-6 flex items-center gap-2 animate-shake border border-red-100">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                        {errorMsg}
+                    <div className="bg-red-50 text-red-500 text-xs font-bold px-4 py-3 rounded-xl mb-6 flex items-center gap-2 animate-shake border border-red-100 break-words">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 shrink-0"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                        <span>{errorMsg}</span>
                     </div>
                 )}
 
@@ -167,7 +167,7 @@ export const LoginView: React.FC = () => {
                                 maxLength={11}
                                 value={formData.phone}
                                 onChange={e => { setFormData({...formData, phone: e.target.value}); setErrorMsg(''); }}
-                                className={`w-full bg-slate-50 border rounded-2xl pl-12 pr-4 py-4 text-sm font-bold focus:bg-white outline-none transition-all shadow-sm focus:shadow-md relative z-10 ${errorMsg ? 'border-red-300 focus:border-red-500' : 'border-slate-200 focus:border-brand-500'}`}
+                                className={`w-full bg-slate-50 border rounded-2xl pl-12 pr-4 h-12 text-sm font-bold focus:bg-white outline-none transition-all shadow-sm focus:shadow-md relative z-10 ${errorMsg ? 'border-red-300 focus:border-red-500' : 'border-slate-200 focus:border-brand-500'}`}
                             />
                         </div>
                     </div>
@@ -182,7 +182,7 @@ export const LoginView: React.FC = () => {
                                 maxLength={6}
                                 value={formData.code}
                                 onChange={e => { setFormData({...formData, code: e.target.value}); setErrorMsg(''); }}
-                                className={`w-full bg-slate-50 border rounded-2xl pl-12 pr-4 py-4 text-sm font-bold focus:bg-white outline-none transition-all shadow-sm focus:shadow-md relative z-10 ${errorMsg ? 'border-red-300 focus:border-red-500' : 'border-slate-200 focus:border-brand-500'}`}
+                                className={`w-full bg-slate-50 border rounded-2xl pl-12 pr-4 h-12 text-sm font-bold focus:bg-white outline-none transition-all shadow-sm focus:shadow-md relative z-10 ${errorMsg ? 'border-red-300 focus:border-red-500' : 'border-slate-200 focus:border-brand-500'}`}
                             />
                         </div>
                         <button 
@@ -190,7 +190,7 @@ export const LoginView: React.FC = () => {
                             type="button"
                             onClick={handleGetCode}
                             disabled={countdown > 0}
-                            className={`bg-white border border-brand-200 text-brand-600 px-5 rounded-2xl text-xs font-black active:scale-95 transition-transform shadow-sm whitespace-nowrap min-w-[100px] z-10 ${countdown > 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            className={`bg-white border border-brand-200 text-brand-600 px-5 rounded-2xl text-xs font-black active:scale-95 transition-transform shadow-sm whitespace-nowrap min-w-[100px] z-10 h-12 ${countdown > 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                             {countdown > 0 ? `${countdown}s` : '获取验证码'}
                         </button>
@@ -202,7 +202,7 @@ export const LoginView: React.FC = () => {
                     fullWidth 
                     onClick={handlePhoneLogin} 
                     disabled={isLoading} 
-                    className={`py-4 shadow-xl shadow-brand-500/20 mb-8 text-sm tracking-widest rounded-2xl relative z-10 ${isLoading ? 'opacity-80 cursor-wait' : ''}`}
+                    className={`h-12 shadow-xl shadow-brand-500/20 mb-8 text-sm tracking-widest rounded-2xl relative z-10 ${isLoading ? 'opacity-80 cursor-wait' : ''}`}
                 >
                     {isLoading ? (
                         <div className="flex items-center justify-center gap-2">
