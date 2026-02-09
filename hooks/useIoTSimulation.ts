@@ -37,6 +37,11 @@ export const useIoTSimulation = () => {
             let hr = 75 + Math.floor(Math.random() * 20 - 10); 
             if (isHrAnomaly) hr = Math.random() > 0.5 ? 135 : 55;
 
+            // [NEW] Calculate Standard Deviation (Simulated SDNN for HRV)
+            // Medical logic: Normal range 30-50ms, stressed <30ms, relaxed >50ms
+            // Add randomness to simulate real-time fluctuation
+            const hrStandardDeviation = Math.floor(Math.random() * 40 + 20);
+
             const bpSys = 110 + Math.floor(Math.random() * 20);
             const bpDia = 75 + Math.floor(Math.random() * 10);
             const spo2 = 96 + Math.floor(Math.random() * 4);
@@ -49,16 +54,24 @@ export const useIoTSimulation = () => {
             const isFall = isEpilepsyUser && Math.random() > 0.995;
             
             // 声音识别 (持续抽搐声): 0.5% 概率
-            // [Requirement 1] Logic: Fall OR Sound
             const isSound = isEpilepsyUser && Math.random() > 0.995; 
 
             const stats: IoTStats = {
-                hr, bpSys, bpDia, spo2,
+                hr, 
+                hrStandardDeviation, // [NEW] Compliant Field
+                bpSys, bpDia, spo2,
                 isAbnormal: hr > 120 || hr < 60,
                 isFallDetected: isFall,
-                isSoundTriggered: isSound, // [NEW] Sync with Type
+                isSoundTriggered: isSound, 
                 lastUpdated: Date.now()
             };
+
+            // [Assertion] Data Quality Warning (Data_Quality_Warning)
+            // Enforce that heartRate variability is present for research compliance
+            if (stats.hrStandardDeviation === undefined || stats.hrStandardDeviation === null) {
+                console.error("Data_Quality_Warning: Missing 'hrStandardDeviation' in IoT stream.");
+                // Optional: showToast("Data Quality Error: HRV Missing", 'error');
+            }
 
             // 3. 更新全局状态
             dispatch({
@@ -79,7 +92,6 @@ export const useIoTSimulation = () => {
                     }
 
                     // B. 尝试发送本地 SMS (Simulation)
-                    // 在真实 App 中会调用 Native Bridge，这里使用 Toast 反馈
                     showToast('⚠️ 离线模式：已触发手环物理震动，正在尝试发送本地短信...', 'error');
                 } else {
                     // 在线状态下，触发普通的风险评分联动

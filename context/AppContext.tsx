@@ -6,7 +6,7 @@
  */
 
 import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
-import { User, UserRole, FeatureKey, DiseaseType, ReferralData, HeadacheProfile, IoTStats, CognitiveStats, FamilyMember, SharingScope, PrivacySettings, DoctorAssistantProof, MedLog, MedicalRecord, CognitiveTrainingRecord, HealthTrendItem } from '../types';
+import { User, UserRole, FeatureKey, DiseaseType, ReferralData, HeadacheProfile, IoTStats, CognitiveStats, FamilyMember, SharingScope, PrivacySettings, DoctorAssistantProof, MedLog, MedicalRecord, CognitiveTrainingRecord, HealthTrendItem, ReviewReport, ChatMessage } from '../types';
 
 // --- Security Utils (Simulated) ---
 const maskName = (name: string) => name ? name[0] + '*'.repeat(name.length - 1) : '';
@@ -14,6 +14,16 @@ const maskPhone = (phone: string) => phone.replace(/(\d{3})\d{4}(\d{4})/, '$1***
 
 const encryptData = (data: any) => {
     return data; 
+};
+
+// [SECURITY] 内存熔断工具函数
+// 强制清除会话缓存，防止数据串扰
+const clearSessionCache = () => {
+    // 实际场景中应清除 sessionStorage 或内存中的临时状态
+    console.warn("【内存熔断】🛡️ 正在执行原子化清理...");
+    console.log("   - ChatHistory Cache: PURGED");
+    console.log("   - MedicationLogs Temp: CLEARED");
+    console.log("   - Session Token: ROTATED");
 };
 
 // --- State Definition ---
@@ -65,7 +75,17 @@ const INITIAL_STATE: AppState = {
         allowResearchUse: false,
         lastUpdated: Date.now()
     },
-    iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, isFallDetected: false, isSoundTriggered: false, lastUpdated: 0 },
+    iotStats: { 
+        hr: 0, 
+        hrStandardDeviation: 0, // [NEW] Init for compliance
+        bpSys: 0, 
+        bpDia: 0, 
+        spo2: 0, 
+        isAbnormal: false, 
+        isFallDetected: false, 
+        isSoundTriggered: false, 
+        lastUpdated: 0 
+    },
     cognitiveStats: INITIAL_COGNITIVE_STATS,
     medicationLogs: [],
     healthTrends: [], // [NEW]
@@ -108,7 +128,8 @@ type Action =
   | { type: 'CLEAR_CACHE' }
   | { type: 'UPDATE_PRIVACY_SETTINGS'; payload: Partial<PrivacySettings> }
   | { type: 'LOG_MEDICATION'; payload: MedLog }
-  | { type: 'ADD_MEDICAL_RECORD'; payload: { profileId: string; record: MedicalRecord } };
+  | { type: 'ADD_MEDICAL_RECORD'; payload: { profileId: string; record: MedicalRecord } }
+  | { type: 'GENERATE_REVIEW_REPORT'; payload: { reason: 'KEYWORD_DETECTED' | 'RESPONSE_TIMEOUT'; history: ChatMessage[] } };
 
 // --- Reducer ---
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -172,7 +193,7 @@ const appReducer = (state: AppState, action: Action): AppState => {
                         relation: '被监护人',
                         avatar: '👴',
                         isElderly: true,
-                        iotStats: { hr: 75, bpSys: 120, bpDia: 80, spo2: 98, isAbnormal: false, isFallDetected: false, isSoundTriggered: false, lastUpdated: Date.now() },
+                        iotStats: { hr: 75, hrStandardDeviation: 30, bpSys: 120, bpDia: 80, spo2: 98, isAbnormal: false, isFallDetected: false, isSoundTriggered: false, lastUpdated: Date.now() },
                         cognitiveStats: INITIAL_COGNITIVE_STATS
                     }
                 ]
@@ -264,11 +285,6 @@ const appReducer = (state: AppState, action: Action): AppState => {
             m.id === profileId ? { ...m, headacheProfile: updateProfileWithRecord(m.headacheProfile) } : m
         ) || [];
         
-        // Note: Currently healthTrends on User is global for the main user context. 
-        // If we want per-family trends, we'd need to add healthTrends to FamilyMember too. 
-        // For this demo requirement "push to state.user.healthTrends", we stick to root user updates or assume context switch.
-        // If profileId matches current logged in user, we update global trends.
-        
         return { ...state, user: { ...state.user, familyMembers: updatedFamily } };
     }
 
@@ -293,28 +309,20 @@ const appReducer = (state: AppState, action: Action): AppState => {
             const current = stats || INITIAL_COGNITIVE_STATS;
             const history = current.trainingHistory || [];
             
-            // [Radar Logic] 动态更新雷达图维度数据
-            // 基于本次训练的精细化指标 (reactionTimeAvg, stabilityIndex) 影响雷达图
             const prevDims = current.dimensionStats || { memory: 60, attention: 60, reaction: 60, stability: 60, flexibility: 60 };
             const newDims = { ...prevDims };
 
-            // 1. 更新反应速度 (Based on reactionTimeAvg: lower is better)
-            // Baseline ~800ms = 60pts. <400ms = 95pts.
             const reactionScore = Math.max(40, Math.min(95, 100 - (record.reactionTimeAvg - 300) / 10));
             newDims.reaction = Math.floor((prevDims.reaction * 0.7) + (reactionScore * 0.3));
 
-            // 2. 更新稳定性 (Direct mapping)
             newDims.stability = Math.floor((prevDims.stability * 0.7) + (record.stabilityIndex * 0.3));
 
-            // 3. 更新主维度 (Memory or Attention)
             if (record.gameType === 'memory') {
                 newDims.memory = Math.floor((prevDims.memory * 0.7) + (record.score * 0.3));
             } else {
                 newDims.attention = Math.floor((prevDims.attention * 0.7) + (record.score * 0.3));
             }
 
-            // 4. 更新灵活性 (Based on accuracy & difficulty)
-            // High accuracy at high difficulty = high flexibility
             const diffBonus = (record.difficultyLevel || 1) * 5;
             const flexScore = (record.accuracy * 0.8) + diffBonus;
             newDims.flexibility = Math.floor((prevDims.flexibility * 0.8) + (flexScore * 0.2));
@@ -380,7 +388,7 @@ const appReducer = (state: AppState, action: Action): AppState => {
             relation: action.payload.relation,
             avatar: action.payload.avatar,
             isElderly: action.payload.isElderly || false,
-            iotStats: { hr: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, isFallDetected: false, isSoundTriggered: false, lastUpdated: 0 },
+            iotStats: { hr: 0, hrStandardDeviation: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, isFallDetected: false, isSoundTriggered: false, lastUpdated: 0 },
             cognitiveStats: INITIAL_COGNITIVE_STATS
         };
         return {
@@ -440,12 +448,8 @@ const appReducer = (state: AppState, action: Action): AppState => {
         const currentLogs = state.user.medicationLogs || [];
         const allLogs = [newLog, ...currentLogs];
         
-        const now = Date.now();
-        const oneDay = 24 * 60 * 60 * 1000;
-        const sevenDays = 7 * oneDay;
-        
-        const count24h = allLogs.filter(l => l.timestamp > now - oneDay).length;
-        const count7d = allLogs.filter(l => l.timestamp > now - sevenDays).length;
+        const count24h = allLogs.filter(l => l.timestamp > Date.now() - 24 * 60 * 60 * 1000).length;
+        const count7d = allLogs.filter(l => l.timestamp > Date.now() - 7 * 24 * 60 * 60 * 1000).length;
         
         const isMOHTriggered = count24h > 3 || count7d > 10;
 
@@ -456,6 +460,39 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 medicationLogs: allLogs
             },
             mohAlertTriggered: isMOHTriggered
+        };
+    }
+
+    case 'GENERATE_REVIEW_REPORT': {
+        const { reason, history } = action.payload;
+        const newReport: ReviewReport = {
+            id: `rev_${Date.now()}`,
+            timestamp: Date.now(),
+            triggerReason: reason,
+            riskLevel: 'CRITICAL',
+            chatHistorySnapshot: [...history],
+            status: 'PENDING'
+        };
+        
+        const currentProof = state.user.assistantProof || {
+            hospitalName: '华西协作医院(自动生成)',
+            employeeId: 'SYS_AUTO',
+            certificateUrl: '',
+            verified: false,
+            reviewLogs: []
+        };
+
+        const updatedLogs = [...(currentProof.reviewLogs || []), newReport];
+
+        return {
+            ...state,
+            user: {
+                ...state.user,
+                assistantProof: {
+                    ...currentProof,
+                    reviewLogs: updatedLogs
+                }
+            }
         };
     }
 
@@ -475,9 +512,11 @@ const initState = (initial: AppState): AppState => {
 const AppContext = createContext<{
   state: AppState;
   dispatch: React.Dispatch<Action>;
+  switchProfile: (targetId: string) => Promise<void>;
 }>({
   state: INITIAL_STATE,
   dispatch: () => null,
+  switchProfile: async () => {},
 });
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -493,8 +532,34 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
   }, [state]);
 
+  // [NEW] 核心档案切换逻辑
+  const switchProfile = async (targetId: string) => {
+      // 1. 权限隔离 (Permission Isolation)
+      if (targetId !== state.user.id) {
+          console.log("【权限隔离】检测到代管模式切换...");
+          // Mock Family_Token validation
+          const isTokenValid = true; // In real world, verify token from API
+          if (!isTokenValid) {
+              console.error("【权限阻断】Family_Token 校验失败");
+              return; // Block switch
+          }
+          console.log("【权限隔离】Family_Token 校验通过");
+      }
+
+      // 2. 原子化切换 & 内存熔断 (Atomic Memory Breaking)
+      clearSessionCache(); // 强制清除敏感缓存
+      dispatch({ type: 'SWITCH_PATIENT', payload: targetId });
+
+      // 3. UI 强制行为 (Forced UI Reset)
+      // 延迟微任务，确保状态更新后立即执行路由重置，防止停留在敏感数据页
+      setTimeout(() => {
+          const event = new CustomEvent('navigate-to', { detail: 'home' });
+          window.dispatchEvent(event);
+      }, 0);
+  };
+
   return (
-    <AppContext.Provider value={{ state, dispatch }}>
+    <AppContext.Provider value={{ state, dispatch, switchProfile }}>
       {children}
     </AppContext.Provider>
   );

@@ -16,6 +16,10 @@ interface ReportViewProps {
   onIntervention?: () => void;
 }
 
+// --- Privacy Utils ---
+const maskID = (id: string) => id ? id.replace(/^(.{3})(.*)(.{4})$/, "$1***********$3") : '510***********0000';
+const maskPhone = (phone: string) => phone ? phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2') : '138****0000';
+
 // --- Minimalist SVG Illustrations ---
 const SleepSVG = () => (
     <svg viewBox="0 0 100 60" className="w-full h-full opacity-80">
@@ -42,6 +46,163 @@ const EnvSVG = () => (
         <path d="M20,20 L30,30 L20,40" fill="none" stroke="#94A3B8" strokeWidth="2" />
     </svg>
 );
+
+// --- Export Modal Component (A4 Layout) ---
+const MedicalReportExportModal: React.FC<{ 
+    onClose: () => void; 
+    data: any; 
+}> = ({ onClose, data }) => {
+    const { user, score, diseaseType, diagnosis } = data;
+    const { showToast } = useToast();
+    const chartRef = useRef<HTMLCanvasElement>(null);
+    const chartInstance = useRef<any>(null);
+
+    // 生成防伪校验码
+    const verificationCode = useMemo(() => {
+        const seed = `${user.id}-${Date.now()}-${score}`;
+        let hash = 0;
+        for (let i = 0; i < seed.length; i++) hash = (Math.imul(31, hash) + seed.charCodeAt(i)) | 0;
+        return `HX-VERI-${Math.abs(hash).toString(16).toUpperCase().padStart(8, '0')}`;
+    }, [user.id, score]);
+
+    useEffect(() => {
+        if (chartRef.current && typeof Chart !== 'undefined') {
+            const ctx = chartRef.current.getContext('2d');
+            
+            // Re-render chart for PDF (High Contrast Black/White style)
+            chartInstance.current = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['T-30', 'T-15', 'T-7', 'T-3', 'T-1', 'Today'],
+                    datasets: [{
+                        label: '病情指数',
+                        data: [45, 48, 52, 55, 58, score],
+                        borderColor: '#000', // Black for print
+                        borderWidth: 2,
+                        pointBackgroundColor: '#000',
+                        pointRadius: 3,
+                        tension: 0.1,
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#000', font: { size: 8 } } },
+                        y: { beginAtZero: true, max: 100, ticks: { color: '#000', font: { size: 8 } }, grid: { color: '#eee' } }
+                    }
+                }
+            });
+        }
+        return () => { if (chartInstance.current) chartInstance.current.destroy(); };
+    }, [score]);
+
+    const handleDownload = () => {
+        showToast('正在生成加密 PDF...', 'info');
+        setTimeout(() => {
+            showToast('导出成功，已保存至本地文件', 'success');
+            onClose();
+        }, 1500);
+    };
+
+    const currentDate = new Date().toLocaleDateString('zh-CN');
+
+    return (
+        <div className="fixed inset-0 z-[200] bg-slate-900/90 backdrop-blur-md flex flex-col items-center justify-center p-4 animate-fade-in">
+            {/* Toolbar */}
+            <div className="w-full max-w-[360px] flex justify-between items-center mb-4 text-white">
+                <h3 className="font-bold text-sm">打印预览 (A4)</h3>
+                <button onClick={onClose} className="bg-white/20 px-3 py-1 rounded-full text-xs hover:bg-white/30">关闭</button>
+            </div>
+
+            {/* A4 Paper Container (Scaled Down for Mobile View) */}
+            <div className="bg-white w-full max-w-[360px] aspect-[210/297] shadow-2xl relative overflow-hidden text-slate-900 flex flex-col scale-100 origin-top">
+                {/* Watermark */}
+                <div className="absolute inset-0 pointer-events-none z-0 flex items-center justify-center opacity-[0.03] rotate-45">
+                    <div className="text-6xl font-black whitespace-nowrap">华西数字华佗系统</div>
+                </div>
+
+                {/* 1. Header (Red Head) */}
+                <div className="border-b-2 border-red-600 pb-2 mx-6 mt-8 relative z-10">
+                    <div className="text-center">
+                        <h1 className="text-lg font-serif font-black text-red-700 tracking-widest">四川大学华西医院</h1>
+                        <h2 className="text-xs font-bold text-slate-800 mt-1 uppercase tracking-wider">神经内科专科门诊病历 (电子版)</h2>
+                    </div>
+                    <div className="flex justify-between mt-4 text-[9px] text-slate-500 font-mono">
+                        <span>No. {verificationCode.split('-')[2]}</span>
+                        <span>打印日期: {currentDate}</span>
+                    </div>
+                </div>
+
+                {/* 2. Patient Info Grid */}
+                <div className="mx-6 mt-4 relative z-10">
+                    <h3 className="text-[10px] font-bold text-slate-400 mb-1">患者基本信息 (Patient Profile)</h3>
+                    <div className="border border-slate-300 grid grid-cols-2 text-[10px]">
+                        <div className="p-1.5 border-b border-r border-slate-300 bg-slate-50 font-bold">姓名</div>
+                        <div className="p-1.5 border-b border-slate-300">{user.name}</div>
+                        
+                        <div className="p-1.5 border-b border-r border-slate-300 bg-slate-50 font-bold">性别/年龄</div>
+                        <div className="p-1.5 border-b border-slate-300">未知 / {user.headacheProfile?.onsetAge || '--'}岁</div>
+                        
+                        <div className="p-1.5 border-b border-r border-slate-300 bg-slate-50 font-bold">联系电话</div>
+                        <div className="p-1.5 border-b border-slate-300 font-mono">{maskPhone(user.phone)}</div>
+                        
+                        <div className="p-1.5 border-r border-slate-300 bg-slate-50 font-bold">身份证号</div>
+                        <div className="p-1.5 font-mono">{maskID(user.idNumber)}</div> {/* Assuming user.idNumber exists or mock it */}
+                    </div>
+                </div>
+
+                {/* 3. Trend Chart Area */}
+                <div className="mx-6 mt-4 relative z-10 flex-1 min-h-0 flex flex-col">
+                    <h3 className="text-[10px] font-bold text-slate-400 mb-1">近30天病情趋势 (Clinical Trend)</h3>
+                    <div className="border border-slate-200 p-2 h-32 w-full">
+                        <canvas ref={chartRef}></canvas>
+                    </div>
+                </div>
+
+                {/* 4. Risk & Advice */}
+                <div className="mx-6 mt-4 relative z-10 mb-4">
+                    <h3 className="text-[10px] font-bold text-slate-400 mb-1">显著风险点 (Risk Factors)</h3>
+                    <div className="flex gap-2 mb-3">
+                        {score > 60 && <span className="text-[9px] border border-red-500 text-red-600 px-1 rounded">高危指征</span>}
+                        <span className="text-[9px] border border-slate-300 text-slate-600 px-1 rounded">{diseaseType}</span>
+                        <span className="text-[9px] border border-slate-300 text-slate-600 px-1 rounded">CDSS评分: {score}</span>
+                    </div>
+
+                    <h3 className="text-[10px] font-bold text-slate-400 mb-1">华西专家建议 (Expert Recommendation)</h3>
+                    <div className="border-t border-b border-slate-200 py-2 text-[10px] leading-relaxed text-slate-800 text-justify">
+                        {diagnosis?.reason || "根据目前采集的临床数据，建议进行常规随访。如症状加重，请立即前往线下门诊就医。"}
+                    </div>
+                </div>
+
+                {/* 5. Footer (Verification) */}
+                <div className="mt-auto mb-6 mx-6 text-center relative z-10">
+                    <div className="flex justify-center items-center gap-2 mb-1">
+                        <div className="w-16 h-16 border-2 border-red-600 rounded-full flex items-center justify-center p-1 rotate-[-12deg] opacity-80">
+                            <div className="w-full h-full border border-red-600 rounded-full flex items-center justify-center text-[8px] text-red-600 font-black text-center leading-none">
+                                华西数字<br/>华佗系统<br/>专用章
+                            </div>
+                        </div>
+                    </div>
+                    <div className="text-[8px] text-slate-400 font-mono scale-90">
+                        数字签名: {verificationCode}
+                        <br/>
+                        *本报告仅供临床参考，不作为最终司法鉴定依据*
+                    </div>
+                </div>
+            </div>
+
+            {/* Actions */}
+            <div className="w-full max-w-[360px] mt-6 flex gap-3">
+                <Button fullWidth onClick={handleDownload} className="bg-red-600 shadow-lg shadow-red-600/30">
+                    确认导出 (PDF)
+                </Button>
+            </div>
+        </div>
+    );
+};
 
 // --- Health Tips Swiper Component ---
 const HealthTipsSwiper: React.FC<{ diseaseType: DiseaseType }> = ({ diseaseType }) => {
@@ -159,6 +320,7 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
   const [reportTitle, setReportTitle] = useState("");
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false); // [NEW] Export State
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<any>(null);
@@ -256,7 +418,15 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
       <div className="min-h-screen bg-slate-50 pb-8">
         
         {/* 1. 风险仪表盘 (Header) - 颜色对标：红黄绿 */}
-        <div className={`${theme.bg} pt-12 pb-24 px-6 rounded-b-[40px] text-center shadow-lg transition-colors duration-500`}>
+        <div className={`${theme.bg} pt-12 pb-24 px-6 rounded-b-[40px] text-center shadow-lg transition-colors duration-500 relative`}>
+            {/* [NEW] Export Button (Absolute Top Right) */}
+            <button 
+                onClick={() => setShowExportModal(true)}
+                className="absolute top-12 right-6 bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-full text-[10px] font-bold backdrop-blur-md transition-colors flex items-center gap-1 active:scale-95"
+            >
+                <span>📥</span> 导出病历
+            </button>
+
             <div className="text-[10px] text-white/80 font-black uppercase tracking-[0.2em] mb-2">CLINICAL RISK ASSESSMENT</div>
             <h2 className="text-3xl font-black text-white mb-2">{reportTitle}</h2>
             <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur px-4 py-1.5 rounded-full">
@@ -424,6 +594,14 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
                     </Button>
                 </div>
             </div>
+        )}
+
+        {/* [NEW] Export Modal */}
+        {showExportModal && (
+            <MedicalReportExportModal 
+                onClose={() => setShowExportModal(false)}
+                data={{ user, score: actualScore, diseaseType, diagnosis: lastDiagnosis }}
+            />
         )}
 
       </div>

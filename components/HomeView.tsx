@@ -70,6 +70,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
 
         const stats: IoTStats = {
             hr, bpSys, bpDia, spo2,
+            hrStandardDeviation: Math.floor(Math.random() * 40 + 20),
             isAbnormal: hr > 120 || hr < 60,
             isFallDetected: false,
             lastUpdated: Date.now()
@@ -131,6 +132,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
       if (val > 0) {
           const stats: IoTStats = {
             hr: val, bpSys: 120, bpDia: 80, spo2: 98,
+            hrStandardDeviation: 30, // Default for manual entry
             isAbnormal: false, 
             isFallDetected: false,
             lastUpdated: Date.now()

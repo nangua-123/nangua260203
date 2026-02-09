@@ -34,7 +34,7 @@ export type Permission =
   | 'VIEW_LIMITED_DATA'   // 查看受限数据 (家属)
   | 'RECEIVE_ALERTS'      // 接收预警
   | 'SYNC_DATA'           // 同步数据 (医助)
-  | 'REMOTE_REMINDER'     // [NEW] 远程强制提醒 (家属代管紧急干预)
+  | 'REMOTE_REMINDER'     // [NEW] 远程强制提醒 (安全围栏)
   | 'WRITE_FOLLOW_UP';    // 填写随访 (医助)
 
 export enum DiseaseType {
@@ -71,6 +71,7 @@ export interface PrivacySettings {
 
 export interface IoTStats {
   hr: number;      
+  hrStandardDeviation: number; // [NEW] 心率变异度 (SDNN/HRV) - 医疗合规字段
   bpSys: number;   
   bpDia: number;   
   spo2: number;    
@@ -181,12 +182,24 @@ export interface FamilyMember {
   cognitiveStats?: CognitiveStats; 
 }
 
+// [NEW] 熔断审核报告
+export interface ReviewReport {
+    id: string;
+    timestamp: number;
+    triggerReason: 'KEYWORD_DETECTED' | 'RESPONSE_TIMEOUT';
+    riskLevel: 'CRITICAL';
+    chatHistorySnapshot: ChatMessage[];
+    status: 'PENDING' | 'RESOLVED';
+}
+
 // 医生助理认证信息
 export interface DoctorAssistantProof {
     hospitalName: string;
     employeeId: string;
     certificateUrl: string; // 模拟上传后的URL
     verified: boolean;
+    // [NEW] 关联的审核日志
+    reviewLogs?: ReviewReport[];
 }
 
 export interface MedLog {
@@ -194,6 +207,16 @@ export interface MedLog {
   timestamp: number;
   drugName: string;
   dosage: string;
+  
+  // [Medical Compliance] Migraine Fields
+  painScale?: number; // NRS 1-10
+  concomitantSymptoms?: string[]; // e.g. ['nausea', 'photophobia']
+
+  // [Medical Compliance] Epilepsy Fields
+  seizureType?: string; // e.g. 'tonic-clonic', 'absence'
+  triggerFactors?: string[]; // e.g. ['missed_meds', 'stress']
+
+  // Generic/Legacy
   painLevel?: number; 
   nature?: string[]; 
   symptoms?: string[]; 
@@ -210,6 +233,7 @@ export interface User {
   id: string;
   name: string;
   phone: string;
+  idNumber?: string; // [NEW] 身份证号 (For Medical Report Export)
   avatar?: string; // 支持第三方头像
   authProvider?: AuthProvider; // 登录方式
   

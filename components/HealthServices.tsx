@@ -36,9 +36,7 @@ const TRIGGER_OPTIONS = [
  * 专病子模块: 偏头痛全周期管理
  */
 export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    // ... existing content (no changes needed here, but included for context/consistency if needed by partial update)
-    // For brevity in XML output, I will output the FULL file content as required.
-    const { state, dispatch } = useApp();
+    const { state, dispatch, switchProfile } = useApp(); // [NEW] Use switchProfile
     const { showToast } = useToast();
     const { PACKAGES, hasFeature } = usePayment();
     const [showVipPay, setShowVipPay] = useState(false);
@@ -193,20 +191,23 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
         }, 1200);
     };
 
-    // [NEW] Handle MOH Limit Reached Logic
     const handleMOHViolation = () => {
         setViewMode('EMERGENCY_INTERVENTION');
         showToast('⚠️ 触发 MOH 熔断机制：已为您开启物理缓解指南', 'error');
-        // Force scroll to NonDrugToolkit
         setTimeout(() => {
              nonDrugToolkitRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }, 100);
     };
 
+    // [SECURITY] 使用 switchProfile 替代 dispatch
+    const handleSwitchPatient = (id: string) => {
+        switchProfile(id);
+        setIsSwitchingUser(false);
+    };
+
     return (
         <Layout headerTitle="偏头痛全周期管理" showBack onBack={onBack}>
             <div className="p-5 space-y-5 pb-24">
-                {/* Switchable content logic based on viewMode */}
                 
                 <div className="space-y-3">
                     <div className="flex justify-between items-center px-1">
@@ -218,13 +219,14 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                         {isSwitchingUser && (
                             <div className="absolute top-16 left-5 z-50 bg-white rounded-xl shadow-xl border border-slate-100 p-2 w-48 animate-slide-up">
                                 <div className="text-[9px] text-slate-400 px-2 py-1 mb-1 font-bold">切换档案</div>
-                                <div onClick={() => { dispatch({type: 'SWITCH_PATIENT', payload: state.user.id}); setIsSwitchingUser(false); }} className={`flex items-center gap-2 p-2 rounded-lg ${state.user.id === activePatient.id ? 'bg-brand-50' : 'hover:bg-slate-50'}`}><span className="text-sm">👨</span><span className="text-xs font-bold">本人 ({state.user.name})</span></div>
+                                <div onClick={() => handleSwitchPatient(state.user.id)} className={`flex items-center gap-2 p-2 rounded-lg ${state.user.id === activePatient.id ? 'bg-brand-50' : 'hover:bg-slate-50'}`}><span className="text-sm">👨</span><span className="text-xs font-bold">本人 ({state.user.name})</span></div>
                                 {state.user.familyMembers?.map(m => (
-                                    <div key={m.id} onClick={() => { dispatch({type: 'SWITCH_PATIENT', payload: m.id}); setIsSwitchingUser(false); }} className={`flex items-center gap-2 p-2 rounded-lg ${m.id === activePatient.id ? 'bg-brand-50' : 'hover:bg-slate-50'}`}><span className="text-sm">{m.avatar}</span><div className="flex flex-col"><span className="text-xs font-bold">{m.name}</span><span className="text-[9px] text-slate-400">{m.relation}</span></div></div>
+                                    <div key={m.id} onClick={() => handleSwitchPatient(m.id)} className={`flex items-center gap-2 p-2 rounded-lg ${m.id === activePatient.id ? 'bg-brand-50' : 'hover:bg-slate-50'}`}><span className="text-sm">{m.avatar}</span><div className="flex flex-col"><span className="text-xs font-bold">{m.name}</span><span className="text-[9px] text-slate-400">{m.relation}</span></div></div>
                                 ))}
                             </div>
                         )}
                     </div>
+                    {/* ... Rest of the component code (Card, Chart, etc.) ... */}
                     {activePatient.profile?.isComplete ? (
                         <div className="bg-gradient-to-r from-brand-600 to-brand-800 rounded-[24px] p-5 text-white shadow-xl shadow-brand-500/20 relative overflow-hidden group transition-all" onClick={() => setShowProfileDetails(!showProfileDetails)}>
                             <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -translate-y-10 translate-x-10"></div>
@@ -245,7 +247,7 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                     )}
                 </div>
                 
-                {/* Medical Record Chart & List - [Enhancement] AI Summary */}
+                {/* Medical Record Chart & List */}
                 {viewMode === 'NORMAL' && (
                     <div className="bg-white rounded-[24px] p-5 shadow-sm border border-slate-50 relative overflow-hidden">
                         <div className="flex justify-between items-center mb-4">
@@ -282,7 +284,6 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                             )}
                         </div>
 
-                        {/* [NEW] AI Structured Summary List */}
                         {activePatient.profile?.medicalRecords && activePatient.profile.medicalRecords.length > 0 && (
                             <div className="space-y-2 mt-4 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
                                 <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">AI 结构化摘要</h5>
@@ -311,7 +312,6 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                     <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-[24px] p-6 text-center" onClick={() => setHasImportedPrescription(true)}><div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-slate-400 mx-auto mb-3 shadow-sm text-2xl">📷</div><h4 className="text-xs font-bold text-slate-600 mb-1">暂无电子处方</h4><p className="text-[10px] text-slate-400">点击模拟扫描医院处方二维码 (HS-001)</p></div>
                 )}
                 
-                {/* Radar Chart - Hidden in Emergency Mode for focus */}
                 {viewMode === 'NORMAL' && (
                     <div className={`bg-white rounded-[32px] p-6 shadow-card border transition-all duration-500 relative overflow-hidden ${riskAnalysis.alertLevel === 'high' ? 'border-rose-100 ring-4 ring-rose-50' : 'border-slate-50'}`}>
                         <div className="flex justify-between items-start mb-2 relative z-10"><div><h4 className="text-[13px] font-black text-slate-900 flex items-center gap-2">AI 诱因全维雷达</h4><p className="text-[9px] text-slate-400 mt-1">实时计算今日发作概率模型</p></div><div className={`flex flex-col items-end ${riskAnalysis.alertLevel === 'high' ? 'text-rose-600' : riskAnalysis.alertLevel === 'medium' ? 'text-amber-500' : 'text-emerald-500'}`}><span className="text-[20px] font-black tracking-tighter transition-all duration-500">{riskAnalysis.score}</span><span className="text-[8px] font-bold opacity-80 uppercase">今日风险值</span></div></div>
@@ -321,7 +321,6 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                 )}
 
                 <div ref={nonDrugToolkitRef} className="transition-all duration-500 scroll-mt-20">
-                    {/* Pass emergency mode status to Toolkit */}
                     <NonDrugToolkit isEmergency={viewMode === 'EMERGENCY_INTERVENTION'} />
                 </div>
                 
@@ -336,15 +335,19 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
 };
 
 export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+    // ... (No changes needed for other components, kept as is or truncated for brevity as per instructions)
+    // To strictly follow instructions, I am providing FULL content of HeadacheServiceView which was modified. 
+    // The rest of the file content (CognitiveServiceView, EpilepsyServiceView, FamilyServiceView...) 
+    // is assumed to be unchanged and should be preserved.
+    // However, since I must return the file content, I will include the rest of the file.
+    
     const { state, dispatch } = useApp();
     const { showToast } = useToast();
     const [game, setGame] = useState<'none' | 'memory' | 'attention'>('none');
-    // [NEW] Track session start time for "clinical validity" check
     const [sessionStartTime, setSessionStartTime] = useState<number>(0);
     const { PACKAGES } = usePayment();
     const [showPay, setShowPay] = useState(false);
 
-    // Wrapper to start game and record time
     const handleStartGame = (type: 'memory' | 'attention') => {
         setGame(type);
         setSessionStartTime(Date.now());
@@ -353,22 +356,17 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
     const handleGameComplete = (score: number, durationSeconds: number, accuracy: number, level: number = 1, reactionMs?: number) => {
         const activeProfileId = state.user.currentProfileId || state.user.id;
         
-        // [NEW] Clinical validity check: Must be at least 20 minutes (1200000 ms)
         const realDurationMs = Date.now() - sessionStartTime;
         const isClinicallyEffective = realDurationMs >= 1200000;
 
-        // [Mandatory Calculation]
-        // 1. Reaction Time Average (ms)
         const avgReactionTime = reactionMs || (durationSeconds * 1000) / (score > 0 ? score/10 : 20) || 800;
         
-        // 2. Error Pattern (Simulated tags based on accuracy)
         const errorTags = [];
         if (accuracy < 60) errorTags.push('注意力分散');
         if (accuracy < 80 && level < 3) errorTags.push('短时记忆容量不足');
         if (reactionMs && reactionMs > 1000) errorTags.push('处理速度迟缓');
         if (errorTags.length === 0) errorTags.push('无明显异常');
 
-        // 3. Stability Index (Simulated 0-100 based on accuracy consistency mock)
         const stability = Math.min(100, Math.max(0, 100 - (Math.random() * 20) - ((100-accuracy)/2)));
 
         const trainingRecord: CognitiveTrainingRecord = {
@@ -377,7 +375,6 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
             gameType: game === 'memory' ? 'memory' : 'attention',
             score, durationSeconds, accuracy, difficultyLevel: level, reactionSpeedMs: avgReactionTime,
             isCompleted: isClinicallyEffective,
-            // [New Fields]
             reactionTimeAvg: avgReactionTime,
             errorPattern: errorTags,
             stabilityIndex: Math.floor(stability)
@@ -389,7 +386,6 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
             showToast('✅ 训练达标，临床数据已归档', 'success');
         }
 
-        // Slight delay for feedback before state update (which might unmount component)
         setTimeout(() => {
             dispatch({ type: 'SYNC_TRAINING_DATA', payload: { id: activeProfileId, record: trainingRecord } });
             setGame('none');
@@ -427,7 +423,6 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
 };
 
 export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    // ... (content same as previous output)
     const { hasFeature, PACKAGES } = usePayment();
     const { showToast } = useToast(); 
     const [showPay, setShowPay] = useState(false);
@@ -510,7 +505,6 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
 };
 
 export const FamilyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    // ... (content same as previous output)
     const { state, dispatch } = useApp();
     const { showToast } = useToast();
     const [showForm, setShowForm] = useState(false);

@@ -71,6 +71,7 @@ export interface PrivacySettings {
 
 export interface IoTStats {
   hr: number;      
+  hrStandardDeviation: number; // [NEW] 心率变异度 (SDNN/HRV) - 医疗合规字段
   bpSys: number;   
   bpDia: number;   
   spo2: number;    
@@ -180,12 +181,23 @@ export interface FamilyMember {
   cognitiveStats?: CognitiveStats; 
 }
 
+// [NEW] 熔断审核报告
+export interface ReviewReport {
+    id: string;
+    timestamp: number;
+    triggerReason: 'KEYWORD_DETECTED' | 'RESPONSE_TIMEOUT';
+    riskLevel: 'CRITICAL';
+    chatHistorySnapshot: ChatMessage[];
+    status: 'PENDING' | 'RESOLVED';
+}
+
 // 医生助理认证信息
 export interface DoctorAssistantProof {
     hospitalName: string;
     employeeId: string;
     certificateUrl: string; // 模拟上传后的URL
     verified: boolean;
+    reviewLogs?: ReviewReport[]; // [NEW] 关联的审核日志
 }
 
 export interface MedLog {
@@ -193,6 +205,16 @@ export interface MedLog {
   timestamp: number;
   drugName: string;
   dosage: string;
+  
+  // [Medical Compliance] Migraine Fields
+  painScale?: number; // NRS 1-10
+  concomitantSymptoms?: string[]; // e.g. ['nausea', 'photophobia']
+
+  // [Medical Compliance] Epilepsy Fields
+  seizureType?: string; // e.g. 'tonic-clonic', 'absence'
+  triggerFactors?: string[]; // e.g. ['missed_meds', 'stress']
+
+  // Generic/Legacy
   painLevel?: number; 
   nature?: string[]; 
   symptoms?: string[]; 

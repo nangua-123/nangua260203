@@ -1,21 +1,41 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, DiseaseType } from '../types';
-import { createChatSession, sendMessageToAI } from '../services/geminiService';
+import { createChatSession, sendMessageToAI, checkSensitiveKeywords } from '../services/geminiService';
 import { useApp } from '../context/AppContext';
 import Layout from '../components/common/Layout';
 import Button from '../components/common/Button';
 import { PaywallModal } from '../components/business/payment/PaywallModal'; // 复用支付组件
 import { usePayment } from '../hooks/usePayment';
+import { useToast } from '../context/ToastContext'; // [NEW]
 
 interface ChatViewProps {
   onBack: () => void;
   onPaymentGate: (summary: any) => void;
 }
 
+// [NEW] 熔断通告 Banner
+const AssistantTakingOverBanner: React.FC = () => (
+    <div className="bg-gradient-to-r from-orange-50 to-orange-100 border-b border-orange-200 px-4 py-3 flex items-center justify-between shadow-sm animate-slide-up relative z-40">
+        <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center text-white animate-pulse shadow-lg shadow-orange-500/30">
+                🚨
+            </div>
+            <div>
+                <h4 className="text-[13px] font-black text-orange-900 leading-none">人工医助正在接入...</h4>
+                <p className="text-[10px] text-orange-700 mt-1 font-bold">检测到紧急风险，AI 已暂停服务</p>
+            </div>
+        </div>
+        <div className="bg-white/50 px-2 py-1 rounded text-[9px] text-orange-800 font-mono font-bold border border-orange-200/50">
+            SOS-MODE
+        </div>
+    </div>
+);
+
 const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
   const { state, dispatch } = useApp();
   const { PACKAGES } = usePayment();
+  const { showToast } = useToast();
   
   // --- State ---
   const [activeDisease, setActiveDisease] = useState<DiseaseType>(DiseaseType.UNKNOWN);
@@ -24,6 +44,9 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [latestOptions, setLatestOptions] = useState<string[]>([]);
   const [apiError, setApiError] = useState(false);
+  
+  // [NEW] Circuit Breaker State
+  const [isTakeoverMode, setIsTakeoverMode] = useState(false);
   
   // Progress (Dynamic: Based on specific disease path logic from geminiService)
   const [currentStep, setCurrentStep] = useState(0);
@@ -35,10 +58,23 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
   
   const chatSessionRef = useRef<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const timeoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     loadHistory();
   }, []);
+
+  // [NEW] Timeout Watchdog (10s)
+  useEffect(() => {
+      if (isLoading && !isTakeoverMode) {
+          timeoutTimerRef.current = setTimeout(() => {
+              handleTakeover('RESPONSE_TIMEOUT');
+          }, 10000); // 10s threshold
+      }
+      return () => {
+          if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
+      };
+  }, [isLoading, isTakeoverMode]);
 
   const loadHistory = () => {
     setMessages([]);
@@ -47,6 +83,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
     setShowAssessmentOffer(false);
     setApiError(false);
     setCurrentStep(0);
+    setIsTakeoverMode(false); // Reset circuit breaker
 
     chatSessionRef.current = createChatSession("系统初始化", DiseaseType.UNKNOWN);
     // 更新动态步数 (Initial state)
@@ -63,7 +100,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
     }
   };
 
-  useEffect(() => { scrollToBottom(); }, [messages, isLoading, showAssessmentOffer]);
+  useEffect(() => { scrollToBottom(); }, [messages, isLoading, showAssessmentOffer, isTakeoverMode]);
 
   const parseResponse = (rawText: string) => {
     let cleanText = rawText;
@@ -84,9 +121,40 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
     return { cleanText: cleanText.trim(), options, triggerOffer };
   };
 
+  // [NEW] 熔断执行逻辑
+  const handleTakeover = (reason: 'KEYWORD_DETECTED' | 'RESPONSE_TIMEOUT') => {
+      if (isTakeoverMode) return; // Prevent double trigger
+      
+      setIsTakeoverMode(true);
+      setIsLoading(false); // Force stop loading spinner
+      
+      // Dispatch audit log
+      dispatch({
+          type: 'GENERATE_REVIEW_REPORT',
+          payload: { reason, history: messages }
+      });
+
+      // Show toast feedback
+      const alertText = reason === 'KEYWORD_DETECTED' ? '⚠️ 监测到高危描述，已转接人工' : '⚠️ 系统响应超时，已转接人工';
+      showToast(alertText, 'error');
+  };
+
   const handleSend = async (text: string, isSystemStart = false) => {
+    if (isTakeoverMode) return; // Block input if taken over
+
     let currentMsgs = messages;
     setLatestOptions([]);
+
+    // [NEW] Keyword Detection Layer
+    if (!isSystemStart && checkSensitiveKeywords(text)) {
+        // Add the user message first so context is complete
+        const newMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: text, timestamp: Date.now() };
+        setMessages([...messages, newMsg]);
+        setInput('');
+        // Trigger Takeover immediately
+        handleTakeover('KEYWORD_DETECTED');
+        return;
+    }
 
     if (!apiError && !isSystemStart) {
         const newMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: text, timestamp: Date.now() };
@@ -101,6 +169,9 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
     try {
       const rawResponse = await sendMessageToAI(chatSessionRef.current, text, currentMsgs);
       
+      // If takeover happened during await (e.g. timeout), abort processing response
+      if (isTakeoverMode) return;
+
       // Update disease type
       if (chatSessionRef.current.diseaseType !== DiseaseType.UNKNOWN) {
           setActiveDisease(chatSessionRef.current.diseaseType);
@@ -135,7 +206,11 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
       console.error(e);
       setApiError(true);
     } finally {
-      setIsLoading(false);
+      // Only set loading to false if we haven't switched to takeover mode
+      // (Takeover mode handles its own state)
+      if (!isTakeoverMode) {
+          setIsLoading(false);
+      }
     }
   };
 
@@ -210,6 +285,9 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
             </div>
         </div>
 
+        {/* [NEW] Human Takeover Banner (Pinned below header) */}
+        {isTakeoverMode && <AssistantTakingOverBanner />}
+
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 scroll-smooth no-scrollbar">
           <div className="space-y-6 pb-4">
             {messages.map((msg, index) => (
@@ -228,8 +306,8 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
                             {msg.text}
                         </div>
                     </div>
-                    {/* Render Options: Only if no assessment offer is showing */}
-                    {index === messages.length - 1 && msg.role === 'model' && latestOptions.length > 0 && !showAssessmentOffer && (
+                    {/* Render Options: Only if no assessment offer is showing AND not in takeover mode */}
+                    {index === messages.length - 1 && msg.role === 'model' && latestOptions.length > 0 && !showAssessmentOffer && !isTakeoverMode && (
                         <div className="pl-14 pr-2 space-y-2.5 w-full animate-fade-in">
                             {latestOptions.map((opt, idx) => (
                                 <button 
@@ -260,7 +338,7 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
 
             {/* --- 2. Assessment Offer Card (Soft Offer) --- */}
             {/* [Optimization] 非强制弹窗，改为信息流末尾的卡片，提供明确的免费选项 */}
-            {showAssessmentOffer && (
+            {showAssessmentOffer && !isTakeoverMode && (
                 <div className="bg-white border border-slate-100 rounded-[24px] p-6 text-center animate-slide-up shadow-lg mx-2 mb-10 overflow-hidden relative">
                     <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-brand-300 to-brand-600"></div>
                     <div className="w-14 h-14 bg-brand-50 rounded-full flex items-center justify-center text-3xl mx-auto mb-4 border border-brand-100">
@@ -294,19 +372,32 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
           </div>
         </div>
 
-        {/* Input Area */}
+        {/* Input Area - [NEW] Lockdown logic */}
         {!showAssessmentOffer && !isLoading && latestOptions.length === 0 && (
-            <div className="flex-none bg-white border-t border-slate-100 p-3 z-20 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
+            <div className={`flex-none border-t p-3 z-20 shadow-[0_-4px_20px_rgba(0,0,0,0.03)] transition-colors duration-300 ${isTakeoverMode ? 'bg-slate-100 border-slate-200' : 'bg-white border-slate-100'}`}>
                 <div className="flex items-center gap-3">
                     <input
                         type="text"
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        placeholder="手动输入症状细节..."
-                        className="flex-1 bg-slate-50 border border-slate-200 rounded-full px-5 py-3 text-sm outline-none focus:border-brand-500 transition-all"
+                        placeholder={isTakeoverMode ? "⚠️ 医助正在接入... 请保持电话畅通" : "手动输入症状细节..."}
+                        disabled={isTakeoverMode} // [NEW] Input Lock
+                        className={`flex-1 rounded-full px-5 py-3 text-sm outline-none transition-all ${
+                            isTakeoverMode 
+                            ? 'bg-slate-200 text-slate-500 cursor-not-allowed border border-transparent' 
+                            : 'bg-slate-50 border border-slate-200 focus:border-brand-500'
+                        }`}
                     />
-                    <button onClick={() => handleSend(input)} className="bg-[#1677FF] text-white w-11 h-11 rounded-full flex items-center justify-center shadow-md active:scale-95">
-                        ↑
+                    <button 
+                        onClick={() => handleSend(input)} 
+                        disabled={isTakeoverMode} // [NEW] Button Lock
+                        className={`w-11 h-11 rounded-full flex items-center justify-center shadow-md transition-all ${
+                            isTakeoverMode 
+                            ? 'bg-slate-300 text-white cursor-not-allowed' 
+                            : 'bg-[#1677FF] text-white active:scale-95'
+                        }`}
+                    >
+                        {isTakeoverMode ? '🔒' : '↑'}
                     </button>
                 </div>
             </div>

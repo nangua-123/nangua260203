@@ -17,7 +17,7 @@ interface ProfileViewProps {
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNavigate, onClearCache, onToggleElderly }) => {
-    const { dispatch } = useApp();
+    const { dispatch, switchProfile } = useApp(); // [NEW] Use switchProfile
     const { isPatient, isFamily, isDoctor, checkPermission } = useRole();
     const { showToast } = useToast();
     const [showQR, setShowQR] = useState(false);
@@ -35,18 +35,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNav
         }
     };
 
-    const handleSwitchContext = () => {
+    // [SECURITY] 使用 switchProfile 替代 dispatch
+    const handleSwitchContext = async () => {
         if (!user.associatedPatientId) return;
         
         if (isViewingPatient) {
             // 切回自己
-            dispatch({ type: 'SWITCH_PATIENT', payload: user.id });
+            await switchProfile(user.id);
             showToast('已切回个人视图', 'success');
         } else {
-            // 切到患者
-            dispatch({ type: 'SWITCH_PATIENT', payload: user.associatedPatientId });
+            // 切到患者 (代管模式)
+            await switchProfile(user.associatedPatientId);
             showToast('已切换至患者代管视图', 'success');
-            setTimeout(() => onNavigate('home'), 500); // 自动跳转到首页查看数据
+            // 注意：switchProfile 已包含强制路由重置到 Home，此处无需手动 navigate
         }
     };
 

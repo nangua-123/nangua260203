@@ -23,6 +23,15 @@ interface MockChatSession {
 // --- Utils ---
 
 /**
+ * [NEW] 敏感词熔断检测器
+ * 用于 ChatView 前置拦截，若命中则阻断 AI 回复，转人工
+ */
+export const checkSensitiveKeywords = (text: string): boolean => {
+    const dangerPatterns = /自残|自杀|呼吸困难|剧烈呕吐|意识丧失|不想活了|救命/;
+    return dangerPatterns.test(text);
+};
+
+/**
  * 术语清洗器 (Terminology Sanitizer)
  * 将口语化的用户输入转换为标准的医学术语，确保病历归档的专业性。
  * @param text 原始文本
