@@ -7,14 +7,27 @@ import { useToast } from '../context/ToastContext';
 import { useApp } from '../context/AppContext';
 import { DISEASE_CONTEXT_CONFIG } from '../config/DiseaseContextConfig';
 import { SCALE_DEFINITIONS, ScaleDefinition } from '../config/ScaleDefinitions';
-import { calculateScaleScore } from '../utils/scoringEngine';
-import { InteractiveMMSE } from './InteractiveMMSE';
+import { 
+    calculateScaleScore, 
+    calculateMMSEScore, 
+    calculateADLScore, 
+    calculateEPDS, 
+    calculateMoCAScore,
+    calculateCognitiveDiagnosis,
+    calculateCDRGlobal // [FIX] Import real CDR engine
+} from '../utils/scoringEngine';
+import { InteractiveMMSE } from '../components/InteractiveMMSE';
+import { processMedicalImage } from '../services/geminiService'; // [NEW] Import OCR service
 import CryptoJS from 'crypto-js';
 
-// [NEW] Import mock config from TS file
+// [NEW] Import mock configs
 import { EPILEPSY_V0_CONFIG } from '../config/forms/epilepsy_v0_config'; 
-import { COGNITIVE_ASSESSMENT_CONFIG } from '../config/forms/cognitive_assessment_config';
-import { CDR_INTERVIEW_CONFIG } from '../config/forms/cdr_interview_config';
+import { COGNITIVE_CDR_CONFIG } from '../config/forms/cognitive_cdr_config';
+import { COGNITIVE_MMSE_CONFIG } from '../config/forms/cognitive_mmse_config';
+import { COGNITIVE_ADL_CONFIG } from '../config/forms/cognitive_adl_config';
+import { COGNITIVE_MOCA_CONFIG } from '../config/forms/cognitive_moca_config';
+import { COGNITIVE_AVLTH_CONFIG } from '../config/forms/cognitive_avlth_config';
+import { COGNITIVE_DST_CONFIG } from '../config/forms/cognitive_dst_config'; 
 
 interface AssessmentViewProps {
   type: DiseaseType;
@@ -24,59 +37,72 @@ interface AssessmentViewProps {
 
 // --- Logic Helpers ---
 
-// [NEW] EPDS Scoring Engine
-const calculateEPDSScore = (answers: Record<string, any>): number => {
-    let score = 0;
-    for (let i = 1; i <= 10; i++) {
-        const val = answers[`epds_q${i}`];
-        if (typeof val === 'number') {
-            score += val;
-        }
+// [NEW] Digit Span Test TTS Helper
+const playDigitSequence = (text: string) => {
+    const matches = text.match(/\d+/g);
+    if (!matches || matches.length === 0) return;
+    
+    const sequencePart = text.split('.')[1] || text;
+    const digits = sequencePart.match(/\d/g);
+
+    if (!digits) return;
+
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        
+        let delay = 0;
+        digits.forEach((digit, index) => {
+            const utter = new SpeechSynthesisUtterance(digit);
+            utter.lang = 'zh-CN';
+            utter.rate = 0.8; 
+            setTimeout(() => {
+                window.speechSynthesis.speak(utter);
+            }, index * 1000); 
+        });
+        return true;
     }
-    return score;
+    return false;
+};
+
+// [NEW] AVLT-H Text-to-Speech Helper
+const playAVLTWords = () => {
+    const words = ["大衣", "长裤", "头巾", "手套", "司机", "木工", "士兵", "律师", "海棠", "百合", "腊梅", "玉兰"];
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(words.join('... ')); 
+        utterance.lang = 'zh-CN';
+        utterance.rate = 0.8; 
+        window.speechSynthesis.speak(utterance);
+        return true;
+    }
+    return false;
 };
 
 // [NEW] AVLT-H Delayed Recall Timer Component
-// Robustness Update: Accepts a start timestamp to persist count across re-renders
-const DelayedRecallTimer: React.FC<{ 
-    targetMinutes: number; 
-    startTime: number;
+const DelayedRecallSuspension: React.FC<{ 
+    targetDelayMinutes: number; 
+    baseTime: number;
     onUnlock: () => void; 
-    label: string 
-}> = ({ targetMinutes, startTime, onUnlock, label }) => {
-    const [timeLeft, setTimeLeft] = useState(targetMinutes * 60);
-    const { showToast } = useToast();
+    label: string;
+    onLeave: () => void;
+}> = ({ targetDelayMinutes, baseTime, onUnlock, label, onLeave }) => {
+    const [timeLeft, setTimeLeft] = useState(0);
+    const targetTime = baseTime + targetDelayMinutes * 60 * 1000;
 
     useEffect(() => {
-        const calculateRemaining = () => {
+        const tick = () => {
             const now = Date.now();
-            const elapsedSeconds = Math.floor((now - startTime) / 1000);
-            const totalSeconds = targetMinutes * 60;
-            return Math.max(0, totalSeconds - elapsedSeconds);
-        };
-
-        // Initial check
-        const remaining = calculateRemaining();
-        setTimeLeft(remaining);
-
-        if (remaining <= 0) {
-            onUnlock();
-            return;
-        }
-
-        const timer = setInterval(() => {
-            const currentLeft = calculateRemaining();
-            setTimeLeft(currentLeft);
-            
-            if (currentLeft <= 0) {
-                clearInterval(timer);
+            const diff = Math.ceil((targetTime - now) / 1000);
+            if (diff <= 0) {
                 onUnlock();
-                showToast(`🔔 ${label} 倒计时结束，请进行回忆测试`, 'info');
+            } else {
+                setTimeLeft(diff);
             }
-        }, 1000);
-        
+        };
+        tick();
+        const timer = setInterval(tick, 1000);
         return () => clearInterval(timer);
-    }, [targetMinutes, startTime, onUnlock, label, showToast]);
+    }, [targetTime, onUnlock]);
 
     const formatTime = (sec: number) => {
         const m = Math.floor(sec / 60);
@@ -85,16 +111,29 @@ const DelayedRecallTimer: React.FC<{
     };
 
     return (
-        <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex items-center justify-between animate-pulse">
-            <div className="flex items-center gap-3">
-                <span className="text-2xl">⏳</span>
-                <div>
-                    <div className="text-xs font-bold text-indigo-900">{label} 挂起中</div>
-                    <div className="text-[10px] text-indigo-600">请保持应用开启，勿后台关闭</div>
-                </div>
+        <div className="flex flex-col items-center justify-center h-[60vh] text-center animate-fade-in px-6">
+            <div className="w-24 h-24 bg-indigo-50 rounded-full flex items-center justify-center text-4xl mb-6 relative">
+                ⏳
+                <div className="absolute inset-0 border-4 border-indigo-100 rounded-full animate-spin-slow" style={{ borderTopColor: '#6366f1' }}></div>
             </div>
-            <div className="text-xl font-mono font-black text-indigo-600">
+            
+            <h3 className="text-xl font-black text-slate-900 mb-2">任务挂起中: {label}</h3>
+            <div className="text-4xl font-mono font-black text-indigo-600 mb-4 tracking-wider">
                 {formatTime(timeLeft)}
+            </div>
+            
+            <p className="text-xs text-slate-500 mb-8 leading-relaxed">
+                为保证记忆测试准确性，请在倒计时结束前<br/>
+                <span className="font-bold text-slate-700">不要进行其他语言类活动</span>。
+            </p>
+
+            <div className="w-full space-y-3">
+                <Button fullWidth onClick={onLeave} variant="outline" className="border-slate-200 text-slate-600">
+                    返回首页 (后台运行)
+                </Button>
+                <p className="text-[10px] text-slate-400">
+                    * 倒计时结束时，APP 将强制弹窗提醒您回来继续。
+                </p>
             </div>
         </div>
     );
@@ -102,17 +141,28 @@ const DelayedRecallTimer: React.FC<{
 
 // --- Form Engine Sub-components ---
 
-// 1. Dynamic Text Processor (Context Substitution)
 const getLabelText = (label: string, fillerType: FillerType = 'SELF'): string => {
     if (fillerType === 'SELF') return label;
-    // Replace second-person pronouns with "Patient" for family caregivers
     return label.replace(/您/g, '患者').replace(/你/g, '患者').replace(/Your/g, "Patient's");
 };
 
-// 2. Logic Engine
 const checkVisibility = (field: FormFieldConfig, answers: Record<string, any>): boolean => {
     if (!field.visibleIf) return true;
     return Object.entries(field.visibleIf).every(([key, value]) => answers[key] === value);
+};
+
+// [NEW] Logic to check DST Double Failure
+const checkDSTTermination = (answers: Record<string, any>, currentLevel: number): boolean => {
+    for (let i = 1; i < currentLevel; i++) {
+        const keyA = `dst_${i}a`;
+        const keyB = `dst_${i}b`;
+        if (answers[keyA] !== undefined && answers[keyB] !== undefined) {
+            if (answers[keyA] === 0 && answers[keyB] === 0) {
+                return true; 
+            }
+        }
+    }
+    return false;
 };
 
 const FormRenderer: React.FC<{
@@ -121,64 +171,153 @@ const FormRenderer: React.FC<{
     setAnswer: (key: string, val: any, exclusion?: boolean) => void;
     currentSectionIndex: number;
     fillerType: FillerType;
-    onAVLTUnlock?: () => void; // Callback for timer unlock
-}> = ({ config, answers, setAnswer, currentSectionIndex, fillerType, onAVLTUnlock }) => {
+    onLeave: () => void;
+    onTermination?: () => void; 
+}> = ({ config, answers, setAnswer, currentSectionIndex, fillerType, onLeave, onTermination }) => {
     const section = config.sections[currentSectionIndex];
+    const { showToast } = useToast();
+    
+    // [NEW] File Upload State
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [activeFileField, setActiveFileField] = useState<string | null>(null);
 
-    // [NEW] Real-time Dosage Calculation Logic
-    const morning = parseFloat(answers['morning_mg'] || '0');
-    const noon = parseFloat(answers['noon_mg'] || '0');
-    const night = parseFloat(answers['night_mg'] || '0');
-    const dailyTotal = morning + noon + night;
+    // [NEW] Handle File Upload & OCR
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, fieldId: string) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setIsAnalyzing(true);
+        showToast('AI 正在分析影像病灶性质...', 'info');
+
+        try {
+            const record = await processMedicalImage(file);
+            setAnswer(fieldId, record.rawImageUrl); // Save preview URL
+
+            // [Auto-Fill Logic]
+            // Map 'MRI_PATHOLOGY_TAGS' from OCR result to 'mri_lesion_nature' field
+            // Note: processMedicalImage returns formatted indicators
+            const tagsIndicator = record.indicators.find(i => i.name === 'MRI_PATHOLOGY_TAGS');
+            if (tagsIndicator && tagsIndicator.value) {
+                const tags = (tagsIndicator.value as string).split(',').map(s => s.trim());
+                if (tags.length > 0 && tags[0] !== '') {
+                    // Try to map tags to 'mri_lesion_nature' options if it exists in current section
+                    const targetField = section.fields.find(f => f.id === 'mri_lesion_nature');
+                    if (targetField && targetField.type === 'multiselect') {
+                        setAnswer('mri_lesion_nature', tags);
+                        showToast(`已自动识别并勾选 ${tags.length} 个病灶特征`, 'success');
+                    }
+                }
+            } else {
+                showToast('影像上传成功 (未识别到特定病灶标签)', 'success');
+            }
+
+        } catch (error) {
+            console.error(error);
+            showToast('识别失败，请手动选择', 'error');
+        } finally {
+            setIsAnalyzing(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    const triggerFileUpload = (fieldId: string) => {
+        setActiveFileField(fieldId);
+        if (fileInputRef.current) {
+            fileInputRef.current.click();
+        }
+    };
+
+    // [NEW] DST Logic
+    const isDST = config.id === 'dst_backward';
+    if (isDST) {
+        const itemIndex = currentSectionIndex; 
+        if (checkDSTTermination(answers, itemIndex)) {
+            return (
+                <div className="flex flex-col items-center justify-center h-64 text-center animate-shake">
+                    <div className="text-4xl mb-4">🛑</div>
+                    <h3 className="text-xl font-black text-red-600 mb-2">测试熔断终止</h3>
+                    <p className="text-sm text-slate-500 mb-6">
+                        检测到该难度双项测试均失败 (0分)<br/>
+                        根据 CRF 标准，测试已自动结束。
+                    </p>
+                    <Button fullWidth onClick={onTermination} className="bg-red-600 shadow-red-500/30">
+                        提交当前成绩
+                    </Button>
+                </div>
+            );
+        }
+    }
 
     // [NEW] AVLT-H Logic Handling
+    const isN1N3 = section.id === 'avlt_n1_n3';
     const isN4 = section.id === 'avlt_n4'; // 5 min delay
     const isN5 = section.id === 'avlt_n5'; // 20 min delay
-    
-    // Check flags set in previous steps (N3 complete trigger)
     const n3StartTime = answers['avlt_n3_timestamp'];
     
-    // Timer State
+    // Timer Logic
     const [isLocked, setIsLocked] = useState(false);
 
-    // Effect to determine lock state based on timestamps
     useEffect(() => {
-        if (isN4 && n3StartTime) {
-            // N4 (5 min) target time
-            const elapsed = Date.now() - n3StartTime;
-            if (elapsed < 5 * 60 * 1000) setIsLocked(true);
-        } else if (isN5 && n3StartTime) {
-            // N5 (20 min) target time
-            const elapsed = Date.now() - n3StartTime;
-            if (elapsed < 20 * 60 * 1000) setIsLocked(true);
+        if (!n3StartTime) return;
+        const now = Date.now();
+        
+        if (isN4) {
+            if (now < n3StartTime + 5 * 60 * 1000) setIsLocked(true);
+        } else if (isN5) {
+            if (now < n3StartTime + 20 * 60 * 1000) setIsLocked(true);
         }
     }, [isN4, isN5, n3StartTime]);
 
-    if (!section) return null;
-
+    // Render Suspension View if Locked
     if (isLocked && n3StartTime) {
         return (
-            <div className="space-y-6 animate-fade-in pt-10">
-                <DelayedRecallTimer 
-                    targetMinutes={isN4 ? 5 : 20} 
-                    startTime={n3StartTime}
-                    label={isN4 ? "短时延迟回忆 (N4)" : "长时延迟回忆 (N5)"} 
-                    onUnlock={() => {
-                        setIsLocked(false);
-                        if (onAVLTUnlock) onAVLTUnlock();
-                    }} 
-                />
-                <p className="text-center text-xs text-slate-400">
-                    为保证测试准确性，请在倒计时结束后继续。<br/>在此期间请勿进行其他语言类任务。
-                </p>
-            </div>
+            <DelayedRecallSuspension
+                targetDelayMinutes={isN4 ? 5 : 20}
+                baseTime={n3StartTime}
+                label={isN4 ? "短延迟回忆 (N4)" : "长延迟回忆 (N5)"}
+                onUnlock={() => {
+                    setIsLocked(false);
+                    showToast('⏳ 记忆提取窗口已开启，请立即作答！', 'success');
+                    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                }}
+                onLeave={onLeave}
+            />
         );
     }
+
+    if (!section) return null;
 
     return (
         <div className="space-y-6 animate-fade-in">
             <h3 className="text-lg font-black text-slate-900 mb-4">{section.title}</h3>
             
+            {/* Hidden File Input */}
+            <input 
+                type="file" 
+                ref={fileInputRef} 
+                className="hidden" 
+                accept="image/*" 
+                capture="environment"
+                onChange={(e) => activeFileField && handleFileChange(e, activeFileField)} 
+            />
+
+            {/* [NEW] AVLT N1-N3 Special Action Bar */}
+            {isN1N3 && (
+                <div className="flex gap-3 mb-6">
+                    <button 
+                        onClick={() => {
+                            const played = playAVLTWords();
+                            if(played) showToast('正在播放词表...', 'info');
+                            else showToast('当前浏览器不支持TTS，请人工朗读', 'error');
+                        }}
+                        className="flex-1 bg-indigo-50 text-indigo-600 py-3 rounded-xl font-bold text-xs border border-indigo-100 flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                    >
+                        <span>🔊</span> 播放词表 (TTS)
+                    </button>
+                </div>
+            )}
+
             {section.fields.map(field => {
                 if (!checkVisibility(field, answers)) return null;
 
@@ -186,8 +325,12 @@ const FormRenderer: React.FC<{
 
                 if (field.type === 'info') {
                     return (
-                        <div key={field.id} className="bg-blue-50 p-3 rounded-xl border border-blue-100 text-blue-700 text-xs font-bold flex items-center gap-2">
-                            <span>ℹ️</span> {label}
+                        <div key={field.id} className="bg-blue-50 p-3 rounded-xl border border-blue-100 text-blue-700 text-xs font-bold flex flex-col gap-2 leading-relaxed">
+                            <div className="flex items-center gap-2">
+                                <span className="shrink-0">ℹ️</span> 
+                                <span>{label}</span>
+                            </div>
+                            {field.hint && <div className="text-[10px] opacity-80 pl-6">{field.hint}</div>}
                         </div>
                     );
                 }
@@ -199,31 +342,61 @@ const FormRenderer: React.FC<{
                             {field.children?.map(child => (
                                 <div key={child.id} className="mb-3 pl-2 border-l-2 border-slate-100">
                                     <label className="block text-xs font-bold text-slate-600 mb-1">{getLabelText(child.label, fillerType)}</label>
-                                    {child.type === 'choice' && (
-                                        <div className="flex gap-2">
-                                            {child.options?.map(opt => (
-                                                <button
-                                                    key={String(opt.value)}
-                                                    onClick={() => setAnswer(child.id, opt.value)}
-                                                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border ${answers[child.id] === opt.value ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-500 border-slate-200'}`}
-                                                >
-                                                    {opt.label}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
+                                    <div className="flex gap-2">
+                                        {child.type === 'number' && (
+                                            <input
+                                                type="number"
+                                                value={answers[child.id] || ''}
+                                                onChange={(e) => setAnswer(child.id, parseFloat(e.target.value))}
+                                                className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none text-xs w-20"
+                                                placeholder={child.hint || "输入"}
+                                            />
+                                        )}
+                                        {child.options?.map(opt => (
+                                            <button
+                                                key={String(opt.value)}
+                                                onClick={() => setAnswer(child.id, opt.value)}
+                                                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border ${answers[child.id] === opt.value ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-500 border-slate-200'}`}
+                                            >
+                                                {opt.label}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                             ))}
                         </div>
                     );
                 }
 
+                const isDSTItem = isDST && field.id.startsWith('dst_') && field.label.includes('.');
+
                 return (
                     <div key={field.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm transition-all focus-within:ring-2 focus-within:ring-brand-100">
-                        <label className="block text-sm font-bold text-slate-700 mb-3">
-                            {label}
-                            {field.validation?.required && <span className="text-red-500 ml-1">*</span>}
-                        </label>
+                        <div className="flex justify-between items-start mb-3">
+                            <label className="block text-sm font-bold text-slate-700 flex-1 mr-2">
+                                {label}
+                                {field.validation?.required && <span className="text-red-500 ml-1">*</span>}
+                            </label>
+                            
+                            {isDSTItem && (
+                                <button
+                                    onClick={() => playDigitSequence(label)}
+                                    className="bg-indigo-50 text-indigo-600 p-2 rounded-full active:scale-90 transition-transform"
+                                    title="播放数字序列"
+                                >
+                                    🔊
+                                </button>
+                            )}
+
+                            {field.type === 'multiselect' && answers[field.id] && Array.isArray(answers[field.id]) && (
+                                <span className="text-xs font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full">
+                                    已选: {answers[field.id].length}
+                                </span>
+                            )}
+                        </div>
+                        
+                        {field.hint && !isDSTItem && <p className="text-[10px] text-slate-400 mb-3">{field.hint}</p>}
+                        {isDSTItem && field.hint && <p className="text-[10px] text-emerald-600 font-mono mb-3 bg-emerald-50 inline-block px-2 py-0.5 rounded">{field.hint}</p>}
 
                         {(field.type === 'text' || field.type === 'number') && (
                             <div className="flex items-center gap-2">
@@ -232,21 +405,48 @@ const FormRenderer: React.FC<{
                                     value={answers[field.id] || ''}
                                     onChange={(e) => setAnswer(field.id, field.type === 'number' ? parseFloat(e.target.value) : e.target.value)}
                                     className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-brand-500 transition-colors font-medium text-slate-800"
-                                    placeholder="点击输入"
+                                    placeholder={field.hint || "点击输入"}
                                 />
                                 {field.suffix && <span className="text-slate-400 text-xs font-bold">{field.suffix}</span>}
                             </div>
                         )}
 
+                        {field.type === 'file' && (
+                            <div className="flex flex-col gap-2">
+                                <div 
+                                    onClick={() => !isAnalyzing && triggerFileUpload(field.id)}
+                                    className={`h-32 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-slate-400 text-xs flex-col gap-2 cursor-pointer hover:bg-slate-100 transition-all ${answers[field.id] ? 'border-brand-200 bg-brand-50' : ''}`}
+                                >
+                                    {isAnalyzing && activeFileField === field.id ? (
+                                        <div className="flex flex-col items-center">
+                                            <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+                                            <span className="text-brand-600 font-bold">AI 智能分析中...</span>
+                                        </div>
+                                    ) : answers[field.id] ? (
+                                        <div className="relative w-full h-full p-2">
+                                            <img src={answers[field.id]} alt="Preview" className="w-full h-full object-contain rounded-lg" />
+                                            <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 hover:opacity-100 transition-opacity rounded-lg">
+                                                <span className="text-white font-bold">点击更换</span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <span className="text-2xl">📷</span>
+                                            <span>点击拍照 / 上传图片</span>
+                                        </>
+                                    )}
+                                </div>
+                                {field.hint && <span className="text-[10px] text-slate-400">{field.hint}</span>}
+                            </div>
+                        )}
+
                         {field.type === 'choice' && (
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 gap-2">
                                 {field.options?.map(opt => {
                                     const isSelected = answers[field.id] === opt.value;
                                     
-                                    // [NEW] Special Logic for AVLT N3 completion trigger
                                     const handleClick = () => {
                                         setAnswer(field.id, opt.value, opt.exclusion);
-                                        // If this is the specific AVLT trigger, we record timestamp
                                         if (field.id === 'avlt_n3_complete' && opt.value === 1) {
                                             setAnswer('avlt_n3_timestamp', Date.now());
                                         }
@@ -256,9 +456,10 @@ const FormRenderer: React.FC<{
                                         <button
                                             key={String(opt.value)}
                                             onClick={handleClick}
-                                            className={`py-3 px-4 rounded-xl text-xs font-bold transition-all border break-words leading-tight ${isSelected ? 'bg-brand-600 text-white border-brand-600 shadow-md' : 'bg-slate-50 text-slate-600 border-slate-100 hover:bg-slate-100'}`}
+                                            className={`py-3 px-4 rounded-xl text-xs font-bold transition-all border break-words leading-tight text-left flex justify-between ${isSelected ? 'bg-brand-600 text-white border-brand-600 shadow-md' : 'bg-slate-50 text-slate-600 border-slate-100 hover:bg-slate-100'}`}
                                         >
-                                            {opt.label}
+                                            <span>{opt.label}</span>
+                                            {isSelected && <span>✔</span>}
                                         </button>
                                     );
                                 })}
@@ -266,7 +467,7 @@ const FormRenderer: React.FC<{
                         )}
 
                         {field.type === 'multiselect' && (
-                            <div className="flex flex-wrap gap-2">
+                            <div className="grid grid-cols-3 gap-2">
                                 {field.options?.map(opt => {
                                     const currentVal = (answers[field.id] || []) as any[];
                                     const isSelected = currentVal.includes(opt.value);
@@ -286,7 +487,7 @@ const FormRenderer: React.FC<{
                                         <button
                                             key={String(opt.value)}
                                             onClick={handleSelect}
-                                            className={`py-2 px-3 rounded-lg text-xs font-bold transition-all border ${isSelected ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-600 border-slate-100'}`}
+                                            className={`py-2 px-1 rounded-lg text-[10px] font-bold transition-all border truncate ${isSelected ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-slate-50 text-slate-600 border-slate-100'}`}
                                         >
                                             {opt.label}
                                         </button>
@@ -306,19 +507,11 @@ const FormRenderer: React.FC<{
                     </div>
                 );
             })}
-
-            {section.id === 'medication' && dailyTotal > 0 && (
-                <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 bg-emerald-600 text-white px-6 py-2 rounded-full shadow-xl animate-slide-up flex items-center gap-2">
-                    <span className="text-lg">💊</span>
-                    <span className="text-xs font-bold">当前日总剂量: <span className="text-lg font-black">{dailyTotal}</span> mg/d</span>
-                </div>
-            )}
         </div>
     );
 };
 
-// --- Main Component ---
-
+// ... (AssessmentView Component and others remain unchanged)
 const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBack }) => {
   const { state, dispatch } = useApp();
   const { showToast } = useToast();
@@ -336,7 +529,6 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
   const [legacyStep, setLegacyStep] = useState(0);
   const [inputValue, setInputValue] = useState<string>('');
   const [showCompletionToast, setShowCompletionToast] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   // Draft Restoration
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -346,21 +538,24 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
       if (isEpilepsyResearch) {
           setFormConfig(EPILEPSY_V0_CONFIG as any);
       } else if (isCognitiveResearch) {
-          // [LOGIC] CDR Double Blind Handling
           const fillerType = (state.user.role === 'FAMILY' ? 'FAMILY' : 'SELF');
-          const cdrConfigRaw = CDR_INTERVIEW_CONFIG;
+          const cdrConfigRaw = COGNITIVE_CDR_CONFIG;
           
-          // [LOGIC] Filter CDR Sections based on Role (Double Blind)
           const validCdrSections = cdrConfigRaw.sections.filter(s => {
               if (fillerType === 'FAMILY') return s.id.includes('informant');
               return s.id.includes('subject');
           });
           
-          // Merge logic: Appending CDR to Cognitive Config
+          // Merge logic: Combine MoCA, ADL, AVLT, DST, CDR
           const mergedConfig = {
-              ...COGNITIVE_ASSESSMENT_CONFIG,
+              id: "cognitive_bundle",
+              title: "认知障碍综合评估 (MoCA+ADL+AVLT+DST+CDR)",
+              version: "3.6",
               sections: [
-                  ...COGNITIVE_ASSESSMENT_CONFIG.sections,
+                  ...COGNITIVE_MOCA_CONFIG.sections,
+                  ...COGNITIVE_ADL_CONFIG.sections,
+                  ...COGNITIVE_DST_CONFIG.sections, 
+                  ...COGNITIVE_AVLTH_CONFIG.sections, 
                   ...validCdrSections
               ]
           };
@@ -396,13 +591,6 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
 
   // --- Handlers ---
 
-  // [NEW] CDR Cross Verification Placeholder
-  const crossVerifyScore = (subjectAnswers: any, informantAnswers: any) => {
-      // Logic to compare text descriptions or scores
-      console.log("Cross Verifying CDR...", subjectAnswers, informantAnswers);
-      return 0.8; // Mock consistency score
-  };
-
   const handleEngineAnswer = (key: string, value: any, exclusion: boolean = false) => {
       setAnswers(prev => ({ ...prev, [key]: value }));
       if (exclusion) {
@@ -410,14 +598,118 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
       }
   };
 
+  const handleFinish = () => {
+      // --- Finish & Encryption Logic ---
+      
+      let finalScore = 0;
+      let psychRiskFlag = false;
+      let scoreDetail = "";
+      
+      // [NEW] Cognitive Comprehensive Diagnosis Packet
+      let encrypted = "";
+      let recommendations: string[] = [];
+
+      if (isEpilepsyResearch) {
+          const epds = calculateEPDS(answers as any);
+          psychRiskFlag = epds.isRisk;
+          finalScore = psychRiskFlag ? 60 : 90;
+          scoreDetail = `EPDS Score: ${epds.score}`;
+      } else if (isCognitiveResearch) {
+          // 1. Calculate Individual Scores
+          const mmseResult = calculateMMSEScore(answers);
+          const mocaResult = calculateMoCAScore(answers);
+          const adlResult = calculateADLScore(answers);
+          
+          // [FIX] Execute Real CDR Algorithm (Memory-Driven)
+          const cdrResult = calculateCDRGlobal(answers);
+          const cdrGlobal = cdrResult.globalScore; // e.g. 0, 0.5, 1, 2, 3
+          
+          // AVLT N5 (Long Delay)
+          const avltN5 = answers['avlt_n5_score'] || 0;
+          
+          // DST Score
+          let dstScore = 0;
+          Object.keys(answers).forEach(k => {
+              if (k.startsWith('dst_') && typeof answers[k] === 'number') dstScore += answers[k];
+          });
+
+          // TMT-B (From State/Mock) - Assume accessed from sync store or passed in context
+          const tmtbData = state.user.cognitiveStats?.trainingHistory?.find(h => h.gameType === 'attention' && h.id.startsWith('tmtb_')); 
+          const tmtbTime = tmtbData ? tmtbData.durationSeconds : 0; 
+
+          // 2. Comprehensive Diagnosis using REAL CDR score
+          const diag = calculateCognitiveDiagnosis(
+              mmseResult.score,
+              mocaResult.score,
+              cdrGlobal, 
+              adlResult.barthel
+          );
+
+          finalScore = mocaResult.score; // Use MoCA as primary display score
+          scoreDetail = `${diag.diagnosis} | MoCA:${mocaResult.score}, CDR:${cdrGlobal}, ADL:${adlResult.barthel}`;
+          recommendations = diag.alerts;
+
+          if (diag.riskLevel !== 'LOW') psychRiskFlag = true;
+
+          // 3. Construct Full JSON Payload
+          const fullPayload = {
+              patient_id: state.user.id,
+              timestamp: Date.now(),
+              scales: {
+                  mmse: { score: mmseResult.score, breakdown: mmseResult.breakdown },
+                  moca: { score: mocaResult.score, raw: mocaResult.rawScore },
+                  adl: { barthel: adlResult.barthel, lawton: adlResult.lawton },
+                  cdr: { global: cdrGlobal, domains: cdrResult.domainScores }, // Include full domain scores
+                  avlt: { n5_recall: avltN5 },
+                  dst: { backward_score: dstScore },
+                  tmt_b: { time_seconds: tmtbTime }
+              },
+              diagnosis: diag,
+              meta: {
+                  education_years: answers['education_years'],
+                  assessor: 'AI_CDSS_V2.4'
+              }
+          };
+
+          // 4. AES Encryption
+          const payloadStr = JSON.stringify(fullPayload);
+          encrypted = CryptoJS.AES.encrypt(payloadStr, "WCH-NEURO-2026").toString();
+      } else {
+          // Fallback encryption for other types
+          const payloadStr = JSON.stringify({ ...answers, _meta: { completedAt: Date.now() } });
+          encrypted = CryptoJS.AES.encrypt(payloadStr, "WCH-NEURO-2026").toString();
+      }
+
+      // 5. Update Global State
+      dispatch({
+          type: 'SET_DIAGNOSIS',
+          payload: {
+              reason: psychRiskFlag ? (scoreDetail || "高风险提示") : "基础档案建立完成",
+              referral: {
+                  hospitalName: "华西医院 (数据中心)",
+                  distance: "云端归档",
+                  address: "encrypted_storage",
+                  recommends: recommendations.length > 0 ? recommendations : (psychRiskFlag ? ["心理门诊复查", "认知干预"] : []),
+                  qrCodeValue: encrypted // [HARD_REQUIREMENT] Assign Encrypted String
+              }
+          }
+      });
+
+      showToast('数据已加密归档，正在生成凭证...', 'success');
+      dispatch({ type: 'CLEAR_ASSESSMENT_DRAFT' });
+      
+      setTimeout(() => {
+          onComplete(finalScore);
+      }, 1500);
+  };
+
   const handleNextSection = () => {
       if (!formConfig) return;
       
-      // Validation Logic
       const section = formConfig.sections[currentSection];
       for (const field of section.fields) {
           if (checkVisibility(field, answers) && field.validation?.required) {
-              if (answers[field.id] === undefined || answers[field.id] === '') {
+              if (answers[field.id] === undefined || (Array.isArray(answers[field.id]) && answers[field.id].length === 0) || answers[field.id] === '') {
                   showToast(`请填写: ${field.label}`, 'error');
                   return;
               }
@@ -435,62 +727,7 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
           setCurrentSection(prev => prev + 1);
           window.scrollTo(0, 0);
       } else {
-          // --- Finish & Encryption Logic ---
-          
-          // 1. Calculate Scores
-          let finalScore = 0;
-          let psychRiskFlag = false;
-
-          if (isEpilepsyResearch) {
-              const epdsScore = calculateEPDSScore(answers);
-              psychRiskFlag = epdsScore >= 9;
-              finalScore = psychRiskFlag ? 60 : 90;
-          } else if (isCognitiveResearch) {
-              // [NEW] MoCA Correction Logic
-              // Calculate raw MoCA score (Sum of correct answers - simplified)
-              const eduYears = parseFloat(answers['years_of_education'] || '13');
-              if (eduYears <= 12) {
-                  showToast('检测到受教育年限≤12年，MoCA总分自动+1修正', 'info');
-                  finalScore += 1; 
-              }
-              finalScore = 88; // Mock score
-          }
-
-          // 2. Prepare Payload
-          const finalPayload = {
-              ...answers,
-              _meta: {
-                  completedAt: Date.now(),
-                  exclusionFlags,
-                  psych_risk_flag: psychRiskFlag
-              }
-          };
-
-          // 3. AES Encryption
-          const payloadStr = JSON.stringify(finalPayload);
-          const encrypted = CryptoJS.AES.encrypt(payloadStr, "WCH-NEURO-2026").toString();
-
-          // 4. Update Global State
-          dispatch({
-              type: 'SET_DIAGNOSIS',
-              payload: {
-                  reason: psychRiskFlag ? "高风险提示" : "基础档案建立完成",
-                  referral: {
-                      hospitalName: "华西医院 (数据中心)",
-                      distance: "云端归档",
-                      address: "encrypted_storage",
-                      recommends: psychRiskFlag ? ["心理门诊复查"] : [],
-                      qrCodeValue: encrypted
-                  }
-              }
-          });
-
-          showToast('数据已加密归档，正在生成凭证...', 'success');
-          dispatch({ type: 'CLEAR_ASSESSMENT_DRAFT' });
-          
-          setTimeout(() => {
-              onComplete(finalScore);
-          }, 1500);
+          handleFinish();
       }
   };
 
@@ -524,7 +761,8 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
                         setAnswer={handleEngineAnswer} 
                         currentSectionIndex={currentSection}
                         fillerType={fillerType}
-                        onAVLTUnlock={() => showToast('测试继续', 'success')}
+                        onLeave={onBack}
+                        onTermination={handleFinish}
                     />
                 </div>
 

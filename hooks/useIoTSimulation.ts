@@ -27,32 +27,40 @@ export const useIoTSimulation = () => {
 
     // 使用 Ref 防止闭包陷阱
     const activeIdRef = useRef(activeProfileId);
-    useEffect(() => { activeIdRef.current = activeProfileId; }, [activeProfileId]);
+    
+    // [NEW] Ref to track last offline alert time to prevent spam
+    const lastAlertTimeRef = useRef<number>(0);
 
-    // [HaaS] Offline Diagnosis Effect
-    useEffect(() => {
-        // Run check every minute in real app, here checking once on mount/change for demo simplicity 
-        // or integrate into the interval loop below.
-        // For demo: Check if device is hasHardware but lastUpdated is old (simulated by initial state being 0 or very old)
-        if (hasDevice && user.deviceInfo?.status === 'ONLINE') {
-             // In a real app, this would check against current time.
-             // Here we simulate the event triggering randomly or based on specific prop if we want to force it.
-        }
-    }, [hasDevice]);
+    useEffect(() => { activeIdRef.current = activeProfileId; }, [activeProfileId]);
 
     useEffect(() => {
         if (!state.isLoggedIn || !hasDevice) return;
 
         const interval = setInterval(() => {
-            // [HaaS] Offline Diagnosis Logic
-            // Simulate that sometimes the device stops updating (isOffline)
-            // But for this requirement: "if device offline > 24h". 
-            // We simulate checking the last update time.
+            // [HaaS] Offline Diagnosis Logic (> 24h)
             const lastUpdate = user.iotStats?.lastUpdated || 0;
-            // Mock condition: If we artificially set lastUpdated to >24h ago in state (not done here, but handled if it happens)
-            // OR randomly trigger this alert for the demo verification.
-            
-            // Let's rely on standard updates here for live data
+            const now = Date.now();
+            const timeSinceLastUpdate = now - lastUpdate;
+            const offlineThreshold = 24 * 60 * 60 * 1000; // 24 hours
+            const alertCooldown = 24 * 60 * 60 * 1000; // Alert once every 24h
+
+            // Only trigger if logged in, has device, offline > 24h, and no alert recently
+            if (lastUpdate > 0 && timeSinceLastUpdate > offlineThreshold) {
+                if (now - lastAlertTimeRef.current > alertCooldown) {
+                    dispatch({ 
+                        type: 'SEND_CLINICAL_MESSAGE', 
+                        payload: { 
+                            targetId: activeProfileId, 
+                            message: `【严重故障】监测设备已离线超过24小时，请检查电量或联系客服，建议立即确认患者安全。` 
+                        } 
+                    });
+                    lastAlertTimeRef.current = now;
+                }
+                // Do not generate new mock data if "offline"
+                return;
+            }
+
+            // --- Normal Simulation Flow ---
             
             // 1. 基础生命体征模拟
             const isHrAnomaly = Math.random() > 0.98; // 2% 概率心率异常
@@ -61,7 +69,6 @@ export const useIoTSimulation = () => {
 
             // [NEW] Calculate Standard Deviation (Simulated SDNN for HRV)
             // Medical logic: Normal range 30-50ms, stressed <30ms, relaxed >50ms
-            // Add randomness to simulate real-time fluctuation
             const hrStandardDeviation = Math.floor(Math.random() * 40 + 20);
 
             const bpSys = 110 + Math.floor(Math.random() * 20);
@@ -78,21 +85,6 @@ export const useIoTSimulation = () => {
             // 声音识别 (持续抽搐声): 0.5% 概率
             const isSound = isEpilepsyUser && Math.random() > 0.995; 
 
-            // [HaaS] Offline Simulation Trigger (Very low prob for demo, or force via devtools)
-            const isLongTermOffline = Math.random() > 0.998; 
-
-            if (isLongTermOffline) {
-                // Trigger Family Alert
-                dispatch({ 
-                    type: 'SEND_CLINICAL_MESSAGE', 
-                    payload: { targetId: activeProfileId, message: "【严重故障】监测设备已离线超过24小时，请检查电量或联系客服，建议立即确认患者安全。" } 
-                });
-                // Note: We don't update stats if offline, so we return or just log
-                // But to make user see it in inbox, we dispatched above.
-                // We won't update IoT stats this tick to simulate offline.
-                return;
-            }
-
             const stats: IoTStats = {
                 hr, 
                 hrStandardDeviation, // [NEW] Compliant Field
@@ -107,7 +99,6 @@ export const useIoTSimulation = () => {
             // Enforce that heartRate variability is present for research compliance
             if (stats.hrStandardDeviation === undefined || stats.hrStandardDeviation === null) {
                 console.error("Data_Quality_Warning: Missing 'hrStandardDeviation' in IoT stream.");
-                // Optional: showToast("Data Quality Error: HRV Missing", 'error');
             }
 
             // 3. 更新全局状态

@@ -6,10 +6,11 @@ import { usePayment } from '../hooks/usePayment';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
 import { VisualMemoryGame, AttentionGame, CognitiveDashboard } from './CognitiveGames';
-import { TMTBGame } from './TMTBGame'; // [NEW] Import
+import { TMTBGame } from './TMTBGame';
 import { HeadacheProfile, FamilyMember, MedicalRecord, CognitiveTrainingRecord, SeizureEvent } from '../types';
 import { processMedicalImage } from '../services/geminiService';
 import { useLBS } from '../hooks/useLBS'; 
+import { calculateTMTBScore } from '../utils/scoringEngine';
 
 import { DigitalPrescription } from './business/headache/DigitalPrescription';
 import { NonDrugToolkit } from './business/headache/NonDrugToolkit';
@@ -17,7 +18,7 @@ import { WaveMonitor } from './business/epilepsy/WaveMonitor';
 import { ReferralSystem } from './business/ReferralSystem';
 import { PaywallModal } from './business/payment/PaywallModal';
 
-// --- 数学工具库：雷达图计算 ---
+// ... (Existing helper functions and components like polarToCartesian, TRIGGER_OPTIONS, HeadacheServiceView remain unchanged)
 const polarToCartesian = (centerX: number, centerY: number, radius: number, angleInDegrees: number) => {
   const angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
   return {
@@ -26,7 +27,6 @@ const polarToCartesian = (centerX: number, centerY: number, radius: number, angl
   };
 };
 
-// 诱因配置
 const TRIGGER_OPTIONS = [
     { id: 'alcohol', icon: '🍷', label: '饮酒', impact: { diet: 30, stress: 10 } },
     { id: 'caffeine', icon: '☕', label: '咖啡因', impact: { diet: 25, sleep: 15 } },
@@ -34,9 +34,6 @@ const TRIGGER_OPTIONS = [
     { id: 'chocolate', icon: '🍫', label: '巧克力', impact: { diet: 15, stress: 5 } },
 ];
 
-/** 
- * 专病子模块: 偏头痛全周期管理
- */
 export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     // ... (Existing code kept as is) ...
     const { state, dispatch, switchProfile } = useApp();
@@ -95,7 +92,6 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
     return (
         <Layout headerTitle="偏头痛全周期管理" showBack onBack={onBack}>
             <div className="p-5 space-y-5 pb-24">
-                {/* Radar Chart Section */}
                 <div className={`bg-white rounded-[32px] p-6 shadow-card border transition-all duration-500 relative overflow-hidden ${riskAnalysis.alertLevel === 'high' ? 'border-rose-100 ring-4 ring-rose-50' : 'border-slate-50'}`}>
                     <div className="flex justify-between items-start mb-2 relative z-10"><div><h4 className="text-[13px] font-black text-slate-900 flex items-center gap-2">AI 诱因全维雷达</h4><p className="text-[9px] text-slate-400 mt-1">LBS 气象数据接入中...</p></div><div className={`flex flex-col items-end text-emerald-500`}><span className="text-[20px] font-black tracking-tighter">{riskAnalysis.score}</span><span className="text-[8px] font-bold opacity-80 uppercase">今日CSI指数</span></div></div>
                     {/* SVG Chart Placeholder */}
@@ -122,17 +118,33 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
 };
 
 export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    const [activeGame, setActiveGame] = useState<'memory' | 'attention' | 'tmtb' | null>(null); // Added 'tmtb'
+    const [activeGame, setActiveGame] = useState<'memory' | 'attention' | 'tmtb' | null>(null);
     const { dispatch, state } = useApp();
     const { showToast } = useToast();
 
     // 统一处理游戏结束
     const handleGameComplete = (type: 'memory' | 'attention' | 'tmtb', score: number, meta?: any) => {
-        showToast('训练数据已上传云端', 'success');
-        
+        let finalScore = score;
         let extraPattern = [];
-        if (type === 'tmtb' && typeof meta === 'object' && meta.mistakes > 0) {
-            extraPattern.push(`errors:${meta.mistakes}`);
+
+        // [NEW] TMT-B Specific Scoring Logic (CRF Standard)
+        if (type === 'tmtb' && typeof meta === 'object') {
+            const timeSeconds = meta.duration || 0;
+            const mistakes = meta.mistakes || 0;
+            
+            // Assume 60 years old, 12 years education as baseline for guest
+            // In real app, these come from state.user.profile
+            const userAge = 60; 
+            const userEdu = 12;
+
+            const tmtbResult = calculateTMTBScore(timeSeconds, userAge, userEdu);
+            finalScore = tmtbResult.score;
+            
+            if (mistakes > 0) extraPattern.push(`errors:${mistakes}`);
+            
+            showToast(`TMT-B 完成! 耗时:${timeSeconds.toFixed(1)}s, 评分:${finalScore} (${tmtbResult.rating})`, 'success');
+        } else {
+            showToast('训练数据已上传云端', 'success');
         }
 
         // 构造符合 EMPI 标准的记录
@@ -140,7 +152,7 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
             id: `train_${Date.now()}`,
             timestamp: Date.now(),
             gameType: type === 'tmtb' ? 'attention' : type, // TMTB归类为注意力/执行功能
-            score: score,
+            score: finalScore,
             durationSeconds: type === 'tmtb' ? (typeof meta === 'object' ? meta.duration : meta) : (typeof meta === 'number' ? meta : 0),
             accuracy: type === 'tmtb' ? Math.max(0, 100 - (meta?.mistakes || 0) * 10) : 100, // TMTB acc based on mistakes
             status: 'COMPLETED',
@@ -166,11 +178,8 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
             <div className="fixed inset-0 z-[200] bg-white animate-slide-up">
                 <TMTBGame 
                     onComplete={(time, status, mistakes) => {
-                        // TMT-B scoring: Time is the primary metric (lower is better).
-                        // For consistent "score" (higher is better), we can map time to a 0-100 scale.
-                        // E.g., < 30s = 100, > 150s = 0.
-                        const calculatedScore = Math.max(0, Math.floor(100 - ((time - 30) / 1.2)));
-                        handleGameComplete('tmtb', calculatedScore, { duration: time, mistakes });
+                        // Pass raw metrics, scoring happens in handleGameComplete
+                        handleGameComplete('tmtb', 0, { duration: time, mistakes });
                     }} 
                     onExit={() => setActiveGame(null)} 
                 />
@@ -203,6 +212,7 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
     );
 };
 
+// ... (EpilepsyServiceView and FamilyServiceView remain same as previous state)
 export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     // ... (Existing code kept as is) ...
     const { state, dispatch } = useApp();

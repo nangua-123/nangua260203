@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChatMessage, DiseaseType } from '../types';
+import { ChatMessage, DiseaseType } from '../types/index';
 import { createChatSession, sendMessageToAI, checkSensitiveKeywords } from '../services/geminiService';
 import { useApp } from '../context/AppContext';
 import Layout from '../components/common/Layout';
@@ -269,6 +269,15 @@ const ChatView: React.FC<ChatViewProps> = ({ onBack, onPaymentGate }) => {
       
       dispatch({ type: 'SET_RISK_SCORE', payload: { score: currentRisk, type: activeDisease } });
       
+      // [NEW] 记录分诊留痕 (Inbox Audit Trail)
+      dispatch({
+          type: 'SEND_CLINICAL_MESSAGE',
+          payload: { 
+              targetId: state.user.id, 
+              message: `【初诊分流通知】系统基于您的主诉，初步评估风险等级为 ${currentRisk} (参考值)。建议在方便时完成深度测评。` 
+          }
+      });
+
       // [Router Instruction] 1元测评跳过后，路由必须立即 handleNavigate('home')
       // 禁止跳转至深度报告页 (ReportView)，因为未付费解锁
       const event = new CustomEvent('navigate-to', { detail: 'home' });

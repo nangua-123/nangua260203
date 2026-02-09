@@ -129,6 +129,12 @@ export const EPILEPSY_V0_CONFIG = {
       "id": "mri_exam",
       "title": "五、影像学检查 (MRI)",
       "fields": [
+        { 
+            "id": "mri_report_upload", 
+            "type": "file", 
+            "label": "上传 MRI 检查报告 (支持 AI 自动识别)", 
+            "hint": "Gemini Vision 将自动提取异常病灶性质并填入下题" 
+        },
         { "id": "mri_lesion_nature", "type": "multiselect", "label": "MRI 异常病灶性质", "options": [
             { "label": "软化灶", "value": "softening" },
             { "label": "海马硬化", "value": "hs" },

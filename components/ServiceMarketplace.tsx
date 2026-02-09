@@ -13,7 +13,8 @@ interface ServiceMarketplaceProps {
 
 // --- HaaS 租赁结算流程 (Ant Style Refactor) ---
 export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => void }> = ({ onBack, onComplete }) => {
-  const { state } = useApp();
+  const { state, dispatch } = useApp(); // [FIX] Added dispatch
+  const { user } = state;
   const [step, setStep] = useState<'confirm' | 'form' | 'success' | 'error'>('confirm');
   const [isFamilyPay, setIsFamilyPay] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -31,14 +32,6 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
       if (state.lastDiagnosis?.referral?.recommends) {
           const hasEEG = state.lastDiagnosis.referral.recommends.some(r => r.includes('脑电'));
           if (hasEEG) {
-              // Highlight or select Epilepsy package logic here.
-              // For now, since this view is specific to "Epilepsy Guardian Package", we can assume
-              // if user landed here and needs EEG, we might pre-select a longer plan or just proceed.
-              // The requirement says "auto-select Epilepsy Guardian Package". 
-              // Since this view *is* the checkout for that package (as per previous flow), 
-              // we can perhaps default to the 90d plan if serious?
-              // Or if we were in the Mall View, we'd highlight it.
-              // Let's assume standard behavior here but maybe upgrade plan recommendation.
               setSelectedPlanId('90d'); // Suggest quarterly plan for monitoring
           }
       }
@@ -47,22 +40,42 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
   // 计算最终价格
   const pricing = calculateRentalPrice(selectedPlanId, selectedCouponId);
 
-  // 表单状态
+  // [UPDATED] Dynamic Form Data from User State
   const [formData, setFormData] = useState({
-    name: '陈建国',
-    phone: '138****0000',
-    address: '四川省成都市武侯区国学巷37号'
+    name: user.name || '用户',
+    phone: user.phone || '138****0000',
+    address: ''
   });
+
+  // Init Address from Residence
+  useEffect(() => {
+      if (user.residence) {
+          const { province, city, district } = user.residence;
+          const addr = `${province}${city}${district} (默认地址)`;
+          setFormData(prev => ({ ...prev, address: addr }));
+      } else {
+          setFormData(prev => ({ ...prev, address: '未设置收货地址，请点击编辑' }));
+      }
+  }, [user.residence]);
 
   const handlePay = () => {
     setIsProcessing(true);
     setStep('confirm'); // reset if coming from error
     
     setTimeout(() => {
-      // [DEMO MODE] 移除随机故障，强制成功
+      // [LOGIC] Payment Success -> Trigger Hardware Binding & Renewal
       setIsProcessing(false);
       setStep('success');
       setIsDataSynced(true); // 模拟数据下发
+      
+      // 1. Bind Hardware
+      dispatch({ type: 'BIND_HARDWARE', payload: true });
+      
+      // 2. Renew Device (Calculate duration)
+      const plan = RENTAL_PLANS.find(p => p.id === selectedPlanId);
+      const duration = plan ? plan.days : 30;
+      dispatch({ type: 'RENEW_DEVICE', payload: duration });
+
     }, 1500);
   };
 
@@ -117,7 +130,7 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
     <Layout headerTitle="确认订单" showBack onBack={onBack}>
       <div className="p-4 pb-safe space-y-3 animate-slide-up pb-32 bg-[#F5F5F5] min-h-screen">
         
-        {/* 1. 地址卡片 (Ant Style) */}
+        {/* 1. 地址卡片 (Ant Style) - [UPDATED] Dynamic Data */}
         <div className="bg-white rounded-xl p-4 flex items-center gap-3 shadow-sm active:opacity-70 transition-opacity">
            <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-[#1677FF] shrink-0">
                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 103 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 002.273 1.765 11.842 11.842 0 00.976.544l.062.029.018.008.006.003zM10 11.25a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5z" clipRule="evenodd" /></svg>

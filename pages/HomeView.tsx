@@ -17,6 +17,7 @@ import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext'; // [NEW]
 import { NonDrugToolkit } from '../components/business/headache/NonDrugToolkit';
 import { useRole } from '../hooks/useRole';
+import { NotificationInbox } from '../components/NotificationInbox'; // [NEW] Import
 
 // Declare Chart.js type for TypeScript
 declare const Chart: any;
@@ -131,15 +132,6 @@ const BluetoothPairingModal: React.FC<{ onClose: () => void; onConnected: () => 
     );
 };
 
-// ... (Existing CognitiveRadarCard & AssistantPatientCard & AssistantDashboard kept as is) ...
-// [OMITTED FOR BREVITY - Assume CognitiveRadarCard, AssistantPatientCard, AssistantDashboard are present]
-const CognitiveRadarCard: React.FC<{ stats?: CognitiveStats; onClick: () => void; isElderly: boolean }> = ({ stats, onClick, isElderly }) => {
-    // ... (Same as original)
-    return null; // Mock return for brevity in this XML, assume full content
-};
-const AssistantPatientCard: React.FC<any> = () => null; // Mock
-const AssistantDashboard: React.FC<any> = () => null; // Mock
-
 const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavigate, primaryCondition }) => {
   const { state, dispatch } = useApp();
   const { showToast } = useToast(); 
@@ -153,6 +145,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
   // [UX Polish] Modals State
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [showPairingModal, setShowPairingModal] = useState(false); 
+  const [showInbox, setShowInbox] = useState(false); // [NEW] Inbox visibility
   
   // --- Elderly Mode Config ---
   const isElderly = user.isElderlyMode;
@@ -241,8 +234,6 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
   // [NEW] Order Task Action
   const handleOrderAction = (order: MedicalOrder) => {
       onNavigate(order.targetView);
-      // Optional: Mark as completed immediately or wait for actual completion in target view
-      // For UX flow, we keep it pending until they actually finish the action.
   };
 
   useEffect(() => {
@@ -269,9 +260,22 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
     return () => cancelAnimationFrame(anim);
   }, []);
 
-  // ... (handleRecordSubmit, handleRemoteReminder, handlePairingSuccess logic) ...
-  const handleRecordSubmit = (hr: string) => { /* Same as before */ };
-  const handleRemoteReminder = () => { /* Same as before */ };
+  const handleRecordSubmit = (hr: string) => { 
+      const val = parseInt(hr);
+      if (val > 0) {
+          const stats: IoTStats = {
+            hr: val, bpSys: 120, bpDia: 80, spo2: 98,
+            hrStandardDeviation: 30, // Default for manual entry
+            isAbnormal: false, 
+            isFallDetected: false,
+            lastUpdated: Date.now()
+          };
+          dispatch({ type: 'UPDATE_IOT_STATS', payload: { id: activeProfileId, stats } });
+          setShowRecordModal(false);
+          showToast('录入成功，AI 风险模型已更新', 'success');
+      }
+  };
+  
   const handlePairingSuccess = () => {
       setShowPairingModal(false);
       dispatch({ type: 'BIND_HARDWARE', payload: true });
@@ -283,10 +287,6 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
       }
   };
 
-  // ... (Alert Modals: SeizureAlertModal, AlertModal) ...
-  const SeizureAlertModal = () => null; // Mocked for brevity
-  const AlertModal = () => null; // Mocked for brevity
-
   const kingKongItems = [
       { label: 'AI 问诊', icon: '🩺', color: 'text-[#1677FF]', bg: 'bg-blue-50', nav: 'chat' },
       { label: '查报告', icon: '📄', color: 'text-emerald-500', bg: 'bg-emerald-50', nav: 'report' },
@@ -294,22 +294,28 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
       { label: '租设备', icon: '⌚', color: 'text-purple-500', bg: 'bg-purple-50', nav: 'service-mall' },
   ].filter(item => !isElderly || item.nav !== 'service-mall');
 
-  if (user.role === UserRole.DOCTOR_ASSISTANT) {
-      // return <AssistantDashboard user={user} />; // Mock
-      return <div className="p-4">Assistant Dashboard (Mock)</div>;
-  }
-
   return (
     <div className="bg-[#F5F5F5] min-h-screen flex flex-col max-w-[430px] mx-auto overflow-x-hidden pb-safe select-none relative">
       
-      {/* 1. Header (Same as before) */}
+      {/* 1. Header with Inbox Bell */}
       <div className={`${themeColor} pt-[calc(1rem+env(safe-area-inset-top))] pb-16 px-5 transition-colors duration-500 relative`}>
-         {/* ... Header Content ... */}
          <div className="relative z-10 flex justify-between items-start mb-6">
              <div className="flex items-center gap-3">
                  <h2 className="text-base font-bold text-white">{user.name}</h2>
              </div>
-             <div className="text-white text-sm font-black">{finalHealthScore}</div>
+             {/* [NEW] Bell Icon for Inbox */}
+             <div 
+                onClick={() => setShowInbox(true)}
+                className="relative bg-white/20 p-2 rounded-full backdrop-blur-md cursor-pointer active:scale-95 transition-transform"
+             >
+                 <span className="text-white text-lg">🔔</span>
+                 {(user.inbox?.length || 0) > 0 && (
+                     <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-white/20 animate-pulse"></span>
+                 )}
+             </div>
+         </div>
+         <div className="absolute top-[calc(1rem+env(safe-area-inset-top)+3rem)] right-5 text-white text-sm font-black opacity-80">
+             {finalHealthScore} 分
          </div>
       </div>
 
@@ -348,8 +354,6 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
             </div>
         )}
 
-        {/* Service Cards (Epilepsy, Migraine, Cognitive) */}
-        {/* ... (Existing Cards logic retained) ... */}
         <div className="grid grid-cols-2 gap-3">
             <div onClick={() => onNavigate('service-epilepsy')} className={`bg-white rounded-xl p-4 shadow-sm flex flex-col justify-between border border-slate-50 active:scale-[0.98] transition-transform ${isElderly ? 'min-h-[160px]' : 'min-h-[140px]'}`}>
                 <div>
@@ -359,18 +363,91 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
                     <h4 className={`text-slate-800 ${isElderly ? 'text-lg font-black' : 'text-[0.8125rem] font-black'}`}>生命守护</h4>
                     <p className={`text-slate-400 mt-0.5 ${isElderly ? 'text-sm' : 'text-[0.625rem]'}`}>癫痫发作实时监测</p>
                 </div>
+                <div className="mt-2 h-10 w-full opacity-50">
+                     <svg width="100%" height="100%" viewBox="0 0 160 40">
+                        <path d={wavePath} fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" />
+                     </svg>
+                </div>
             </div>
-            {/* ... Other cards ... */}
+
+            <div className="flex flex-col gap-3">
+                <div onClick={() => onNavigate('service-headache')} className="bg-white rounded-xl p-3 shadow-sm flex items-center gap-3 border border-slate-50 active:scale-[0.98] transition-transform flex-1">
+                    <div className="w-8 h-8 rounded-full bg-sky-50 flex items-center justify-center text-sky-500 text-lg">⚡</div>
+                    <div>
+                        <h4 className={`text-slate-800 ${isElderly ? 'text-base font-black' : 'text-[12px] font-black'}`}>诱因雷达</h4>
+                        <p className="text-[9px] text-slate-400">偏头痛气象预警</p>
+                    </div>
+                </div>
+                <div onClick={() => onNavigate('service-cognitive')} className="bg-white rounded-xl p-3 shadow-sm flex items-center gap-3 border border-slate-50 active:scale-[0.98] transition-transform flex-1">
+                    <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center text-purple-500 text-lg">🧩</div>
+                    <div>
+                        <h4 className={`text-slate-800 ${isElderly ? 'text-base font-black' : 'text-[12px] font-black'}`}>记忆训练</h4>
+                        <p className="text-[9px] text-slate-400">AD 认知康复</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {/* [Optimization] 设备状态与手动录入降级交互 */}
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-50 flex items-center justify-between">
+            <div className="flex items-center gap-3" onClick={() => onNavigate(hasDevice ? 'profile' : 'haas-checkout')}>
+                <div className="w-10 h-10 rounded-lg bg-slate-50 flex items-center justify-center text-2xl">⌚</div>
+                <div>
+                    <h4 className={`text-slate-800 ${isElderly ? 'text-base font-black' : 'text-[12px] font-black'}`}>我的智能装备</h4>
+                    {hasDevice ? (
+                        <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] font-bold text-slate-500">HR: {currentIoTStats?.hr || '--'}</span>
+                            <span className={`text-[10px] bg-emerald-50 px-1 rounded ${isOffline ? 'text-slate-400 bg-slate-100' : 'text-emerald-500'}`}>
+                                {isOffline ? '离线' : '已连接'}
+                            </span>
+                        </div>
+                    ) : (
+                        <p className="text-[10px] text-slate-400 mt-0.5">暂无设备，点击租赁</p>
+                    )}
+                </div>
+            </div>
+            {!hasDevice && (
+                <button 
+                    onClick={(e) => { e.stopPropagation(); setShowRecordModal(true); }}
+                    className="text-[10px] font-bold text-[#1677FF] bg-blue-50 px-3 py-1.5 rounded-full active:scale-95"
+                >
+                    📝 手动录入
+                </button>
+            )}
         </div>
 
       </div>
 
       {/* Modals */}
+      {showInbox && <NotificationInbox onClose={() => setShowInbox(false)} />}
+      
       {showPairingModal && (
           <BluetoothPairingModal 
               onClose={() => setShowPairingModal(false)}
               onConnected={handlePairingSuccess}
           />
+      )}
+      
+      {showRecordModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowRecordModal(false)}></div>
+            <div className="bg-white w-full max-w-sm rounded-[24px] p-6 relative z-10 animate-slide-up shadow-2xl">
+                <h3 className="text-lg font-black text-slate-900 mb-4 text-center">手动录入生命体征</h3>
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 block mb-2">当前静息心率 (BPM)</label>
+                        <input 
+                            type="number" 
+                            autoFocus
+                            placeholder="75"
+                            className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 text-xl font-bold text-center focus:border-brand-500 outline-none"
+                            onBlur={(e) => handleRecordSubmit(e.target.value)}
+                        />
+                    </div>
+                    <Button fullWidth onClick={() => setShowRecordModal(false)}>取消</Button>
+                </div>
+            </div>
+        </div>
       )}
 
     </div>

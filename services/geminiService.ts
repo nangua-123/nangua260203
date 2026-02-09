@@ -5,14 +5,14 @@
  * @author Neuro-Link Architect
  * 
  * 包含：
- * 1. 模拟 LLM 问诊交互 (Mock) - [REFACTORED] 基于 triage_config.ts 的配置驱动模式
+ * 1. 模拟 LLM 问诊交互 (Mock) - [ENHANCED] 支持语义模糊匹配与严格风险评分
  * 2. 真实 Gemini Vision OCR (Real Integration)
  */
 
-import { ChatMessage, HeadacheProfile, EpilepsyProfile, CognitiveProfile, DiseaseType, MedicalRecord } from "../types";
+import { ChatMessage, DiseaseType, MedicalRecord } from "../types/index";
 import { GoogleGenAI } from "@google/genai";
 import { DISEASE_CONTEXT_CONFIG } from "../config/DiseaseContextConfig";
-import { TRIAGE_CONFIG, TriageStep } from "../config/triage_config";
+import { TRIAGE_CONFIG, TriageStep, TriageOption } from "../config/triage_config";
 
 // --- Types & Interfaces ---
 
@@ -56,6 +56,66 @@ const fileToBase64 = (file: File): Promise<string> => {
   });
 };
 
+/**
+ * [NEW] Semantic Matcher
+ * Maps colloquial patient terms to clinical options using fuzzy logic.
+ * 
+ * @param input User's text input
+ * @param options Available triage options
+ * @returns The best matching option or null
+ */
+const semanticMatch = (input: string, options: TriageOption[]): TriageOption | null => {
+    const text = input.toLowerCase();
+    
+    // 1. Direct label match (Exact or Substring)
+    const directMatch = options.find(o => text.includes(o.label) || o.label.includes(text));
+    if (directMatch) return directMatch;
+
+    // 2. Keyword Mapping (Synonyms Dictionary)
+    const synonymMap: Record<string, string[]> = {
+        // Migraine
+        'pulsating': ['跳着疼', '突突跳', '血管跳', '搏动', '咚咚', '撞击', '突突'],
+        'pressing': ['紧', '箍', '压', '沉重', '带子', '帽子', '绑住'],
+        'stabbing': ['刺痛', '针扎', '电击', '钻', '尖锐', '扎'],
+        'nausea': ['吐', '反胃', '恶心', '吃不下', '想吐'],
+        'photophobia': ['怕光', '刺眼', '睁不开', '太亮', '畏光'],
+        'aura': ['看不清', '花眼', '闪光', '黑点', '锯齿', '模糊', '视力下降'],
+        'chronic': ['天天', '每天', '经常', '老是', '频繁', '一直'],
+        
+        // Epilepsy
+        'motor': ['抽', '抖', '僵硬', '乱动', '倒地', '强直', '痉挛', '抽风', '羊癫疯'],
+        'absence': ['愣神', '发呆', '断片', '不动', '走神', '失去意识'],
+        'unconscious': ['不知道', '不记得', '人事不省', '叫不答应', '晕', '昏迷'],
+        'status_epilepticus': ['一直抽', '停不下来', '很久', '半小时'],
+        
+        // Cognitive / AD
+        'recent': ['变笨', '记不住', '脑子不好使', '糊涂', '老忘事', '转头忘', '刚做过'],
+        'lost': ['迷路', '走丢', '找不到家', '不认路', '不知道在哪', '找不着北', '回不去'],
+        'behavior': ['脾气变了', '多疑', '骂人', '打人', '性格', '古怪'],
+        'language': ['叫不出名', '话到嘴边', '不会说话', '表达不清'],
+        
+        // General
+        'dull': ['胀', '闷', '昏沉', '隐隐']
+    };
+
+    for (const opt of options) {
+        const keywords = synonymMap[opt.value] || [];
+        // If any keyword is found in user text
+        if (keywords.some(kw => text.includes(kw))) {
+            return opt;
+        }
+    }
+
+    // 3. Fallback: If option is "None" or "Unknown" and input suggests negation
+    const negationKeywords = ['没', '无', '否', '不'];
+    const hasNegation = negationKeywords.some(k => text.includes(k));
+    if (hasNegation) {
+        return options.find(o => o.value === 'none' || o.value === 'negative' || o.value === 'normal') || null;
+    }
+
+    return null;
+};
+
 // --- Core Logic ---
 
 /**
@@ -78,7 +138,7 @@ export const createChatSession = (systemInstruction: string, diseaseType: Diseas
 
 /**
  * [CLINICAL_CRITICAL] AI Response Core
- * Refactored to use TRIAGE_CONFIG for decision tree logic
+ * Refactored to use TRIAGE_CONFIG for decision tree logic with semantic matching.
  */
 export const sendMessageToAI = async (session: MockChatSession, message: string, fullContext: ChatMessage[] = []): Promise<string> => {
   // Simulate network delay
@@ -102,9 +162,9 @@ export const sendMessageToAI = async (session: MockChatSession, message: string,
 
           if (/头痛|头晕|偏头痛|胀痛/.test(msg)) {
               detectedType = DiseaseType.MIGRAINE;
-          } else if (/抽搐|抖动|发作|意识丧失|愣神|倒地/.test(msg)) {
+          } else if (/抽搐|抖动|发作|意识丧失|愣神|倒地|癫痫/.test(msg)) {
               detectedType = DiseaseType.EPILEPSY;
-          } else if (/记忆|忘|迷路|性格|变笨|糊涂|老人/.test(msg)) {
+          } else if (/记忆|忘|迷路|性格|变笨|糊涂|老人|认知/.test(msg)) {
               detectedType = DiseaseType.COGNITIVE;
           }
 
@@ -139,17 +199,21 @@ ${firstStep.question}
           const prevStep = session.configSteps[prevStepIndex];
           
           if (prevStep) {
-              // Fuzzy match user answer to options
-              const selectedOption = prevStep.options.find(opt => msg.includes(opt.label) || msg === opt.label);
+              // [ENHANCED] Use Semantic Matching instead of direct string match
+              const selectedOption = semanticMatch(msg, prevStep.options);
+              
               if (selectedOption) {
                   // [LOGIC] Accumulate Risk
                   session.estimatedRisk += selectedOption.riskWeight;
                   session.structuredData[prevStep.id] = selectedOption.value;
                   
-                  // Critical Flag Check
+                  // Critical Flag Check - Strict Penalty (e.g., Status Epilepticus > 30min)
                   if (selectedOption.isCritical) {
-                      session.estimatedRisk += 20; // Extra penalty for critical signs
+                      session.estimatedRisk += 30; 
                   }
+              } else {
+                  // Fallback: If no match, assume low risk but log answer
+                  // In production, we would use LLM to interpret "I don't know" or fuzzy answers
               }
           }
 
@@ -192,7 +256,7 @@ ${firstStep.question}
   }
 
   // Risk Score Clamping
-  session.estimatedRisk = Math.min(95, Math.max(5, session.estimatedRisk));
+  session.estimatedRisk = Math.min(99, Math.max(5, session.estimatedRisk));
 
   session.history.push(`User: ${msg}`);
   session.history.push(`AI: ${sanitizeTerminology(response)}`);
@@ -217,7 +281,7 @@ export const getTriageAnalysis = async (conversationHistory: ChatMessage[], dise
         summaryText = `患者主诉头痛。${isChronic ? '发作频率高，提示慢性化倾向。' : ''} ${isMOH ? '存在药物过度使用风险(MOH)。' : ''} 伴随症状典型。`;
         risk = isChronic || isMOH ? 75 : 40;
     } else if (diseaseType === DiseaseType.EPILEPSY) {
-        const isStatus = historyStr.includes('> 5分钟') || historyStr.includes('> 30分钟');
+        const isStatus = historyStr.includes('> 5分钟') || historyStr.includes('> 30分钟') || historyStr.includes('持续');
         summaryText = `监测到痫性发作特征。${isStatus ? '曾有持续状态风险，需警惕。' : ''} 建议完善长程视频脑电图。`;
         risk = isStatus ? 85 : 60;
     } else if (diseaseType === DiseaseType.COGNITIVE) {

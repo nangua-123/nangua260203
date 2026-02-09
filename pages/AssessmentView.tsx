@@ -14,13 +14,15 @@ import {
     calculateEPDS, 
     calculateMoCAScore,
     calculateCognitiveDiagnosis,
-    calculateCDRGlobal // [FIX] Import real CDR engine
+    calculateCDRGlobal 
 } from '../utils/scoringEngine';
 import { InteractiveMMSE } from '../components/InteractiveMMSE';
+import { processMedicalImage } from '../services/geminiService'; 
 import CryptoJS from 'crypto-js';
 
-// [NEW] Import mock configs
+// [NEW] Import mock configs for Baseline & Follow-up
 import { EPILEPSY_V0_CONFIG } from '../config/forms/epilepsy_v0_config'; 
+import { EPILEPSY_V1_CONFIG, EPILEPSY_V2_CONFIG, EPILEPSY_V3_CONFIG, EPILEPSY_V4_CONFIG, EPILEPSY_V5_CONFIG } from '../config/forms/epilepsy_followup_configs';
 import { COGNITIVE_CDR_CONFIG } from '../config/forms/cognitive_cdr_config';
 import { COGNITIVE_MMSE_CONFIG } from '../config/forms/cognitive_mmse_config';
 import { COGNITIVE_ADL_CONFIG } from '../config/forms/cognitive_adl_config';
@@ -36,7 +38,6 @@ interface AssessmentViewProps {
 
 // --- Logic Helpers ---
 
-// [NEW] Digit Span Test TTS Helper
 const playDigitSequence = (text: string) => {
     const matches = text.match(/\d+/g);
     if (!matches || matches.length === 0) return;
@@ -48,7 +49,6 @@ const playDigitSequence = (text: string) => {
 
     if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
-        
         let delay = 0;
         digits.forEach((digit, index) => {
             const utter = new SpeechSynthesisUtterance(digit);
@@ -63,7 +63,6 @@ const playDigitSequence = (text: string) => {
     return false;
 };
 
-// [NEW] AVLT-H Text-to-Speech Helper
 const playAVLTWords = () => {
     const words = ["大衣", "长裤", "头巾", "手套", "司机", "木工", "士兵", "律师", "海棠", "百合", "腊梅", "玉兰"];
     if ('speechSynthesis' in window) {
@@ -77,7 +76,6 @@ const playAVLTWords = () => {
     return false;
 };
 
-// [NEW] AVLT-H Delayed Recall Timer Component
 const DelayedRecallSuspension: React.FC<{ 
     targetDelayMinutes: number; 
     baseTime: number;
@@ -142,15 +140,29 @@ const DelayedRecallSuspension: React.FC<{
 
 const getLabelText = (label: string, fillerType: FillerType = 'SELF'): string => {
     if (fillerType === 'SELF') return label;
-    return label.replace(/您/g, '患者').replace(/你/g, '患者').replace(/Your/g, "Patient's");
+    // [Updated] Enhanced regex for better Family mode adaptation
+    return label
+        .replace(/您/g, '患者')
+        .replace(/你/g, '患者')
+        .replace(/Your/g, "Patient's")
+        .replace(/请问/g, '');
 };
 
 const checkVisibility = (field: FormFieldConfig, answers: Record<string, any>): boolean => {
     if (!field.visibleIf) return true;
-    return Object.entries(field.visibleIf).every(([key, value]) => answers[key] === value);
+    return Object.entries(field.visibleIf).every(([key, value]) => {
+        // Handle > < logic for numbers if value is string like "<2500"
+        if (typeof value === 'string' && (value.startsWith('<') || value.startsWith('>'))) {
+            const operator = value[0];
+            const threshold = parseFloat(value.substring(1));
+            const answer = parseFloat(answers[key]);
+            if (isNaN(answer)) return false;
+            return operator === '<' ? answer < threshold : answer > threshold;
+        }
+        return answers[key] === value;
+    });
 };
 
-// [NEW] Logic to check DST Double Failure
 const checkDSTTermination = (answers: Record<string, any>, currentLevel: number): boolean => {
     for (let i = 1; i < currentLevel; i++) {
         const keyA = `dst_${i}a`;
@@ -175,8 +187,52 @@ const FormRenderer: React.FC<{
 }> = ({ config, answers, setAnswer, currentSectionIndex, fillerType, onLeave, onTermination }) => {
     const section = config.sections[currentSectionIndex];
     const { showToast } = useToast();
+    
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [activeFileField, setActiveFileField] = useState<string | null>(null);
 
-    // [NEW] DST Logic
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, fieldId: string) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setIsAnalyzing(true);
+        showToast('AI 正在分析影像病灶性质...', 'info');
+
+        try {
+            const record = await processMedicalImage(file);
+            setAnswer(fieldId, record.rawImageUrl); 
+
+            const tagsIndicator = record.indicators.find(i => i.name === 'MRI_PATHOLOGY_TAGS');
+            if (tagsIndicator && tagsIndicator.value) {
+                const tags = (tagsIndicator.value as string).split(',').map(s => s.trim());
+                if (tags.length > 0 && tags[0] !== '') {
+                    const targetField = section.fields.find(f => f.id === 'mri_lesion_nature');
+                    if (targetField && targetField.type === 'multiselect') {
+                        setAnswer('mri_lesion_nature', tags);
+                        showToast(`已自动识别并勾选 ${tags.length} 个病灶特征`, 'success');
+                    }
+                }
+            } else {
+                showToast('影像上传成功 (未识别到特定病灶标签)', 'success');
+            }
+
+        } catch (error) {
+            console.error(error);
+            showToast('识别失败，请手动选择', 'error');
+        } finally {
+            setIsAnalyzing(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    const triggerFileUpload = (fieldId: string) => {
+        setActiveFileField(fieldId);
+        if (fileInputRef.current) {
+            fileInputRef.current.click();
+        }
+    };
+
     const isDST = config.id === 'dst_backward';
     if (isDST) {
         const itemIndex = currentSectionIndex; 
@@ -197,13 +253,11 @@ const FormRenderer: React.FC<{
         }
     }
 
-    // [NEW] AVLT-H Logic Handling
     const isN1N3 = section.id === 'avlt_n1_n3';
-    const isN4 = section.id === 'avlt_n4'; // 5 min delay
-    const isN5 = section.id === 'avlt_n5'; // 20 min delay
+    const isN4 = section.id === 'avlt_n4'; 
+    const isN5 = section.id === 'avlt_n5'; 
     const n3StartTime = answers['avlt_n3_timestamp'];
     
-    // Timer Logic
     const [isLocked, setIsLocked] = useState(false);
 
     useEffect(() => {
@@ -217,7 +271,6 @@ const FormRenderer: React.FC<{
         }
     }, [isN4, isN5, n3StartTime]);
 
-    // Render Suspension View if Locked
     if (isLocked && n3StartTime) {
         return (
             <DelayedRecallSuspension
@@ -240,7 +293,15 @@ const FormRenderer: React.FC<{
         <div className="space-y-6 animate-fade-in">
             <h3 className="text-lg font-black text-slate-900 mb-4">{section.title}</h3>
             
-            {/* [NEW] AVLT N1-N3 Special Action Bar */}
+            <input 
+                type="file" 
+                ref={fileInputRef} 
+                className="hidden" 
+                accept="image/*" 
+                capture="environment"
+                onChange={(e) => activeFileField && handleFileChange(e, activeFileField)} 
+            />
+
             {isN1N3 && (
                 <div className="flex gap-3 mb-6">
                     <button 
@@ -328,7 +389,7 @@ const FormRenderer: React.FC<{
 
                             {field.type === 'multiselect' && answers[field.id] && Array.isArray(answers[field.id]) && (
                                 <span className="text-xs font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full">
-                                    正确: {answers[field.id].length}/12
+                                    已选: {answers[field.id].length}
                                 </span>
                             )}
                         </div>
@@ -351,9 +412,28 @@ const FormRenderer: React.FC<{
 
                         {field.type === 'file' && (
                             <div className="flex flex-col gap-2">
-                                <div className="h-32 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-slate-400 text-xs flex-col gap-1 cursor-pointer hover:bg-slate-100">
-                                    <span className="text-2xl">📷</span>
-                                    <span>点击上传图片</span>
+                                <div 
+                                    onClick={() => !isAnalyzing && triggerFileUpload(field.id)}
+                                    className={`h-32 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-slate-400 text-xs flex-col gap-2 cursor-pointer hover:bg-slate-100 transition-all ${answers[field.id] ? 'border-brand-200 bg-brand-50' : ''}`}
+                                >
+                                    {isAnalyzing && activeFileField === field.id ? (
+                                        <div className="flex flex-col items-center">
+                                            <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+                                            <span className="text-brand-600 font-bold">AI 智能分析中...</span>
+                                        </div>
+                                    ) : answers[field.id] ? (
+                                        <div className="relative w-full h-full p-2">
+                                            <img src={answers[field.id]} alt="Preview" className="w-full h-full object-contain rounded-lg" />
+                                            <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 hover:opacity-100 transition-opacity rounded-lg">
+                                                <span className="text-white font-bold">点击更换</span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <span className="text-2xl">📷</span>
+                                            <span>点击拍照 / 上传图片</span>
+                                        </>
+                                    )}
                                 </div>
                                 {field.hint && <span className="text-[10px] text-slate-400">{field.hint}</span>}
                             </div>
@@ -386,7 +466,7 @@ const FormRenderer: React.FC<{
                         )}
 
                         {field.type === 'multiselect' && (
-                            <div className="grid grid-cols-4 gap-2">
+                            <div className="grid grid-cols-3 gap-2">
                                 {field.options?.map(opt => {
                                     const currentVal = (answers[field.id] || []) as any[];
                                     const isSelected = currentVal.includes(opt.value);
@@ -430,8 +510,6 @@ const FormRenderer: React.FC<{
     );
 };
 
-// --- Main Component ---
-
 const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBack }) => {
   const { state, dispatch } = useApp();
   const { showToast } = useToast();
@@ -443,20 +521,41 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
   const [formConfig, setFormConfig] = useState<FormConfig | null>(null);
   const [currentSection, setCurrentSection] = useState(0);
   const [answers, setAnswers] = useState<Record<string, any>>({});
-  const [exclusionFlags, setExclusionFlags] = useState<string[]>([]);
   
   // --- Legacy State ---
   const [legacyStep, setLegacyStep] = useState(0);
   const [inputValue, setInputValue] = useState<string>('');
   const [showCompletionToast, setShowCompletionToast] = useState(false);
   
-  // Draft Restoration
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-      // Load Config based on Disease Type
+      // [NEW] Follow-up Logic for Epilepsy
       if (isEpilepsyResearch) {
-          setFormConfig(EPILEPSY_V0_CONFIG as any);
+          // Check if user has baseline date. If not, load V0.
+          const epiProfile = state.user.epilepsyProfile;
+          if (!epiProfile?.baselineDate) {
+              setFormConfig(EPILEPSY_V0_CONFIG as any);
+          } else {
+              // Find the first 'OPEN' or 'PENDING' visit
+              const schedule = epiProfile.followUpSchedule || [];
+              const targetVisit = schedule.find(s => s.status === 'OPEN' || s.status === 'PENDING');
+              
+              if (targetVisit) {
+                  switch(targetVisit.visitId) {
+                      case 'V1': setFormConfig(EPILEPSY_V1_CONFIG as any); break;
+                      case 'V2': setFormConfig(EPILEPSY_V2_CONFIG as any); break;
+                      case 'V3': setFormConfig(EPILEPSY_V3_CONFIG as any); break;
+                      case 'V4': setFormConfig(EPILEPSY_V4_CONFIG as any); break;
+                      case 'V5': setFormConfig(EPILEPSY_V5_CONFIG as any); break;
+                      default: setFormConfig(EPILEPSY_V0_CONFIG as any); // Fallback
+                  }
+                  showToast(`正在加载 ${targetVisit.title} 表单`, 'info');
+              } else {
+                  // If all completed or none open, maybe show V0 review or fallback
+                  setFormConfig(EPILEPSY_V0_CONFIG as any); 
+              }
+          }
       } else if (isCognitiveResearch) {
           const fillerType = (state.user.role === 'FAMILY' ? 'FAMILY' : 'SELF');
           const cdrConfigRaw = COGNITIVE_CDR_CONFIG;
@@ -466,7 +565,6 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
               return s.id.includes('subject');
           });
           
-          // Merge logic: Combine MoCA, ADL, AVLT, DST, CDR
           const mergedConfig = {
               id: "cognitive_bundle",
               title: "认知障碍综合评估 (MoCA+ADL+AVLT+DST+CDR)",
@@ -489,7 +587,7 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
           setCurrentSection(draft.currentStep || 0);
           showToast('已恢复上次进度', 'info');
       }
-  }, [type, isEpilepsyResearch, isCognitiveResearch, state.user.role]);
+  }, [type, isEpilepsyResearch, isCognitiveResearch, state.user.role, state.user.epilepsyProfile]);
 
   // Auto-Save Effect
   useEffect(() => {
@@ -513,19 +611,13 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
 
   const handleEngineAnswer = (key: string, value: any, exclusion: boolean = false) => {
       setAnswers(prev => ({ ...prev, [key]: value }));
-      if (exclusion) {
-          setExclusionFlags(prev => [...prev, key]);
-      }
   };
 
   const handleFinish = () => {
-      // --- Finish & Encryption Logic ---
-      
       let finalScore = 0;
       let psychRiskFlag = false;
       let scoreDetail = "";
       
-      // [NEW] Cognitive Comprehensive Diagnosis Packet
       let encrypted = "";
       let recommendations: string[] = [];
 
@@ -534,30 +626,32 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
           psychRiskFlag = epds.isRisk;
           finalScore = psychRiskFlag ? 60 : 90;
           scoreDetail = `EPDS Score: ${epds.score}`;
+          
+          // [NEW] Logic to update Baseline if V0
+          if (formConfig?.id === 'EPILEPSY_V0') {
+              dispatch({
+                  type: 'SET_BASELINE_DATE',
+                  payload: { id: state.user.id, date: Date.now() }
+              });
+          }
       } else if (isCognitiveResearch) {
-          // 1. Calculate Individual Scores
           const mmseResult = calculateMMSEScore(answers);
           const mocaResult = calculateMoCAScore(answers);
           const adlResult = calculateADLScore(answers);
           
-          // [FIX] Execute Real CDR Algorithm (Memory-Driven)
           const cdrResult = calculateCDRGlobal(answers);
-          const cdrGlobal = cdrResult.globalScore; // e.g. 0, 0.5, 1, 2, 3
+          const cdrGlobal = cdrResult.globalScore; 
           
-          // AVLT N5 (Long Delay)
           const avltN5 = answers['avlt_n5_score'] || 0;
           
-          // DST Score
           let dstScore = 0;
           Object.keys(answers).forEach(k => {
               if (k.startsWith('dst_') && typeof answers[k] === 'number') dstScore += answers[k];
           });
 
-          // TMT-B (From State/Mock) - Assume accessed from sync store or passed in context
           const tmtbData = state.user.cognitiveStats?.trainingHistory?.find(h => h.gameType === 'attention' && h.id.startsWith('tmtb_')); 
           const tmtbTime = tmtbData ? tmtbData.durationSeconds : 0; 
 
-          // 2. Comprehensive Diagnosis using REAL CDR score
           const diag = calculateCognitiveDiagnosis(
               mmseResult.score,
               mocaResult.score,
@@ -565,13 +659,12 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
               adlResult.barthel
           );
 
-          finalScore = mocaResult.score; // Use MoCA as primary display score
+          finalScore = mocaResult.score; 
           scoreDetail = `${diag.diagnosis} | MoCA:${mocaResult.score}, CDR:${cdrGlobal}, ADL:${adlResult.barthel}`;
           recommendations = diag.alerts;
 
           if (diag.riskLevel !== 'LOW') psychRiskFlag = true;
 
-          // 3. Construct Full JSON Payload
           const fullPayload = {
               patient_id: state.user.id,
               timestamp: Date.now(),
@@ -579,7 +672,7 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
                   mmse: { score: mmseResult.score, breakdown: mmseResult.breakdown },
                   moca: { score: mocaResult.score, raw: mocaResult.rawScore },
                   adl: { barthel: adlResult.barthel, lawton: adlResult.lawton },
-                  cdr: { global: cdrGlobal, domains: cdrResult.domainScores }, // Include full domain scores
+                  cdr: { global: cdrGlobal, domains: cdrResult.domainScores }, 
                   avlt: { n5_recall: avltN5 },
                   dst: { backward_score: dstScore },
                   tmt_b: { time_seconds: tmtbTime }
@@ -591,16 +684,13 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
               }
           };
 
-          // 4. AES Encryption
           const payloadStr = JSON.stringify(fullPayload);
           encrypted = CryptoJS.AES.encrypt(payloadStr, "WCH-NEURO-2026").toString();
       } else {
-          // Fallback encryption for other types
           const payloadStr = JSON.stringify({ ...answers, _meta: { completedAt: Date.now() } });
           encrypted = CryptoJS.AES.encrypt(payloadStr, "WCH-NEURO-2026").toString();
       }
 
-      // 5. Update Global State
       dispatch({
           type: 'SET_DIAGNOSIS',
           payload: {
@@ -610,7 +700,7 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
                   distance: "云端归档",
                   address: "encrypted_storage",
                   recommends: recommendations.length > 0 ? recommendations : (psychRiskFlag ? ["心理门诊复查", "认知干预"] : []),
-                  qrCodeValue: encrypted // [HARD_REQUIREMENT] Assign Encrypted String
+                  qrCodeValue: encrypted 
               }
           }
       });
@@ -650,8 +740,6 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
           handleFinish();
       }
   };
-
-  // --- Render ---
 
   if (type === DiseaseType.COGNITIVE && !formConfig) {
       return <InteractiveMMSE onComplete={onComplete} onBack={onBack} />;
