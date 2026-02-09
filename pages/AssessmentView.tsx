@@ -13,7 +13,8 @@ import {
     calculateADLScore, 
     calculateEPDS, 
     calculateMoCAScore,
-    calculateCognitiveDiagnosis // [NEW]
+    calculateCognitiveDiagnosis,
+    calculateCDRGlobal // [FIX] Import real CDR engine
 } from '../utils/scoringEngine';
 import { InteractiveMMSE } from '../components/InteractiveMMSE';
 import CryptoJS from 'crypto-js';
@@ -539,6 +540,10 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
           const mocaResult = calculateMoCAScore(answers);
           const adlResult = calculateADLScore(answers);
           
+          // [FIX] Execute Real CDR Algorithm (Memory-Driven)
+          const cdrResult = calculateCDRGlobal(answers);
+          const cdrGlobal = cdrResult.globalScore; // e.g. 0, 0.5, 1, 2, 3
+          
           // AVLT N5 (Long Delay)
           const avltN5 = answers['avlt_n5_score'] || 0;
           
@@ -549,24 +554,19 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
           });
 
           // TMT-B (From State/Mock) - Assume accessed from sync store or passed in context
-          // Here we mock it or extract from a persistent store if available
           const tmtbData = state.user.cognitiveStats?.trainingHistory?.find(h => h.gameType === 'attention' && h.id.startsWith('tmtb_')); 
-          const tmtbTime = tmtbData ? tmtbData.durationSeconds : 0; // 0 implies missing
+          const tmtbTime = tmtbData ? tmtbData.durationSeconds : 0; 
 
-          // CDR Global (Simplified: Mock based on Informant Qs for now, in real app needs algorithm)
-          // Rough logic: Sum of informant memory/orientation/etc. normalized
-          const cdrGlobal = 0.5; // Mock for this example, logic too complex for inline
-
-          // 2. Comprehensive Diagnosis
+          // 2. Comprehensive Diagnosis using REAL CDR score
           const diag = calculateCognitiveDiagnosis(
               mmseResult.score,
               mocaResult.score,
-              cdrGlobal,
+              cdrGlobal, 
               adlResult.barthel
           );
 
           finalScore = mocaResult.score; // Use MoCA as primary display score
-          scoreDetail = `${diag.diagnosis} | MoCA:${mocaResult.score}, MMSE:${mmseResult.score}, ADL:${adlResult.barthel}`;
+          scoreDetail = `${diag.diagnosis} | MoCA:${mocaResult.score}, CDR:${cdrGlobal}, ADL:${adlResult.barthel}`;
           recommendations = diag.alerts;
 
           if (diag.riskLevel !== 'LOW') psychRiskFlag = true;
@@ -579,7 +579,7 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
                   mmse: { score: mmseResult.score, breakdown: mmseResult.breakdown },
                   moca: { score: mocaResult.score, raw: mocaResult.rawScore },
                   adl: { barthel: adlResult.barthel, lawton: adlResult.lawton },
-                  cdr: { global: cdrGlobal }, // In real app, include box scores
+                  cdr: { global: cdrGlobal, domains: cdrResult.domainScores }, // Include full domain scores
                   avlt: { n5_recall: avltN5 },
                   dst: { backward_score: dstScore },
                   tmt_b: { time_seconds: tmtbTime }

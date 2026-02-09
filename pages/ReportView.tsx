@@ -5,6 +5,7 @@ import Layout from '../components/common/Layout';
 import Button from '../components/common/Button';
 import { useToast } from '../context/ToastContext';
 import { useApp } from '../context/AppContext';
+import { ReferralSystem } from '../components/business/ReferralSystem';
 
 // Declare Chart.js type for TypeScript
 declare const Chart: any;
@@ -50,6 +51,8 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
   const [csiScore, setCsiScore] = useState<number>(100);
   const [reportTitle, setReportTitle] = useState("");
   const [isPrintMode, setIsPrintMode] = useState(false);
+  const [showPassport, setShowPassport] = useState(false); // [NEW] Control Passport Modal
+  const [showEmergencyModal, setShowEmergencyModal] = useState(false);
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<any>(null);
@@ -72,6 +75,8 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
     if (actualScore >= 60) {
         setRisk(RiskLevel.HIGH);
         setReportTitle("高风险 · 需就医");
+        // PRD Req: "重症...强制弹窗'紧急就诊提醒'"
+        setTimeout(() => setShowEmergencyModal(true), 800);
     } else if (actualScore >= 30) {
         setRisk(RiskLevel.MODERATE);
         setReportTitle("中度风险 · 需关注");
@@ -324,7 +329,71 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
                 </div>
             </div>
 
-            {/* 4. Expert Advice */}
+            {/* 2. 重症路径：就医凭证 (Digital Living Record Integration) */}
+            {risk === RiskLevel.HIGH && (
+                <>
+                    <div 
+                        onClick={() => setShowPassport(true)}
+                        className="bg-white rounded-[24px] p-6 shadow-xl border-t-4 border-rose-500 text-center relative overflow-hidden active:scale-95 transition-transform cursor-pointer group"
+                    >
+                        <div className="absolute top-2 right-2 text-[9px] bg-rose-100 text-rose-600 px-2 py-0.5 rounded font-bold group-hover:bg-rose-200 transition-colors">
+                            点击打开通行证
+                        </div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Digital Living Record</div>
+                        
+                        <div className="w-48 h-48 bg-slate-900 mx-auto rounded-xl p-3 flex items-center justify-center mb-4 shadow-lg relative">
+                            {/* Animated Scanner Effect */}
+                            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/10 to-transparent w-full h-full animate-[scan_2s_infinite]"></div>
+                            
+                            {/* Live Data Icon */}
+                            <div className="w-full h-full bg-slate-800 rounded flex flex-col items-center justify-center text-white gap-2">
+                                <span className="text-4xl animate-pulse">🔒</span>
+                                <span className="text-[10px] font-mono text-slate-400">AES-256 ENCRYPTED</span>
+                            </div>
+                        </div>
+                        
+                        <div className="text-sm font-black text-slate-800">数字活病历通行证</div>
+                        <p className="text-[10px] text-slate-500 mt-1 mb-4">
+                            医师扫码可获取：MRI影像、用药史、认知量表详情
+                        </p>
+                    </div>
+
+                    {/* LBS Recommendation */}
+                    <div className="bg-white rounded-[24px] p-5 shadow-sm border border-slate-50">
+                        <h4 className="font-black text-slate-800 text-sm mb-3 flex items-center gap-2">
+                            <span>🏥</span> 推荐协作医院 (LBS 匹配)
+                        </h4>
+                        <div className="p-3 bg-slate-50 rounded-xl mb-3">
+                            <div className="font-bold text-xs text-slate-800">四川大学华西医院 (本部)</div>
+                            <div className="text-[10px] text-slate-500 mt-1">距离 2.3km · 神经内科 · 专家号源充足</div>
+                            <div className="mt-2 flex gap-2">
+                                <span className="text-[9px] border border-slate-200 px-1 rounded text-slate-400">三甲</span>
+                                <span className="text-[9px] border border-slate-200 px-1 rounded text-slate-400">医保定点</span>
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {/* 3. 轻症路径 (Same as before) */}
+            {risk !== RiskLevel.HIGH && (
+                <>
+                    {/* ... (Existing Light Risk Content) ... */}
+                    <div className="bg-white rounded-[24px] p-5 shadow-sm border border-slate-50 flex flex-col items-center text-center">
+                        <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center text-3xl mb-3">🍃</div>
+                        <h3 className="font-black text-slate-800 text-sm">享受基础免费管理服务</h3>
+                        <p className="text-[11px] text-slate-500 mt-1 leading-relaxed px-4 mb-4">
+                            您的风险处于可控范围，App 将为您提供全免费的日常健康管理支持。
+                        </p>
+                        <div className="grid grid-cols-2 gap-3 w-full">
+                            <Button variant="outline" className="text-xs bg-slate-50 border-slate-200" onClick={onBackToHome}>💊 用药提醒</Button>
+                            <Button variant="outline" className="text-xs bg-slate-50 border-slate-200" onClick={onBackToHome}>📝 症状打卡</Button>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {/* Expert Advice (Always Visible) */}
             <div className="bg-white rounded-[24px] p-5 shadow-sm border border-slate-50 print:border-slate-300">
                 <h4 className="text-[12px] font-black text-slate-800 mb-3 flex items-center gap-2">
                     <span>👨‍⚕️</span> 华西专家诊疗建议
@@ -337,10 +406,6 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
                     <p>
                         <span className="font-bold text-slate-800">2. 干预建议：</span>
                         {csiScore < 60 ? '目前病情控制不佳，建议立即启动预防性治疗方案，并预约线下门诊调整用药。' : '病情相对平稳，请继续保持当前生活方式，注意避免已知诱因。'}
-                    </p>
-                    <p>
-                        <span className="font-bold text-slate-800">3. 随访计划：</span>
-                        建议 2 周后复查 CSI 指数。
                     </p>
                 </div>
             </div>
@@ -360,6 +425,33 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
                 返回首页
             </Button>
         </div>
+
+        {/* 4. 紧急就诊提醒弹窗 (仅高风险, PRD Req: "强制弹窗...无商业引导") */}
+        {showEmergencyModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/95 backdrop-blur-sm animate-fade-in">
+                <div className="bg-white w-full max-w-sm rounded-[24px] p-6 text-center shadow-2xl relative overflow-hidden border-t-8 border-red-500">
+                    <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center text-3xl mx-auto mb-4 animate-pulse">
+                        🚨
+                    </div>
+                    <h3 className="text-xl font-black text-slate-900 mb-2">紧急就诊提醒</h3>
+                    <p className="text-xs text-slate-600 leading-relaxed mb-6 font-medium text-justify px-2">
+                        基于您的深度测评数据，系统检测到<span className="text-red-600 font-bold">高风险指征</span>。
+                        这可能提示潜在的神经系统病变风险（如癫痫持续状态或先兆偏头痛）。
+                        <br/><br/>
+                        <span className="text-slate-900 font-bold">请务必尽快前往具备神经专科资质的医院就诊，切勿拖延。</span>
+                    </p>
+                    <div className="space-y-3">
+                        <Button fullWidth onClick={() => setShowEmergencyModal(false)} className="bg-red-600 hover:bg-red-700 shadow-red-500/30 border-none text-white">
+                            我已知晓，查看就医凭证
+                        </Button>
+                        <p className="text-[9px] text-slate-400">本提醒仅为医疗预警，不包含任何商业推广</p>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* Digital Passport Modal */}
+        {showPassport && <ReferralSystem onClose={() => setShowPassport(false)} />}
 
       </div>
     </Layout>
