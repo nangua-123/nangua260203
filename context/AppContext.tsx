@@ -5,7 +5,8 @@ import {
     IoTStats, CognitiveStats, FamilyMember, SharingScope, PrivacySettings, 
     DoctorAssistantProof, MedLog, MedicalRecord, CognitiveTrainingRecord, 
     HealthTrendItem, ReviewReport, ChatMessage, SeizureEvent, EpilepsyProfile, 
-    AssessmentDraft, PatientProcessStatus, DeviceInfo, FollowUpSession, FollowUpStatus 
+    AssessmentDraft, PatientProcessStatus, DeviceInfo, FollowUpSession, FollowUpStatus,
+    MedicalOrder
 } from '../types';
 
 // ... (Security Utils remain same) ...
@@ -97,6 +98,7 @@ const INITIAL_STATE: AppState = {
     familyMembers: [],
     currentProfileId: 'guest',
     inbox: [],
+    medicalOrders: [], // [NEW] Init
     // [NEW] Follow-up Init
     epilepsyProfile: {
         isComplete: false,
@@ -153,6 +155,8 @@ type Action =
   | { type: 'CLEAR_ASSESSMENT_DRAFT' }
   | { type: 'UPDATE_PATIENT_STATUS'; payload: { patientId: string; status: PatientProcessStatus } }
   | { type: 'SEND_CLINICAL_MESSAGE'; payload: { targetId: string; message: string } }
+  | { type: 'ADD_MEDICAL_ORDER'; payload: MedicalOrder } // [NEW]
+  | { type: 'COMPLETE_MEDICAL_ORDER'; payload: string } // [NEW]
   // [NEW] Follow-up Actions
   | { type: 'SET_BASELINE_DATE'; payload: { id: string; date: number } }
   | { type: 'COMPLETE_FOLLOWUP'; payload: { id: string; visitId: string; data: any; dropOut?: boolean } };
@@ -210,6 +214,20 @@ const appReducer = (state: AppState, action: Action): AppState => {
     case 'SEND_CLINICAL_MESSAGE':
         const newMsg: ChatMessage = { id: `sys_${Date.now()}`, role: 'system', text: action.payload.message, timestamp: Date.now(), isClinicalPush: true };
         return { ...state, user: { ...state.user, inbox: [...(state.user.inbox || []), newMsg] } };
+    
+    // [NEW] Medical Orders
+    case 'ADD_MEDICAL_ORDER':
+        // Check duplication
+        if (state.user.medicalOrders?.some(o => o.type === action.payload.type && o.status === 'PENDING')) return state;
+        return { ...state, user: { ...state.user, medicalOrders: [...(state.user.medicalOrders || []), action.payload] } };
+    case 'COMPLETE_MEDICAL_ORDER':
+        return { 
+            ...state, 
+            user: { 
+                ...state.user, 
+                medicalOrders: state.user.medicalOrders?.map(o => o.id === action.payload ? { ...o, status: 'COMPLETED' } : o) 
+            } 
+        };
 
     // [NEW] Baseline Logic
     case 'SET_BASELINE_DATE': {

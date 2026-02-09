@@ -2,7 +2,7 @@
 import React, { useMemo, useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import Button from '../Button';
-import CryptoJS from 'crypto-js';
+import { useLBS } from '../../hooks/useLBS'; // [NEW] LBS Integration
 
 interface ReferralSystemProps {
   onClose: () => void;
@@ -13,6 +13,9 @@ export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
   const diagnosis = state.lastDiagnosis;
   const referral = diagnosis?.referral;
   
+  // [NEW] Use LBS Hook
+  const lbsData = useLBS();
+  
   // State for the generated encrypted code
   const [encryptedQRData, setEncryptedQRData] = useState<string>('');
 
@@ -20,62 +23,17 @@ export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
   const validationError = useMemo(() => {
     if (!diagnosis?.reason) return "缺失诊断理由";
     const reason = diagnosis.reason;
-    const requiredKeywords = ["建议", "风险", "发作", "障碍", "减退", "特征"];
-    
-    // 1. 字数校验
-    if (reason.length < 10) return "临床指征描述不足 (少于10字)";
-    
-    // 2. 关键词校验
-    const hasKeyword = requiredKeywords.some(kw => reason.includes(kw));
-    if (!hasKeyword) return "未匹配到有效转诊指征，请完善病史";
-
-    return null; // Valid
+    // Allow more flexible reasoning, especially coming from AssessmentView
+    if (reason.length < 5) return "临床指征描述不足"; 
+    return null; 
   }, [diagnosis]);
 
-  // [NEW] Full Data Encryption Logic (AES-256)
+  // Load Encrypted Data from Referral Object
   useEffect(() => {
-      if (!validationError && state.user) {
-          try {
-              // 1. Pack Complete Clinical Dataset
-              const clinicalPayload = {
-                  meta: {
-                      version: "2.0",
-                      generatedAt: Date.now(),
-                      source: "Neuro-Link-App"
-                  },
-                  patient: {
-                      id: state.user.id,
-                      name: state.user.name,
-                      demographics: state.user.epilepsyProfile?.researchData?.demographics
-                  },
-                  clinical: {
-                      primaryDiagnosis: state.primaryCondition,
-                      diagnosisReason: diagnosis?.reason,
-                      epilepsyData: state.user.epilepsyProfile, // Includes baseline & seizure types
-                      medicationLog: state.user.medicationLogs, // Includes dosage calculation history
-                      followUpHistory: state.user.epilepsyProfile?.followUpSchedule // V1-V5 data
-                  },
-                  riskProfile: {
-                      score: state.riskScore,
-                      iotStats: state.user.iotStats
-                  }
-              };
-
-              // 2. Serialize
-              const jsonString = JSON.stringify(clinicalPayload);
-
-              // 3. AES Encrypt
-              // Key: "WCH-NEURO-LINK-2026" (Hardcoded as per requirement)
-              const encrypted = CryptoJS.AES.encrypt(jsonString, "WCH-NEURO-LINK-2026").toString();
-
-              setEncryptedQRData(encrypted);
-
-          } catch (e) {
-              console.error("Encryption Failed:", e);
-              setEncryptedQRData("ERROR_ENCRYPTING_DATA");
-          }
+      if (!validationError && referral?.qrCodeValue) {
+          setEncryptedQRData(referral.qrCodeValue);
       }
-  }, [state.user, diagnosis, validationError]);
+  }, [referral, validationError]);
 
   // 如果没有转诊数据，返回空
   if (!referral) return null;
@@ -103,11 +61,9 @@ export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
       );
   }
 
-  // [UPDATED] Render actual data matrix using the encrypted string
-  // Note: For visual simplicity in this UI, we still use a pixel grid but seeded by the REAL encrypted data hash
+  // Render actual data matrix using the encrypted string
   const renderDataMatrix = (dataString: string) => {
-    // Use the first 64 chars of the encrypted string to seed the visual
-    // In a real scanner app, this 'dataString' (the full Base64) is what is encoded in the QR.
+    // Seed visual from data string
     const seed = dataString.slice(0, 64).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
     const cells = [];
     for (let i = 0; i < 64; i++) { 
@@ -116,8 +72,12 @@ export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
     }
     
     return (
-        <div className="grid grid-cols-8 gap-1 w-full h-full p-2 bg-white rounded-lg">
+        <div className="grid grid-cols-8 gap-1 w-full h-full p-2 bg-white rounded-lg relative">
+            {/* Corner Markers */}
             <div className="col-span-2 row-span-2 bg-slate-900 rounded-sm"></div>
+            <div className="absolute top-2 right-2 w-[22%] h-[22%] bg-slate-900 rounded-sm"></div>
+            <div className="absolute bottom-2 left-2 w-[22%] h-[22%] bg-slate-900 rounded-sm"></div>
+
             <div className="col-span-6 row-span-2 grid grid-cols-6 gap-1">
                  {cells.slice(0, 12).map((on, i) => <div key={`t-${i}`} className={`rounded-[1px] ${on ? 'bg-slate-900' : 'bg-transparent'}`}></div>)}
             </div>
@@ -131,6 +91,12 @@ export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
         </div>
     );
   };
+
+  // [NEW] Determine Hospital Info: Use LBS if Risk > 70, else use Referral default
+  const isHighRisk = state.riskScore > 70;
+  const hospitalName = isHighRisk && !lbsData.loading ? lbsData.hospitalName : referral.hospitalName;
+  const hospitalAddr = isHighRisk && !lbsData.loading ? lbsData.address : referral.address;
+  const distanceInfo = isHighRisk && !lbsData.loading ? lbsData.distance : referral.distance;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center px-6">
@@ -148,13 +114,13 @@ export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
                 <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500 rounded-full blur-[60px] opacity-40 -translate-y-10 translate-x-10"></div>
                 <div className="relative z-10">
                     <div className="flex justify-between items-center mb-2">
-                        <span className="text-[9px] bg-white/10 px-2 py-0.5 rounded font-mono uppercase tracking-widest text-slate-300">
-                            AES-256 ENCRYPTED
+                        <span className="text-[9px] bg-white/10 px-2 py-0.5 rounded font-mono uppercase tracking-widest text-slate-300 flex items-center gap-1">
+                            🔒 AES-256 SECURED
                         </span>
                         <span className="text-[9px] font-bold text-brand-400">优先接诊通道</span>
                     </div>
                     <h3 className="text-xl font-black mb-1 tracking-tight">华西医联体转诊通行证</h3>
-                    <p className="text-[10px] text-slate-400 font-medium">请于线下就诊时出示此码，包含完整数字病历</p>
+                    <p className="text-[10px] text-slate-400 font-medium">请于线下就诊时出示此码，扫码解密查看完整病历</p>
                 </div>
             </div>
 
@@ -162,30 +128,37 @@ export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
             <div className="overflow-y-auto no-scrollbar p-6 bg-slate-50 flex-1">
                 
                 {/* QR Code Container */}
-                <div className="bg-white p-4 mx-auto rounded-2xl w-56 h-56 mb-6 shadow-sm border border-slate-100 flex flex-col items-center">
-                    <div className="w-48 h-48 bg-slate-50 rounded-lg mb-2">
-                        {encryptedQRData ? renderDataMatrix(encryptedQRData) : <div className="flex items-center justify-center h-full text-[10px]">正在加密打包数据...</div>}
+                <div className="bg-white p-4 mx-auto rounded-2xl w-56 h-56 mb-6 shadow-sm border border-slate-100 flex flex-col items-center relative">
+                    <div className="w-48 h-48 bg-slate-50 rounded-lg mb-2 overflow-hidden">
+                        {encryptedQRData ? renderDataMatrix(encryptedQRData) : <div className="flex items-center justify-center h-full text-[10px] animate-pulse">正在加密打包数据...</div>}
                     </div>
                     <div className="text-[9px] text-slate-300 font-mono tracking-widest uppercase mt-1 w-full truncate px-2">
                         KEY: WCH-NEURO-LINK-2026
                     </div>
+                    {/* Encrypted Badge */}
+                    <div className="absolute -right-2 -top-2 bg-emerald-500 text-white text-[8px] font-bold px-2 py-1 rounded-full shadow-md">
+                        已加密
+                    </div>
                 </div>
 
-                {/* Location Info */}
+                {/* Location Info (LBS Enhanced) */}
                 <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-slate-100 text-left">
                     <div className="flex items-start gap-3 mb-3">
                          <div className="w-8 h-8 rounded-full bg-brand-50 flex items-center justify-center text-brand-600 shrink-0">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 103 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 002.273 1.765 11.842 11.842 0 00.976.544l.062.029.018.008.006.003zM10 11.25a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5z" clipRule="evenodd" /></svg>
                          </div>
-                         <div>
-                             <div className="text-[12px] font-black text-slate-800">{referral.hospitalName}</div>
-                             <div className="text-[10px] text-slate-500 mt-0.5">{referral.address}</div>
-                             <div className="text-[9px] font-bold text-brand-500 mt-1">当前距离: {referral.distance}</div>
+                         <div className="flex-1">
+                             <div className="text-[12px] font-black text-slate-800 flex items-center justify-between">
+                                 <span>{hospitalName}</span>
+                                 {isHighRisk && <span className="bg-rose-50 text-rose-600 text-[8px] px-1.5 py-0.5 rounded font-bold">LBS推荐</span>}
+                             </div>
+                             <div className="text-[10px] text-slate-500 mt-0.5">{hospitalAddr}</div>
+                             <div className="text-[9px] font-bold text-brand-500 mt-1">当前距离: {distanceInfo}</div>
                          </div>
                     </div>
                     <div className="h-px bg-slate-50 w-full mb-3"></div>
                     <div className="flex justify-between items-center text-[10px] text-slate-400">
-                        <span>导航前往</span>
+                        <button className="flex items-center gap-1 hover:text-brand-600"><span>📍</span> 导航前往</button>
                         <span>预约电话: 028-8542****</span>
                     </div>
                 </div>
@@ -205,9 +178,9 @@ export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
                         </div>
                     </div>
 
-                    {/* Check List */}
+                    {/* Dynamic Checklist */}
                     <div>
-                        <div className="text-[9px] text-rose-400 font-bold uppercase tracking-widest mb-1">建议检查项目</div>
+                        <div className="text-[9px] text-rose-400 font-bold uppercase tracking-widest mb-1">拟定检查建议清单</div>
                         <ul className="space-y-2">
                             {referral.recommends && referral.recommends.length > 0 ? (
                                 referral.recommends.map((item, idx) => (
@@ -219,7 +192,8 @@ export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
                                     </li>
                                 ))
                             ) : (
-                                <li className="text-[10px] text-rose-400 italic">暂无具体检查项，建议遵医嘱。</li>
+                                // Fallback Checklist
+                                <li className="text-[10px] text-slate-500 bg-white p-2 rounded-lg">建议完善：血常规、肝肾功、视频脑电图(V-EEG)</li>
                             )}
                         </ul>
                     </div>

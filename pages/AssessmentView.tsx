@@ -7,12 +7,16 @@ import { useToast } from '../context/ToastContext';
 import { useApp } from '../context/AppContext';
 import { DISEASE_CONTEXT_CONFIG } from '../config/DiseaseContextConfig';
 import { SCALE_DEFINITIONS, ScaleDefinition } from '../config/ScaleDefinitions';
-import { calculateScaleScore } from '../utils/scoringEngine';
+import { calculateScaleScore, calculateMMSEScore, calculateADLScore, calculateEPDS, calculateMoCAScore } from '../utils/scoringEngine';
 import { InteractiveMMSE } from '../components/InteractiveMMSE';
 import CryptoJS from 'crypto-js';
 
-// [NEW] Import mock config from TS file (Fixed import issue)
+// [NEW] Import mock configs
 import { EPILEPSY_V0_CONFIG } from '../config/forms/epilepsy_v0_config'; 
+import { CDR_INTERVIEW_CONFIG } from '../config/forms/cdr_interview_config';
+import { COGNITIVE_MMSE_CONFIG } from '../config/forms/cognitive_mmse_config';
+import { COGNITIVE_ADL_CONFIG } from '../config/forms/cognitive_adl_config';
+import { COGNITIVE_MOCA_CONFIG } from '../config/forms/cognitive_moca_config';
 
 interface AssessmentViewProps {
   type: DiseaseType;
@@ -20,29 +24,13 @@ interface AssessmentViewProps {
   onBack: () => void;
 }
 
-// --- Logic Helpers ---
-
-// [NEW] EPDS Scoring Engine
-const calculateEPDSScore = (answers: Record<string, any>): number => {
-    let score = 0;
-    for (let i = 1; i <= 10; i++) {
-        const val = answers[`epds_q${i}`];
-        if (typeof val === 'number') {
-            score += val;
-        }
-    }
-    return score;
-};
-
 // --- Form Engine Sub-components ---
 
-// 1. Dynamic Text Processor
 const getLabelText = (label: string, fillerType: FillerType = 'SELF'): string => {
     if (fillerType === 'SELF') return label;
     return label.replace(/您/g, '患者').replace(/你/g, '患者').replace(/Your/g, "Patient's");
 };
 
-// 2. Logic Engine
 const checkVisibility = (field: FormFieldConfig, answers: Record<string, any>): boolean => {
     if (!field.visibleIf) return true;
     return Object.entries(field.visibleIf).every(([key, value]) => answers[key] === value);
@@ -54,15 +42,32 @@ const FormRenderer: React.FC<{
     setAnswer: (key: string, val: any, exclusion?: boolean) => void;
     currentSectionIndex: number;
     fillerType: FillerType;
-}> = ({ config, answers, setAnswer, currentSectionIndex, fillerType }) => {
+    onAVLTUnlock?: () => void; 
+}> = ({ config, answers, setAnswer, currentSectionIndex, fillerType, onAVLTUnlock }) => {
     const section = config.sections[currentSectionIndex];
 
-    // [NEW] Real-time Dosage Calculation Logic
-    // Detect if we are in Medication section by checking for specific fields
     const morning = parseFloat(answers['morning_mg'] || '0');
     const noon = parseFloat(answers['noon_mg'] || '0');
     const night = parseFloat(answers['night_mg'] || '0');
     const dailyTotal = morning + noon + night;
+
+    // [NEW] AVLT-H Logic Handling
+    const isN4 = section.id === 'avlt_n4'; // 5 min delay
+    const isN5 = section.id === 'avlt_n5'; // 20 min delay
+    const n3StartTime = answers['avlt_n3_timestamp'];
+    
+    // Timer State (kept minimal for this change context)
+    const [isLocked, setIsLocked] = useState(false);
+
+    useEffect(() => {
+        if (isN4 && n3StartTime) {
+            const elapsed = Date.now() - n3StartTime;
+            if (elapsed < 5 * 60 * 1000) setIsLocked(true);
+        } else if (isN5 && n3StartTime) {
+            const elapsed = Date.now() - n3StartTime;
+            if (elapsed < 20 * 60 * 1000) setIsLocked(true);
+        }
+    }, [isN4, isN5, n3StartTime]);
 
     if (!section) return null;
 
@@ -75,7 +80,6 @@ const FormRenderer: React.FC<{
 
                 const label = getLabelText(field.label, fillerType);
 
-                // [NEW] Info Type Rendering (used for hints or calculated displays)
                 if (field.type === 'info') {
                     return (
                         <div key={field.id} className="bg-blue-50 p-3 rounded-xl border border-blue-100 text-blue-700 text-xs font-bold flex items-center gap-2">
@@ -84,11 +88,36 @@ const FormRenderer: React.FC<{
                     );
                 }
 
-                // [NEW] Group Wrapper (Generic)
                 if (field.type === 'group') {
                     return (
                         <div key={field.id} className="border-t border-slate-100 pt-4 mt-2">
                             <h4 className="text-sm font-black text-slate-700 mb-2">{label}</h4>
+                            {field.children?.map(child => (
+                                <div key={child.id} className="mb-3 pl-2 border-l-2 border-slate-100">
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">{getLabelText(child.label, fillerType)}</label>
+                                    {/* Simplified renderer for children choice/number only for now */}
+                                    <div className="flex gap-2">
+                                        {child.type === 'number' && (
+                                            <input
+                                                type="number"
+                                                value={answers[child.id] || ''}
+                                                onChange={(e) => setAnswer(child.id, parseFloat(e.target.value))}
+                                                className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none text-xs w-20"
+                                                placeholder={child.hint || "输入"}
+                                            />
+                                        )}
+                                        {child.options?.map(opt => (
+                                            <button
+                                                key={String(opt.value)}
+                                                onClick={() => setAnswer(child.id, opt.value)}
+                                                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border ${answers[child.id] === opt.value ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-500 border-slate-200'}`}
+                                            >
+                                                {opt.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     );
                 }
@@ -100,7 +129,6 @@ const FormRenderer: React.FC<{
                             {field.validation?.required && <span className="text-red-500 ml-1">*</span>}
                         </label>
 
-                        {/* Input Type: Text/Number */}
                         {(field.type === 'text' || field.type === 'number') && (
                             <div className="flex items-center gap-2">
                                 <input
@@ -108,31 +136,47 @@ const FormRenderer: React.FC<{
                                     value={answers[field.id] || ''}
                                     onChange={(e) => setAnswer(field.id, field.type === 'number' ? parseFloat(e.target.value) : e.target.value)}
                                     className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-brand-500 transition-colors font-medium text-slate-800"
-                                    placeholder="点击输入"
+                                    placeholder={field.hint || "点击输入"}
                                 />
                                 {field.suffix && <span className="text-slate-400 text-xs font-bold">{field.suffix}</span>}
                             </div>
                         )}
 
-                        {/* Input Type: Choice */}
+                        {field.type === 'file' && (
+                            <div className="flex flex-col gap-2">
+                                <div className="h-32 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-slate-400 text-xs flex-col gap-1 cursor-pointer hover:bg-slate-100">
+                                    <span className="text-2xl">📷</span>
+                                    <span>点击上传图片</span>
+                                </div>
+                                {field.hint && <span className="text-[10px] text-slate-400">{field.hint}</span>}
+                            </div>
+                        )}
+
                         {field.type === 'choice' && (
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 gap-2">
                                 {field.options?.map(opt => {
                                     const isSelected = answers[field.id] === opt.value;
+                                    const handleClick = () => {
+                                        setAnswer(field.id, opt.value, opt.exclusion);
+                                        if (field.id === 'avlt_n3_complete' && opt.value === 1) {
+                                            setAnswer('avlt_n3_timestamp', Date.now());
+                                        }
+                                    };
+
                                     return (
                                         <button
                                             key={String(opt.value)}
-                                            onClick={() => setAnswer(field.id, opt.value, opt.exclusion)}
-                                            className={`py-3 px-4 rounded-xl text-xs font-bold transition-all border break-words leading-tight ${isSelected ? 'bg-brand-600 text-white border-brand-600 shadow-md' : 'bg-slate-50 text-slate-600 border-slate-100 hover:bg-slate-100'}`}
+                                            onClick={handleClick}
+                                            className={`py-3 px-4 rounded-xl text-xs font-bold transition-all border break-words leading-tight text-left flex justify-between ${isSelected ? 'bg-brand-600 text-white border-brand-600 shadow-md' : 'bg-slate-50 text-slate-600 border-slate-100 hover:bg-slate-100'}`}
                                         >
-                                            {opt.label}
+                                            <span>{opt.label}</span>
+                                            {isSelected && <span>✔</span>}
                                         </button>
                                     );
                                 })}
                             </div>
                         )}
 
-                        {/* Input Type: Multiselect */}
                         {field.type === 'multiselect' && (
                             <div className="flex flex-wrap gap-2">
                                 {field.options?.map(opt => {
@@ -141,10 +185,8 @@ const FormRenderer: React.FC<{
                                     
                                     const handleSelect = () => {
                                         if (opt.exclusion) {
-                                            // Exclusive option clears others
-                                            setAnswer(field.id, [opt.value]);
+                                            setAnswer(field.id, [opt.value], true); 
                                         } else {
-                                            // Normal toggle, remove exclusive options first
                                             let newVal = isSelected 
                                                 ? currentVal.filter(v => v !== opt.value)
                                                 : [...currentVal.filter(v => !field.options?.find(o => o.value === v)?.exclusion), opt.value];
@@ -165,7 +207,6 @@ const FormRenderer: React.FC<{
                             </div>
                         )}
                         
-                        {/* [NEW] Date Picker Shim */}
                         {field.type === 'date' && (
                             <input 
                                 type="date" 
@@ -178,7 +219,6 @@ const FormRenderer: React.FC<{
                 );
             })}
 
-            {/* [NEW] Calculation Display for Dosage */}
             {section.id === 'medication' && dailyTotal > 0 && (
                 <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 bg-emerald-600 text-white px-6 py-2 rounded-full shadow-xl animate-slide-up flex items-center gap-2">
                     <span className="text-lg">💊</span>
@@ -196,6 +236,7 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
   const { showToast } = useToast();
   
   const isEpilepsyResearch = type === DiseaseType.EPILEPSY;
+  const isCognitiveResearch = type === DiseaseType.COGNITIVE;
 
   // --- Engine State ---
   const [formConfig, setFormConfig] = useState<FormConfig | null>(null);
@@ -207,25 +248,46 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
   const [legacyStep, setLegacyStep] = useState(0);
   const [inputValue, setInputValue] = useState<string>('');
   const [showCompletionToast, setShowCompletionToast] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   // Draft Restoration
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-      // Load Config
+      // Load Config based on Disease Type
       if (isEpilepsyResearch) {
-          // [NEW] Use imported JSON config
           setFormConfig(EPILEPSY_V0_CONFIG as any);
+      } else if (isCognitiveResearch) {
+          const fillerType = (state.user.role === 'FAMILY' ? 'FAMILY' : 'SELF');
+          const cdrConfigRaw = CDR_INTERVIEW_CONFIG;
           
-          const draft = state.assessmentDraft;
-          if (draft && draft.diseaseType === type) {
-              setAnswers(draft.answers);
-              setCurrentSection(draft.currentStep || 0);
-              showToast('已恢复上次进度', 'info');
-          }
+          const validCdrSections = cdrConfigRaw.sections.filter(s => {
+              if (fillerType === 'FAMILY') return s.id.includes('informant');
+              return s.id.includes('subject');
+          });
+          
+          // Merge logic: Combine MMSE, ADL, and CDR (and now MoCA)
+          // For demonstration, replacing MMSE with MoCA or appending it
+          const mergedConfig = {
+              id: "cognitive_bundle",
+              title: "认知障碍综合评估 (MoCA+ADL+CDR)",
+              version: "3.1",
+              sections: [
+                  ...COGNITIVE_MOCA_CONFIG.sections, // Using MoCA instead of MMSE as requested
+                  ...COGNITIVE_ADL_CONFIG.sections,
+                  ...validCdrSections
+              ]
+          };
+          setFormConfig(mergedConfig as any);
       }
-  }, [type, isEpilepsyResearch]);
+
+      // Restore Draft
+      const draft = state.assessmentDraft;
+      if (draft && draft.diseaseType === type) {
+          setAnswers(draft.answers);
+          setCurrentSection(draft.currentStep || 0);
+          showToast('已恢复上次进度', 'info');
+      }
+  }, [type, isEpilepsyResearch, isCognitiveResearch, state.user.role]);
 
   // Auto-Save Effect
   useEffect(() => {
@@ -237,7 +299,7 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
               payload: {
                   diseaseType: type,
                   answers: answers,
-                  currentStep: isEpilepsyResearch ? currentSection : legacyStep,
+                  currentStep: isEpilepsyResearch || isCognitiveResearch ? currentSection : legacyStep,
                   lastUpdated: Date.now()
               }
           });
@@ -265,7 +327,6 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
                   showToast(`请填写: ${field.label}`, 'error');
                   return;
               }
-              // [NEW] Regex Validation
               if (field.validation.regex) {
                   const reg = new RegExp(field.validation.regex);
                   if (!reg.test(String(answers[field.id]))) {
@@ -282,9 +343,24 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
       } else {
           // --- Finish & Encryption Logic ---
           
-          // 1. Calculate EPDS Score
-          const epdsScore = calculateEPDSScore(answers);
-          const psychRiskFlag = epdsScore >= 9;
+          // 1. Calculate Scores
+          let finalScore = 0;
+          let psychRiskFlag = false;
+          let scoreDetail = "";
+
+          if (isEpilepsyResearch) {
+              const epds = calculateEPDS(answers as any);
+              psychRiskFlag = epds.isRisk;
+              finalScore = psychRiskFlag ? 60 : 90;
+          } else if (isCognitiveResearch) {
+              // Calculate MoCA & ADL
+              const mocaResult = calculateMoCAScore(answers);
+              const adlResult = calculateADLScore(answers);
+              finalScore = mocaResult.score;
+              scoreDetail = `MoCA: ${mocaResult.score} (${mocaResult.interpretation}), Barthel: ${adlResult.barthelScore}`;
+              
+              if (mocaResult.level !== 'NORMAL') psychRiskFlag = true;
+          }
 
           // 2. Prepare Payload
           const finalPayload = {
@@ -292,27 +368,26 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
               _meta: {
                   completedAt: Date.now(),
                   exclusionFlags,
-                  epdsScore,
-                  psych_risk_flag: psychRiskFlag
+                  psych_risk_flag: psychRiskFlag,
+                  score_detail: scoreDetail
               }
           };
 
-          // 3. [NEW] AES Encryption
+          // 3. AES Encryption
           const payloadStr = JSON.stringify(finalPayload);
           const encrypted = CryptoJS.AES.encrypt(payloadStr, "WCH-NEURO-2026").toString();
 
           // 4. Update Global State
-          // Update referral Data with encrypted code for QR generation
           dispatch({
               type: 'SET_DIAGNOSIS',
               payload: {
-                  reason: psychRiskFlag ? "EPDS评分≥9，提示产后抑郁风险" : "基础档案建立完成",
+                  reason: psychRiskFlag ? (scoreDetail || "高风险提示") : "基础档案建立完成",
                   referral: {
                       hospitalName: "华西医院 (数据中心)",
                       distance: "云端归档",
                       address: "encrypted_storage",
-                      recommends: psychRiskFlag ? ["心理门诊复查"] : [],
-                      qrCodeValue: encrypted // Store Encrypted Data in QR
+                      recommends: psychRiskFlag ? ["心理门诊复查", "认知干预"] : [],
+                      qrCodeValue: encrypted
                   }
               }
           });
@@ -321,142 +396,52 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
           dispatch({ type: 'CLEAR_ASSESSMENT_DRAFT' });
           
           setTimeout(() => {
-              onComplete(psychRiskFlag ? 60 : 90); // Score based on risk
+              onComplete(finalScore);
           }, 1500);
       }
   };
 
   // --- Render ---
 
-  // 1. Interactive MMSE (Special Case)
-  if (type === DiseaseType.COGNITIVE) {
-      return <InteractiveMMSE onComplete={onComplete} onBack={onBack} />;
-  }
+  // Fallback for non-configured types
+  if (!formConfig) return <div>Configuration Error</div>;
 
-  // 2. New Form Engine (Epilepsy)
-  if (isEpilepsyResearch && formConfig) {
-      const progress = ((currentSection + 1) / formConfig.sections.length) * 100;
-      const fillerType = (state.user.role === 'FAMILY' ? 'FAMILY' : 'SELF') as FillerType;
-
-      return (
-        <Layout headerTitle={formConfig.title} showBack onBack={onBack}>
-            <div className="p-6 pb-safe min-h-full flex flex-col">
-                {/* Progress */}
-                <div className="mb-6">
-                    <div className="flex justify-between text-xs text-slate-400 mb-1">
-                        <span className="font-bold text-slate-600">进度</span>
-                        <span className="font-mono">{currentSection + 1}/{formConfig.sections.length}</span>
-                    </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                        <div className="bg-indigo-600 h-2 rounded-full transition-all duration-500 ease-out" style={{ width: `${progress}%` }}></div>
-                    </div>
-                </div>
-
-                {/* Form Content */}
-                <div className="flex-1 pb-16">
-                    <FormRenderer 
-                        config={formConfig} 
-                        answers={answers} 
-                        setAnswer={handleEngineAnswer} 
-                        currentSectionIndex={currentSection}
-                        fillerType={fillerType}
-                    />
-                </div>
-
-                {/* Navigation */}
-                <div className="mt-8 pt-4 border-t border-slate-100 flex gap-3">
-                    {currentSection > 0 && (
-                        <Button variant="outline" onClick={() => setCurrentSection(p => p - 1)} className="flex-1 bg-white">上一步</Button>
-                    )}
-                    <Button fullWidth onClick={handleNextSection} className="flex-[2] shadow-xl shadow-indigo-500/20">
-                        {currentSection === formConfig.sections.length - 1 ? '加密提交' : '下一步'}
-                    </Button>
-                </div>
-            </div>
-        </Layout>
-      );
-  }
-
-  // 3. Legacy Scale Renderer (Migraine/Others)
-  const diseaseConfig = DISEASE_CONTEXT_CONFIG[type] || DISEASE_CONTEXT_CONFIG[DiseaseType.UNKNOWN];
-  const scaleId = diseaseConfig.assessmentScaleId;
-  const currentScale = SCALE_DEFINITIONS[scaleId];
-
-  if (!currentScale) return <div>Configuration Error</div>;
-
-  const questions = currentScale.questions;
-  const currentQ = questions[legacyStep];
-  const legacyProgress = ((legacyStep + 1) / questions.length) * 100;
-
-  const handleLegacyNext = (val: number) => {
-      const newAnswers = { ...answers, [currentQ.id]: val };
-      setAnswers(newAnswers);
-      setInputValue(''); // Reset input value
-      
-      if (legacyStep < questions.length - 1) {
-          setLegacyStep(p => p + 1);
-      } else {
-          // Cast newAnswers to Record<number, number> for legacy calculation compatibility
-          const result = calculateScaleScore(currentScale, newAnswers as unknown as Record<number, number>);
-          dispatch({ type: 'CLEAR_ASSESSMENT_DRAFT' });
-          setShowCompletionToast(true);
-          showToast(`测评完成`, 'success');
-          setTimeout(() => onComplete(result.score), 1500);
-      }
-  };
-
-  const handleStepBack = () => {
-      if (legacyStep > 0) {
-          setLegacyStep(p => p - 1);
-      }
-  };
+  const progress = ((currentSection + 1) / formConfig.sections.length) * 100;
+  const fillerType = (state.user.role === 'FAMILY' ? 'FAMILY' : 'SELF') as FillerType;
 
   return (
-    <Layout headerTitle="专业风险评估" showBack onBack={onBack}>
-      <div className="p-6 pb-safe relative flex flex-col h-full">
-         
-         {/* Completion Toast Overlay */}
-        {showCompletionToast && (
-            <div className="absolute top-48 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 backdrop-blur px-6 py-4 rounded-2xl shadow-2xl flex flex-col items-center gap-2 animate-fade-in w-[280px] text-center border border-slate-700">
-                <span className="text-3xl animate-bounce">📊</span>
-                <span className="text-white text-sm font-bold">正在生成{diseaseConfig.displayName}报告...</span>
-                <p className="text-slate-400 text-[10px]">AI 正在分析您的 {questions.length} 项回答</p>
+    <Layout headerTitle={formConfig.title} showBack onBack={onBack}>
+        <div className="p-6 pb-safe min-h-full flex flex-col">
+            <div className="mb-6">
+                <div className="flex justify-between text-xs text-slate-400 mb-1">
+                    <span className="font-bold text-slate-600">进度</span>
+                    <span className="font-mono">{currentSection + 1}/{formConfig.sections.length}</span>
+                </div>
+                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                    <div className="bg-indigo-600 h-2 rounded-full transition-all duration-500 ease-out" style={{ width: `${progress}%` }}></div>
+                </div>
             </div>
-        )}
 
-         <div className="mb-6 flex-shrink-0">
-           <div className="flex justify-between text-xs text-slate-400 mb-2">
-               <span className="font-bold text-slate-600 truncate max-w-[200px]">{currentScale.title}</span>
-               <span className="font-mono">{legacyStep + 1} / {questions.length}</span>
-           </div>
-           <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                <div className="bg-brand-600 h-2 rounded-full transition-all duration-500 ease-out" style={{ width: `${legacyProgress}%` }}></div>
-           </div>
-        </div>
-        
-        <div className={`bg-white rounded-2xl p-6 shadow-card flex-1 flex flex-col border border-slate-50 relative transition-opacity duration-300 ${showCompletionToast ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}>
-            <h3 className="text-lg font-bold text-slate-900 mb-6">{currentQ.text}</h3>
-            <div className="flex-1 space-y-3">
-                {currentQ.options?.map((opt, idx) => (
-                    <button key={idx} onClick={() => handleLegacyNext(opt.value)} className="w-full p-4 text-left border border-slate-200 rounded-xl hover:bg-brand-50 font-medium text-slate-600">
-                        {opt.label}
-                    </button>
-                ))}
-                {currentQ.type === 'slider' && (
-                    <div className="pt-4">
-                        <input type="range" min={currentQ.min} max={currentQ.max} className="w-full h-2 bg-slate-200 rounded-lg" onChange={(e) => setInputValue(e.target.value)} />
-                        <Button fullWidth onClick={() => handleLegacyNext(parseInt(inputValue || '0'))} className="mt-6">确认</Button>
-                    </div>
-                )}
+            <div className="flex-1 pb-16">
+                <FormRenderer 
+                    config={formConfig} 
+                    answers={answers} 
+                    setAnswer={handleEngineAnswer} 
+                    currentSectionIndex={currentSection}
+                    fillerType={fillerType}
+                    onAVLTUnlock={() => showToast('测试继续', 'success')}
+                />
             </div>
-            
-            {legacyStep > 0 && (
-                <button onClick={handleStepBack} className="absolute top-6 right-6 text-slate-300 text-xs font-bold px-2 py-1 hover:text-slate-500">
-                    撤销上一步
-                </button>
-            )}
+
+            <div className="mt-8 pt-4 border-t border-slate-100 flex gap-3">
+                {currentSection > 0 && (
+                    <Button variant="outline" onClick={() => setCurrentSection(p => p - 1)} className="flex-1 bg-white">上一步</Button>
+                )}
+                <Button fullWidth onClick={handleNextSection} className="flex-[2] shadow-xl shadow-indigo-500/20">
+                    {currentSection === formConfig.sections.length - 1 ? '加密提交' : '下一步'}
+                </Button>
+            </div>
         </div>
-      </div>
     </Layout>
   );
 };

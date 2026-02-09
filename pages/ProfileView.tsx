@@ -7,7 +7,75 @@ import { useRole } from '../hooks/useRole';
 import { FamilyManagedModal } from '../components/FamilyManagedModal';
 import { RoleManager } from '../components/RoleManager'; 
 import { useToast } from '../context/ToastContext';
-import { HardwareStatus } from '../components/business/profile/HardwareStatus'; // [NEW]
+import { HardwareStatus } from '../components/business/profile/HardwareStatus';
+
+// [NEW] Patient Journey Timeline Component
+const PatientJourneyTimeline: React.FC<{ user: User }> = ({ user }) => {
+    // Mock Timeline Nodes based on FollowUp Schedule or default structure
+    const timeline = [
+        { id: 'V0', title: 'V0 基线建档', date: '2023-12-01', status: 'COMPLETED' },
+        { id: 'V1', title: 'V1 12周随访', date: '2024-03-01', status: 'COMPLETED', drugLevel: '5.2 ug/ml' },
+        { id: 'V2', title: 'V2 24周随访', date: '2024-06-01', status: 'PENDING', isCurrent: true },
+        { id: 'V3', title: 'V3 36周随访', date: '2024-09-01', status: 'LOCKED' },
+        { id: 'V4', title: 'V4 产后随访', date: '待定', status: 'LOCKED' }
+    ];
+
+    const { showToast } = useToast();
+
+    const handleOCRUpload = (nodeId: string) => {
+        showToast('正在启动相机识别化验单...', 'info');
+        setTimeout(() => {
+            showToast('识别成功：丙戊酸钠谷浓度 58.5 ug/ml，已自动填入 V2 表单', 'success');
+        }, 2000);
+    };
+
+    return (
+        <div className="bg-white rounded-[24px] p-5 shadow-sm border border-slate-100 mb-4">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="text-sm font-black text-slate-800">全病程管理轴</h3>
+                <span className="text-[0.6rem] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded font-bold">华西癫痫队列</span>
+            </div>
+            
+            <div className="relative pl-2">
+                {/* Vertical Line */}
+                <div className="absolute top-2 bottom-6 left-[9px] w-0.5 bg-slate-100"></div>
+
+                {timeline.map((node, index) => (
+                    <div key={node.id} className="flex gap-4 mb-6 relative group">
+                        {/* Dot */}
+                        <div className={`w-5 h-5 rounded-full border-4 shrink-0 z-10 ${node.status === 'COMPLETED' ? 'bg-emerald-500 border-emerald-100' : node.isCurrent ? 'bg-white border-brand-500 ring-2 ring-brand-100' : 'bg-slate-200 border-slate-50'}`}></div>
+                        
+                        <div className="flex-1 -mt-1">
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <div className={`text-xs font-bold ${node.isCurrent ? 'text-brand-600' : 'text-slate-800'}`}>{node.title}</div>
+                                    <div className="text-[0.6rem] text-slate-400 mt-0.5">{node.date}</div>
+                                </div>
+                                {node.status === 'COMPLETED' ? (
+                                    <span className="text-[0.6rem] text-emerald-500 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">已完成</span>
+                                ) : node.isCurrent ? (
+                                    <button 
+                                        onClick={() => handleOCRUpload(node.id)}
+                                        className="text-[0.6rem] bg-brand-50 text-brand-600 px-2 py-1 rounded-full font-bold flex items-center gap-1 active:scale-95"
+                                    >
+                                        <span>📷</span> 补全TDM
+                                    </button>
+                                ) : (
+                                    <span className="text-[0.6rem] text-slate-300">未开启</span>
+                                )}
+                            </div>
+                            {node.drugLevel && (
+                                <div className="mt-1.5 bg-slate-50 p-1.5 rounded-lg text-[0.6rem] text-slate-500 inline-block border border-slate-100">
+                                    💊 血药浓度: {node.drugLevel}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
 
 interface ProfileViewProps {
     user: User;
@@ -126,6 +194,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNav
                     {user.hasHardware && user.deviceInfo && (
                         <HardwareStatus info={user.deviceInfo} onRenew={handleRenewDevice} />
                     )}
+
+                    {/* [NEW] Patient Journey Timeline */}
+                    <PatientJourneyTimeline user={user} />
 
                     {/* 角色管理入口 */}
                     <div 

@@ -11,6 +11,19 @@ export enum AuthProvider {
   ALIPAY = 'ALIPAY'
 }
 
+// [NEW] 医嘱任务类型
+export interface MedicalOrder {
+    id: string;
+    type: 'DEVICE_RENTAL' | 'COGNITIVE_RX' | 'LAB_TEST';
+    title: string;
+    description: string;
+    priority: 'HIGH' | 'NORMAL';
+    status: 'PENDING' | 'COMPLETED';
+    targetView: AppView; // 跳转目标
+    issuedAt: number;
+    doctorName: string;
+}
+
 // [NEW] 填表人身份 (用于动态文案替换)
 export type FillerType = 'SELF' | 'FAMILY';
 
@@ -155,12 +168,13 @@ export interface HeadacheProfile {
   lastUpdated: number;
 }
 
-// [NEW] 癫痫发作事件结构
+// [NEW] 癫痫发作事件结构 (Strict CRF Compliance)
 export interface SeizureEvent {
   id: string;
   timestamp: number;
   type: string; // '强直阵挛' | '失神' | '局灶'
-  duration: number; // 秒
+  durationCategory: '<1min' | '1-5min' | '5-15min' | '>30min'; // [CRF] 严格梯度
+  awareness: 'PRESERVED' | 'IMPAIRED' | 'UNKNOWN'; // [CRF] 意识状态
   triggers: string[]; // ['漏服药', '疲劳', ...]
   severity?: number; // 1-10
 }
@@ -341,6 +355,9 @@ export interface User {
 
   // [NEW] 临床通知收件箱 (Assistant Push)
   inbox?: ChatMessage[];
+  
+  // [NEW] 医嘱任务列表
+  medicalOrders?: MedicalOrder[];
 
   // 角色特定字段
   associatedPatientId?: string; // 家属角色：关联的患者ID
@@ -393,7 +410,8 @@ export type AppView =
 // --- [NEW] Config Engine Types ---
 export interface FormFieldConfig {
     id: string;
-    type: 'text' | 'number' | 'choice' | 'multiselect' | 'date' | 'group' | 'info';
+    // [UPDATED] Added 'file' type for MoCA cube upload
+    type: 'text' | 'number' | 'choice' | 'multiselect' | 'date' | 'group' | 'info' | 'file';
     label: string;
     options?: { label: string; value: any; exclusion?: boolean }[];
     visibleIf?: Record<string, any>; // Simple equality check: { "gender": "FEMALE" }

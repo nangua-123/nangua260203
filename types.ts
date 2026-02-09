@@ -11,6 +11,19 @@ export enum AuthProvider {
   ALIPAY = 'ALIPAY'
 }
 
+// [NEW] 医嘱任务类型
+export interface MedicalOrder {
+    id: string;
+    type: 'DEVICE_RENTAL' | 'COGNITIVE_RX' | 'LAB_TEST';
+    title: string;
+    description: string;
+    priority: 'HIGH' | 'NORMAL';
+    status: 'PENDING' | 'COMPLETED';
+    targetView: AppView; // 跳转目标
+    issuedAt: number;
+    doctorName: string;
+}
+
 // [NEW] 填表人身份 (用于动态文案替换)
 export type FillerType = 'SELF' | 'FAMILY';
 
@@ -101,37 +114,31 @@ export interface CognitiveTrainingRecord {
   score: number;       // 综合得分
   durationSeconds: number; // 训练时长
   accuracy: number;    // 正确率 (0-100)
-  difficultyLevel?: number; // 达到的难度等级 (记忆广度)
+  difficultyLevel?: number; // 达到的难度等级
   reactionSpeedMs?: number; // 平均反应速度 (毫秒)
-  isCompleted?: boolean; // [NEW] 是否满足临床有效时长 (20min)
-  
-  // [NEW] Added fields for detailed analysis
+  isCompleted?: boolean; 
+  status?: 'COMPLETED' | 'INVALID_DURATION'; // [HARD_REQUIREMENT] 强制状态标记
   reactionTimeAvg: number; // 平均反应耗时 (ms)
   errorPattern: string[];  // 错误类型分布 (Tags)
   stabilityIndex: number;  // 稳定性指数 (0-100)
-  
-  status?: 'COMPLETED' | 'INVALID_DURATION'; // [NEW] Added for progress tracking
 }
 
 export interface CognitiveStats {
   totalSessions: number;  
   todaySessions: number;
-  todayDuration: number; // [NEW] Added for daily goal tracking (minutes)
+  todayDuration: number; 
   totalDuration: number;  
   lastScore: number;      
   aiRating: string;       
   lastUpdated: number;
-  
-  // [NEW] Added dimension stats for Radar Chart
-  dimensionStats?: {
-      memory: number;
-      attention: number;
-      reaction: number;
-      stability: number;
-      flexibility: number;
+  dimensionStats: {
+      memory: number;      // 记忆力
+      attention: number;   // 专注力
+      reaction: number;    // 反应速度
+      stability: number;   // 稳定性
+      flexibility: number; // 灵活性
   };
-
-  trainingHistory?: CognitiveTrainingRecord[]; // [NEW] 全病程训练记录
+  trainingHistory?: CognitiveTrainingRecord[];
 }
 
 // [NEW] 结构化病历记录 (OCR 提取结果)
@@ -161,12 +168,13 @@ export interface HeadacheProfile {
   lastUpdated: number;
 }
 
-// [NEW] 癫痫发作事件结构
+// [NEW] 癫痫发作事件结构 (Strict CRF Compliance)
 export interface SeizureEvent {
   id: string;
   timestamp: number;
   type: string; // '强直阵挛' | '失神' | '局灶'
-  duration: number; // 秒
+  durationCategory: '<1min' | '1-5min' | '5-15min' | '>30min'; // [CRF] 严格梯度
+  awareness: 'PRESERVED' | 'IMPAIRED' | 'UNKNOWN'; // [CRF] 意识状态
   triggers: string[]; // ['漏服药', '疲劳', ...]
   severity?: number; // 1-10
 }
@@ -272,7 +280,7 @@ export interface EpilepsyProfile {
   triggers: string[];  
   consciousness: boolean; 
   lastUpdated: number;
-  seizureHistory?: SeizureEvent[]; // [NEW] 临床级发作日记
+  seizureHistory?: SeizureEvent[];
   // [NEW] 挂载科研详细数据
   researchData?: EpilepsyResearchData;
   // [NEW] 随访基线日期 (V0 完成日)
@@ -297,16 +305,10 @@ export interface MedLog {
   timestamp: number;
   drugName: string;
   dosage: string;
-  
-  // [Medical Compliance] Migraine Fields
   painScale?: number; // NRS 1-10
-  concomitantSymptoms?: string[]; // e.g. ['nausea', 'photophobia']
-
-  // [Medical Compliance] Epilepsy Fields
-  seizureType?: string; // e.g. 'tonic-clonic', 'absence'
-  triggerFactors?: string[]; // e.g. ['missed_meds', 'stress']
-
-  // Generic/Legacy
+  concomitantSymptoms?: string[]; 
+  seizureType?: string; 
+  triggerFactors?: string[]; 
   painLevel?: number; 
   nature?: string[]; 
   symptoms?: string[]; 
@@ -317,23 +319,13 @@ export interface FamilyMember {
   name: string;
   relation: string; 
   avatar: string;
-  isElderly: boolean; // [NEW] 是否开启适老模式
+  isElderly: boolean; 
   headacheProfile?: HeadacheProfile;
   epilepsyProfile?: EpilepsyProfile;
   cognitiveProfile?: CognitiveProfile;
   iotStats?: IoTStats; 
   cognitiveStats?: CognitiveStats; 
   medicationLogs?: MedLog[];
-}
-
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'model' | 'system';
-  text: string;
-  isThinking?: boolean;
-  timestamp: number;
-  suggestedOptions?: string[]; 
-  isClinicalPush?: boolean; // [NEW] 标记是否为医助推送
 }
 
 // [NEW] 熔断审核报告
@@ -366,7 +358,7 @@ export interface HealthTrendItem {
 // [NEW] 量表测评草稿 (持久化中间态)
 export interface AssessmentDraft {
     diseaseType: DiseaseType;
-    answers: Record<string, any>; // [UPDATED] 放宽类型以支持复杂表单
+    answers: Record<string, any>; // [UPDATED] Relaxed type for complex forms
     currentStep: number;
     lastUpdated: number;
 }
@@ -417,6 +409,9 @@ export interface User {
 
   // [NEW] 临床通知收件箱 (Assistant Push)
   inbox?: ChatMessage[];
+  
+  // [NEW] 医嘱任务列表
+  medicalOrders?: MedicalOrder[];
 
   // 角色特定字段
   associatedPatientId?: string; // 家属角色：关联的患者ID
@@ -442,6 +437,16 @@ export interface ServicePackage {
   medicalValue: string; 
 }
 
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'model' | 'system';
+  text: string;
+  isThinking?: boolean;
+  timestamp: number;
+  suggestedOptions?: string[]; 
+  isClinicalPush?: boolean; // [NEW] 标记是否为医助推送
+}
+
 export interface Prescription {
   doctor: string;
   hospital: string;
@@ -459,7 +464,7 @@ export type AppView =
 // --- [NEW] Config Engine Types ---
 export interface FormFieldConfig {
     id: string;
-    type: 'text' | 'number' | 'choice' | 'multiselect' | 'date' | 'group' | 'info';
+    type: 'text' | 'number' | 'choice' | 'multiselect' | 'date' | 'group' | 'info' | 'file';
     label: string;
     options?: { label: string; value: any; exclusion?: boolean }[];
     visibleIf?: Record<string, any>; // Simple equality check: { "gender": "FEMALE" }
@@ -471,6 +476,7 @@ export interface FormFieldConfig {
     };
     suffix?: string; // e.g. "years", "mg"
     children?: FormFieldConfig[]; // For nested groups
+    hint?: string;
 }
 
 export interface FormSectionConfig {
