@@ -1,15 +1,52 @@
 
 import React, { useMemo, useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import Button from '../Button';
-import { useLBS } from '../../hooks/useLBS'; // [NEW] LBS Integration
+import Button from '../common/Button';
+import { useLBS } from '../../hooks/useLBS';
+import CryptoJS from 'crypto-js';
+import { DiseaseType, MedicationDetail } from '../../types';
 
 interface ReferralSystemProps {
   onClose: () => void;
 }
 
+// [NEW] Structure for Digital Living Medical Record
+interface ClinicalPassport {
+    ver: string;
+    timestamp: number;
+    patient: {
+        id: string;
+        initials: string;
+    };
+    environment: {
+        altitude: number;
+        pressure: number;
+        temp: number;
+    };
+    epilepsy_module: {
+        ilae_classification: string;
+        medication_load_mg: {
+            am: number;
+            noon: number;
+            pm: number;
+            total_daily: number;
+        };
+        mri_features: string[];
+    };
+    cognitive_module: {
+        cdr_narratives: {
+            informant_view: string;
+            subject_view: string;
+        };
+        tmt_b_score_sec: number;
+        avlt_h_recall_n5: number;
+    };
+    source_system: "WCH-Neuro-Link-CDSS";
+}
+
 export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
   const { state } = useApp();
+  const { user } = state;
   const diagnosis = state.lastDiagnosis;
   const referral = diagnosis?.referral;
   
@@ -19,26 +56,96 @@ export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
   // State for the generated encrypted code
   const [encryptedQRData, setEncryptedQRData] = useState<string>('');
 
-  // [COMPLIANCE] CDSS 规则校验：验证转诊理由是否符合华西规范
+  // [COMPLIANCE] CDSS Rule Validation
   const validationError = useMemo(() => {
     if (!diagnosis?.reason) return "缺失诊断理由";
     const reason = diagnosis.reason;
-    // Allow more flexible reasoning, especially coming from AssessmentView
     if (reason.length < 5) return "临床指征描述不足"; 
     return null; 
   }, [diagnosis]);
 
-  // Load Encrypted Data from Referral Object
-  useEffect(() => {
-      if (!validationError && referral?.qrCodeValue) {
-          setEncryptedQRData(referral.qrCodeValue);
-      }
-  }, [referral, validationError]);
+  // [CORE LOGIC] Generate Clinical Passport Data
+  // This aggregates data from multiple sources (Profile, IoT, Draft Answers) to create a "Live Record"
+  const clinicalPassportPayload = useMemo(() => {
+      // 1. Base Data Sources
+      const epiProfile = user.epilepsyProfile;
+      const cogStats = user.cognitiveStats;
+      const draftAnswers = state.assessmentDraft?.answers || {};
+      const researchData = epiProfile?.researchData;
 
-  // 如果没有转诊数据，返回空
+      // 2. Epilepsy Module Logic
+      // Calculate total daily dosage from active medications
+      let medLoad = { am: 0, noon: 0, pm: 0, total_daily: 0 };
+      if (researchData?.medicationHistory) {
+          researchData.medicationHistory.forEach((med: MedicationDetail) => {
+              if (med.isCurrent) {
+                  medLoad.am += med.dosage.am || 0;
+                  medLoad.noon += med.dosage.noon || 0;
+                  medLoad.pm += med.dosage.pm || 0;
+              }
+          });
+          medLoad.total_daily = medLoad.am + medLoad.noon + medLoad.pm;
+      }
+      
+      // Extract MRI tags (from draft or profile)
+      const mriTags = (draftAnswers['mri_lesion_nature'] as string[]) || [];
+
+      // 3. Cognitive Module Logic
+      // TMT-B Score (Attention Game)
+      const tmtbRecord = cogStats?.trainingHistory?.find(r => r.gameType === 'attention' && r.id.includes('tmtb'));
+      const tmtbTime = tmtbRecord ? tmtbRecord.durationSeconds : 0;
+
+      // AVLT N5 Recall (from draft)
+      const avltN5 = typeof draftAnswers['avlt_n5_score'] === 'number' ? draftAnswers['avlt_n5_score'] : -1;
+
+      // 4. Construct Passport
+      const passport: ClinicalPassport = {
+          ver: "2.0",
+          timestamp: Date.now(),
+          patient: {
+              id: user.id,
+              initials: (draftAnswers['subject_initials'] as string) || "**"
+          },
+          environment: {
+              altitude: (researchData?.demographics?.altitude) || 500, // Default to Chengdu plain
+              pressure: (draftAnswers['barometric_pressure'] as number) || 1000,
+              temp: (draftAnswers['temp_c'] as number) || 20
+          },
+          epilepsy_module: {
+              ilae_classification: (researchData?.seizureDetails?.seizureType) || (draftAnswers['seizure_classification'] as string) || "UNKNOWN",
+              medication_load_mg: medLoad,
+              mri_features: mriTags
+          },
+          cognitive_module: {
+              cdr_narratives: {
+                  informant_view: (draftAnswers['inf_mem_validation_week'] as string) || "未采集",
+                  subject_view: (draftAnswers['sub_mem_verify_week'] as string) || "未采集"
+              },
+              tmt_b_score_sec: tmtbTime,
+              avlt_h_recall_n5: avltN5
+          },
+          source_system: "WCH-Neuro-Link-CDSS"
+      };
+
+      return passport;
+  }, [user, state.assessmentDraft]);
+
+  // [CORE LOGIC] AES-256 Encryption
+  useEffect(() => {
+      if (!validationError && clinicalPassportPayload) {
+          try {
+              const jsonStr = JSON.stringify(clinicalPassportPayload);
+              const encrypted = CryptoJS.AES.encrypt(jsonStr, "WCH-NEURO-LINK-2026").toString();
+              setEncryptedQRData(encrypted);
+          } catch (e) {
+              console.error("Encryption failed", e);
+              setEncryptedQRData("ERROR_GENERATING_PASSPORT");
+          }
+      }
+  }, [clinicalPassportPayload, validationError]);
+
   if (!referral) return null;
 
-  // 如果校验失败，显示阻断弹窗
   if (validationError) {
       return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center px-6">
@@ -92,7 +199,7 @@ export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
     );
   };
 
-  // [NEW] Determine Hospital Info: Use LBS if Risk > 70, else use Referral default
+  // Determine Hospital Info
   const isHighRisk = state.riskScore > 70;
   const hospitalName = isHighRisk && !lbsData.loading ? lbsData.hospitalName : referral.hospitalName;
   const hospitalAddr = isHighRisk && !lbsData.loading ? lbsData.address : referral.address;
@@ -111,7 +218,7 @@ export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
             
             {/* Header Area */}
             <div className="bg-slate-900 text-white p-6 pt-8 rounded-t-[24px] relative overflow-hidden shrink-0">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500 rounded-full blur-[60px] opacity-40 -translate-y-10 translate-x-10"></div>
+                <div className="absolute top-0 right-0 w-32 h-32 bg-brand-50 rounded-full blur-[60px] opacity-40 -translate-y-10 translate-x-10"></div>
                 <div className="relative z-10">
                     <div className="flex justify-between items-center mb-2">
                         <span className="text-[9px] bg-white/10 px-2 py-0.5 rounded font-mono uppercase tracking-widest text-slate-300 flex items-center gap-1">
@@ -119,8 +226,8 @@ export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
                         </span>
                         <span className="text-[9px] font-bold text-brand-400">优先接诊通道</span>
                     </div>
-                    <h3 className="text-xl font-black mb-1 tracking-tight">华西医联体转诊通行证</h3>
-                    <p className="text-[10px] text-slate-400 font-medium">请于线下就诊时出示此码，扫码解密查看完整病历</p>
+                    <h3 className="text-xl font-black mb-1 tracking-tight">数字活病历通行证</h3>
+                    <p className="text-[10px] text-slate-400 font-medium">医师端扫码后可自动同步全病程结构化病历</p>
                 </div>
             </div>
 
@@ -130,7 +237,7 @@ export const ReferralSystem: React.FC<ReferralSystemProps> = ({ onClose }) => {
                 {/* QR Code Container */}
                 <div className="bg-white p-4 mx-auto rounded-2xl w-56 h-56 mb-6 shadow-sm border border-slate-100 flex flex-col items-center relative">
                     <div className="w-48 h-48 bg-slate-50 rounded-lg mb-2 overflow-hidden">
-                        {encryptedQRData ? renderDataMatrix(encryptedQRData) : <div className="flex items-center justify-center h-full text-[10px] animate-pulse">正在加密打包数据...</div>}
+                        {encryptedQRData ? renderDataMatrix(encryptedQRData) : <div className="flex items-center justify-center h-full text-[10px] animate-pulse">正在打包结构化数据...</div>}
                     </div>
                     <div className="text-[9px] text-slate-300 font-mono tracking-widest uppercase mt-1 w-full truncate px-2">
                         KEY: WCH-NEURO-LINK-2026

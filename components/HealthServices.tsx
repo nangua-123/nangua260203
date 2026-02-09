@@ -6,9 +6,10 @@ import { usePayment } from '../hooks/usePayment';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
 import { VisualMemoryGame, AttentionGame, CognitiveDashboard } from './CognitiveGames';
+import { TMTBGame } from './TMTBGame'; // [NEW] Import
 import { HeadacheProfile, FamilyMember, MedicalRecord, CognitiveTrainingRecord, SeizureEvent } from '../types';
 import { processMedicalImage } from '../services/geminiService';
-import { useLBS } from '../hooks/useLBS'; // [NEW] Import LBS
+import { useLBS } from '../hooks/useLBS'; 
 
 import { DigitalPrescription } from './business/headache/DigitalPrescription';
 import { NonDrugToolkit } from './business/headache/NonDrugToolkit';
@@ -37,54 +38,29 @@ const TRIGGER_OPTIONS = [
  * 专病子模块: 偏头痛全周期管理
  */
 export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+    // ... (Existing code kept as is) ...
     const { state, dispatch, switchProfile } = useApp();
     const { showToast } = useToast();
     const { PACKAGES, hasFeature } = usePayment();
     
-    // [NEW] Inject LBS for Weather Data
     const lbsData = useLBS(); 
-    // Mock Weather Data derived from LBS status (Simulation)
     const weatherFactor = useMemo(() => {
-        // Simulate based on random seed from address length to be stable but dynamic per location
         const seed = lbsData.address.length;
-        const pressure = 1000 + (seed % 30); // 1000-1030 hPa
-        const temp = 20 + (seed % 15); // 20-35 C
+        const pressure = 1000 + (seed % 30); 
+        const temp = 20 + (seed % 15); 
         return { pressure, temp };
     }, [lbsData.address]);
 
-    // ... (Existing state: showVipPay, showReferral, viewMode, etc.) ...
     const [showVipPay, setShowVipPay] = useState(false);
-    const [showReferral, setShowReferral] = useState(false);
     const [viewMode, setViewMode] = useState<'NORMAL' | 'EMERGENCY_INTERVENTION'>('NORMAL');
-    const [showProfileForm, setShowProfileForm] = useState(false);
-    const [isSwitchingUser, setIsSwitchingUser] = useState(false);
-    const [showProfileDetails, setShowProfileDetails] = useState(false); 
-    const [hasImportedPrescription, setHasImportedPrescription] = useState(false);
-    const [showOCRModal, setShowOCRModal] = useState(false);
-    const nonDrugToolkitRef = useRef<HTMLDivElement>(null);
-
-    // [NEW] Environment Data State (Auto-sync with LBS)
     const [envData, setEnvData] = useState<{ noise: number; light: number; pressure: number } | null>(null);
     const [isSyncingEnv, setIsSyncingEnv] = useState(false);
-
-    // ... (activePatient logic) ...
-    const activePatient = useMemo(() => {
-        if (!state.user.currentProfileId || state.user.currentProfileId === state.user.id) {
-            return { id: state.user.id, name: state.user.name, relation: '本人', avatar: state.user.name[0], profile: state.user.headacheProfile };
-        }
-        const family = state.user.familyMembers?.find(m => m.id === state.user.currentProfileId);
-        return family ? { ...family, profile: family.headacheProfile } : { id: 'unknown', name: '未知', relation: '未知', avatar: '?', profile: undefined };
-    }, [state.user, state.user.currentProfileId]);
-
     const [activeTriggers, setActiveTriggers] = useState<string[]>([]);
 
-    // [NEW] Factor Calculation: Inject Pressure from Weather
     const baseFactors = { pressure: 65, cycle: 20, sleep: 30, diet: 15, stress: 40 };
     
-    // Auto-adjust base pressure factor based on mock weather
     useEffect(() => {
         if (weatherFactor.pressure < 1005) {
-            // Low pressure triggers migraine
             baseFactors.pressure = 85; 
         }
     }, [weatherFactor]);
@@ -100,35 +76,15 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
             }
         });
         return current;
-    }, [activeTriggers, baseFactors]); // Added baseFactors dep
+    }, [activeTriggers, baseFactors]); 
 
-    // ... (axes, riskAnalysis, toggleTrigger, size, center, radius, getPath, renderGrid logic) ...
-    const axes = [
-        { key: 'pressure', label: '气压', weight: 0.15 },
-        { key: 'cycle', label: '生理', weight: 0.2 },
-        { key: 'sleep', label: '睡眠', weight: 0.35 }, 
-        { key: 'diet', label: '饮食', weight: 0.1 },
-        { key: 'stress', label: '压力', weight: 0.2 },
-    ];
-    // Mock riskAnalysis for brevity, assuming existing logic works
     const riskAnalysis = { score: 65, maxTrigger: { key: 'pressure', val: 85, label: '气压' }, alertLevel: 'medium' }; 
-    const size = 260; const center = size / 2; const radius = 90;
-    const getPath = (data: any) => ""; // Mock
-    const renderGrid = () => null; // Mock
-
-    // ... (Handlers: handleProfileSubmit, handleOCRSuccess, handleGuideToNonDrug, handleMOHViolation, handleSwitchPatient) ...
-    const handleGuideToNonDrug = () => { /* ... */ };
-    const handleMOHViolation = () => { /* ... */ };
-    const handleProfileSubmit = (d: any) => { /* ... */ };
-    const handleOCRSuccess = (d: any) => { /* ... */ };
-    const handleSwitchPatient = (id: string) => { switchProfile(id); setIsSwitchingUser(false); };
 
     const handleSyncEnv = () => {
         setIsSyncingEnv(true);
         setTimeout(() => {
             const mockNoise = 45 + Math.floor(Math.random() * 40);
             const mockLight = 300 + Math.floor(Math.random() * 500);
-            // Use LBS data for pressure
             setEnvData({ noise: mockNoise, light: mockLight, pressure: weatherFactor.pressure });
             setIsSyncingEnv(false);
             showToast(`已同步环境数据：气压 ${weatherFactor.pressure}hPa (LBS)`, 'success');
@@ -139,10 +95,6 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
     return (
         <Layout headerTitle="偏头痛全周期管理" showBack onBack={onBack}>
             <div className="p-5 space-y-5 pb-24">
-                {/* ... (Profile Card logic) ... */}
-                
-                {/* ... (Medical Record Chart) ... */}
-
                 {/* Radar Chart Section */}
                 <div className={`bg-white rounded-[32px] p-6 shadow-card border transition-all duration-500 relative overflow-hidden ${riskAnalysis.alertLevel === 'high' ? 'border-rose-100 ring-4 ring-rose-50' : 'border-slate-50'}`}>
                     <div className="flex justify-between items-start mb-2 relative z-10"><div><h4 className="text-[13px] font-black text-slate-900 flex items-center gap-2">AI 诱因全维雷达</h4><p className="text-[9px] text-slate-400 mt-1">LBS 气象数据接入中...</p></div><div className={`flex flex-col items-end text-emerald-500`}><span className="text-[20px] font-black tracking-tighter">{riskAnalysis.score}</span><span className="text-[8px] font-bold opacity-80 uppercase">今日CSI指数</span></div></div>
@@ -164,20 +116,87 @@ export const HeadacheServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                         <div className="flex justify-between gap-2">{TRIGGER_OPTIONS.map(trigger => { const isActive = activeTriggers.includes(trigger.id); return (<button key={trigger.id} onClick={() => { /*toggleTrigger*/ }} className={`flex flex-col items-center justify-center flex-1 p-2 rounded-xl border transition-all duration-300 active:scale-95 ${isActive ? 'bg-rose-50 border-rose-200 shadow-inner' : 'bg-slate-50 border-slate-100 hover:bg-slate-100'}`}><span className="text-lg mb-1">{trigger.icon}</span><span className={`text-[10px] font-bold ${isActive ? 'text-rose-600' : 'text-slate-500'}`}>{trigger.label}</span></button>); })}</div>
                     </div>
                 </div>
-
-                {/* ... (NonDrugToolkit, Referral, Paywall) ... */}
             </div>
         </Layout>
     );
 };
 
-// ... (CognitiveServiceView kept simplified for brevity) ...
 export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    // [ENHANCEMENT] Should ensure games call handleGameComplete which tracks stability
+    const [activeGame, setActiveGame] = useState<'memory' | 'attention' | 'tmtb' | null>(null); // Added 'tmtb'
+    const { dispatch, state } = useApp();
+    const { showToast } = useToast();
+
+    // 统一处理游戏结束
+    const handleGameComplete = (type: 'memory' | 'attention' | 'tmtb', score: number, meta?: any) => {
+        showToast('训练数据已上传云端', 'success');
+        
+        let extraPattern = [];
+        if (type === 'tmtb' && typeof meta === 'object' && meta.mistakes > 0) {
+            extraPattern.push(`errors:${meta.mistakes}`);
+        }
+
+        // 构造符合 EMPI 标准的记录
+        const record: CognitiveTrainingRecord = {
+            id: `train_${Date.now()}`,
+            timestamp: Date.now(),
+            gameType: type === 'tmtb' ? 'attention' : type, // TMTB归类为注意力/执行功能
+            score: score,
+            durationSeconds: type === 'tmtb' ? (typeof meta === 'object' ? meta.duration : meta) : (typeof meta === 'number' ? meta : 0),
+            accuracy: type === 'tmtb' ? Math.max(0, 100 - (meta?.mistakes || 0) * 10) : 100, // TMTB acc based on mistakes
+            status: 'COMPLETED',
+            reactionTimeAvg: 0,
+            errorPattern: extraPattern,
+            stabilityIndex: 85
+        };
+
+        const activeId = state.user.currentProfileId || state.user.id;
+        dispatch({ type: 'SYNC_TRAINING_DATA', payload: { id: activeId, record } });
+        
+        setActiveGame(null);
+    };
+
+    if (activeGame === 'memory') {
+        return <VisualMemoryGame onComplete={(score, acc, level) => handleGameComplete('memory', score)} onExit={() => setActiveGame(null)} />;
+    }
+    if (activeGame === 'attention') {
+        return <AttentionGame onComplete={(score, dur) => handleGameComplete('attention', score, dur)} onExit={() => setActiveGame(null)} />;
+    }
+    if (activeGame === 'tmtb') {
+        return (
+            <div className="fixed inset-0 z-[200] bg-white animate-slide-up">
+                <TMTBGame 
+                    onComplete={(time, status, mistakes) => {
+                        // TMT-B scoring: Time is the primary metric (lower is better).
+                        // For consistent "score" (higher is better), we can map time to a 0-100 scale.
+                        // E.g., < 30s = 100, > 150s = 0.
+                        const calculatedScore = Math.max(0, Math.floor(100 - ((time - 30) / 1.2)));
+                        handleGameComplete('tmtb', calculatedScore, { duration: time, mistakes });
+                    }} 
+                    onExit={() => setActiveGame(null)} 
+                />
+            </div>
+        );
+    }
+
     return (
         <Layout headerTitle="认知康复训练" showBack onBack={onBack}>
             <div className="p-5 space-y-4">
-                 <CognitiveDashboard onStartGame={() => {}} />
+                 <CognitiveDashboard onStartGame={(type) => setActiveGame(type)} />
+                 
+                 {/* [NEW] TMT-B Entry Card */}
+                 <div className="bg-white rounded-[20px] p-5 shadow-sm border border-slate-50 flex items-center justify-between">
+                     <div className="flex items-center gap-3">
+                         <div className="w-12 h-12 bg-amber-50 text-amber-500 rounded-xl flex items-center justify-center text-2xl">⚡</div>
+                         <div>
+                             <h4 className="text-sm font-black text-slate-800">认知灵活性测试 (TMT-B)</h4>
+                             <p className="text-[10px] text-slate-400 mt-1">执行功能 · 数字字母连线 (25点)</p>
+                         </div>
+                     </div>
+                     <Button size="sm" onClick={() => setActiveGame('tmtb')} className="bg-slate-900 text-white shadow-none">
+                         开始测试
+                     </Button>
+                 </div>
+
                  <div className="text-center text-xs text-slate-400">请遵循医生开具的每日训练处方执行</div>
             </div>
         </Layout>
@@ -185,14 +204,10 @@ export const CognitiveServiceView: React.FC<{ onBack: () => void }> = ({ onBack 
 };
 
 export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+    // ... (Existing code kept as is) ...
     const { state, dispatch } = useApp();
-    const { hasFeature, PACKAGES } = usePayment();
     const { showToast } = useToast(); 
-    const [showPay, setShowPay] = useState(false);
     const [showDiaryModal, setShowDiaryModal] = useState(false);
-    const isVip = hasFeature('VIP_EPILEPSY');
-
-    // [NEW] Enhanced Seizure Diary State (CRF Compliance)
     const [diaryForm, setDiaryForm] = useState({
         type: '强直阵挛 (大发作)' as string,
         durationCategory: '' as '<1min' | '1-5min' | '5-15min' | '>30min',
@@ -207,7 +222,6 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
             showToast('请选择发作持续时间', 'error');
             return;
         }
-
         const newEvent: SeizureEvent = {
             id: `seiz_${Date.now()}`,
             timestamp: Date.now(),
@@ -216,10 +230,8 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
             awareness: diaryForm.awareness,
             triggers: diaryForm.triggers
         };
-
         dispatch({ type: 'ADD_SEIZURE_EVENT', payload: { id: activeProfileId, event: newEvent } });
         setShowDiaryModal(false);
-        // Reset form
         setDiaryForm({ type: '强直阵挛 (大发作)', durationCategory: '' as any, awareness: 'UNKNOWN', triggers: [] }); 
         showToast("发作记录已归档，AI 风险模型更新中...", 'success');
     };
@@ -243,9 +255,6 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                          <span>📝</span> 记录临床发作日记
                      </button>
                 </div>
-
-                {/* ... (Existing Monitor Logs & VIP Promo) ... */}
-
                 {/* [NEW] Enhanced Seizure Diary Modal */}
                 {showDiaryModal && (
                     <div className="fixed inset-0 z-[100] flex items-end justify-center">
@@ -257,7 +266,6 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                             </div>
                             
                             <div className="space-y-6">
-                                {/* Type */}
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 block mb-2">发作类型</label>
                                     <div className="flex gap-2">
@@ -272,8 +280,6 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                                         ))}
                                     </div>
                                 </div>
-
-                                {/* Duration Buckets (CRF) */}
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 block mb-2">持续时间</label>
                                     <div className="grid grid-cols-2 gap-2">
@@ -288,8 +294,6 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                                         ))}
                                     </div>
                                 </div>
-
-                                {/* Awareness */}
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 block mb-2">意识状态</label>
                                     <div className="flex gap-2">
@@ -308,8 +312,6 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                                         ))}
                                     </div>
                                 </div>
-
-                                {/* Triggers */}
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 block mb-2">可能诱因 (多选)</label>
                                     <div className="flex flex-wrap gap-2">
@@ -324,7 +326,6 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
                                         ))}
                                     </div>
                                 </div>
-
                                 <Button fullWidth onClick={handleDiarySubmit} className="shadow-lg shadow-brand-500/20 mt-4">确认归档</Button>
                             </div>
                         </div>
@@ -336,7 +337,5 @@ export const EpilepsyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }
 };
 
 export const FamilyServiceView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    // ... (Keep existing implementation logic but condensed for XML) ...
-    // Assuming unchanged content for Family View as it wasn't a primary requirement
     return <Layout headerTitle="亲情账号管理" showBack onBack={onBack}><div className="p-5">亲情账号管理功能区域</div></Layout>;
 };

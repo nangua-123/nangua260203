@@ -17,16 +17,19 @@ import { useApp } from './context/AppContext';
 import { ToastProvider } from './context/ToastContext'; // [NEW]
 import { useIoTSimulation } from './hooks/useIoTSimulation';
 import { GlobalSOS } from './components/GlobalSOS';
+import Button from './components/common/Button'; // Needed for Notification Overlay
 
 const AppContent: React.FC = () => {
   const { state, dispatch } = useApp();
   const [currentView, setCurrentView] = useState<AppView>('home');
-  // [REMOVED] const [assessmentType, setAssessmentType] = useState<DiseaseType>(DiseaseType.MIGRAINE);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  
+  // [NEW] Cognitive Task Notification State
+  const [pendingCognitiveTask, setPendingCognitiveTask] = useState<'N4' | 'N5' | null>(null);
 
   useIoTSimulation();
 
-  // [Elderly Mode] Toggle global class for CSS variables
+  // [Elderly Mode] Toggle global class
   useEffect(() => {
     if (state.user.isElderlyMode) {
       document.documentElement.classList.add('elderly-mode');
@@ -35,6 +38,7 @@ const AppContent: React.FC = () => {
     }
   }, [state.user.isElderlyMode]);
 
+  // Online Check
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -45,6 +49,45 @@ const AppContent: React.FC = () => {
         window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // [NEW] Global Cognitive Timer (AVLT-H Suspension Watchdog)
+  useEffect(() => {
+      const checkDraft = () => {
+          const draft = state.assessmentDraft;
+          // Only proceed if cognitive draft exists
+          if (!draft || draft.diseaseType !== DiseaseType.COGNITIVE || !draft.answers['avlt_n3_timestamp']) {
+              return;
+          }
+
+          const t0 = draft.answers['avlt_n3_timestamp'];
+          const now = Date.now();
+          const n4Target = t0 + 5 * 60 * 1000;
+          const n5Target = t0 + 20 * 60 * 1000;
+          const n4Done = draft.answers['avlt_n4_score'] !== undefined;
+          const n5Done = draft.answers['avlt_n5_score'] !== undefined;
+
+          // Check deadlines. Tolerance of +30 seconds so it triggers once reached.
+          // Logic: If past target AND not done => Alert.
+          let newTask: 'N4' | 'N5' | null = null;
+
+          if (!n4Done && now >= n4Target) {
+              newTask = 'N4';
+          } else if (n4Done && !n5Done && now >= n5Target) {
+              newTask = 'N5';
+          }
+
+          // Only trigger if not already on assessment view
+          if (newTask && currentView !== 'assessment') {
+              setPendingCognitiveTask(newTask);
+          } else if (currentView === 'assessment') {
+              // If user manually went back, clear alert
+              setPendingCognitiveTask(null);
+          }
+      };
+
+      const interval = setInterval(checkDraft, 3000); // Check every 3s
+      return () => clearInterval(interval);
+  }, [state.assessmentDraft, currentView]);
 
   const handleNavigate = (view: AppView) => {
     setCurrentView(view);
@@ -62,15 +105,13 @@ const AppContent: React.FC = () => {
     return () => window.removeEventListener('navigate-to', handleDeepLink);
   }, []);
 
+  // Handlers
   const handleTriageComplete = (summary: any) => {
     dispatch({ type: 'SET_RISK_SCORE', payload: { score: summary.risk || 85, type: DiseaseType.MIGRAINE } });
-    // setAssessmentType(DiseaseType.MIGRAINE); // Removed
     handleNavigate('report');
   };
 
-  const handleIntervention = () => {
-    handleNavigate('home');
-  };
+  const handleIntervention = () => handleNavigate('home');
 
   const handleAssetSync = () => {
     dispatch({ type: 'UNLOCK_FEATURE', payload: 'VIP_EPILEPSY' }); 
@@ -79,9 +120,13 @@ const AppContent: React.FC = () => {
   };
 
   const handleScoreUpdate = (score: number) => {
-      // Use state.primaryCondition as the disease type since we are in assessment flow
       dispatch({ type: 'SET_RISK_SCORE', payload: { score, type: state.primaryCondition } });
       handleNavigate('report');
+  };
+
+  const resumeAssessment = () => {
+      setPendingCognitiveTask(null);
+      handleNavigate('assessment');
   };
 
   if (!state.isLoggedIn) {
@@ -92,8 +137,6 @@ const AppContent: React.FC = () => {
       );
   }
 
-  // [SECURITY] 档案切换原子锁 (Physical Isolation)
-  // 当处于切换状态时，强制卸载所有业务视图，显示安全隔离屏
   if (state.isSwitching) {
       return (
           <div className="font-sans antialiased text-slate-900 bg-slate-50 min-h-screen max-w-[430px] mx-auto shadow-2xl flex flex-col items-center justify-center z-[99999] relative">
@@ -106,45 +149,19 @@ const AppContent: React.FC = () => {
 
   const renderContent = () => {
     switch (currentView) {
-      case 'home':
-        return <HomeView 
-                  user={state.user} 
-                  riskScore={state.riskScore}
-                  hasDevice={state.user.hasHardware}
-                  onNavigate={handleNavigate} 
-                  primaryCondition={state.primaryCondition} 
-               />;
-      case 'chat':
-        return <ChatView onBack={() => handleNavigate('home')} onPaymentGate={handleTriageComplete} />;
-      case 'profile':
-        return <ProfileView 
-                  user={state.user} 
-                  hasDevice={state.user.hasHardware} 
-                  onNavigate={handleNavigate} 
-                  onClearCache={() => { dispatch({type: 'CLEAR_CACHE'}); window.location.reload(); }}
-                  onToggleElderly={() => dispatch({type: 'TOGGLE_ELDERLY_MODE'})}
-               />;
-      case 'assessment':
-        return <div className="animate-slide-up"><AssessmentView type={state.primaryCondition} onComplete={handleScoreUpdate} onBack={() => handleNavigate('home')} /></div>;
-      case 'report':
-        return <div className="animate-slide-up"><ReportView score={state.riskScore} diseaseType={state.primaryCondition} onBackToHome={() => handleNavigate('home')} onIntervention={handleIntervention} /></div>;
-      case 'service-headache':
-        return <div className="animate-slide-up"><HeadacheServiceView onBack={() => handleNavigate('home')} /></div>;
-      case 'service-cognitive':
-        return <div className="animate-slide-up"><CognitiveServiceView onBack={() => handleNavigate('home')} /></div>;
-      case 'service-epilepsy':
-        return <div className="animate-slide-up"><EpilepsyServiceView onBack={() => handleNavigate('home')} /></div>;
-      case 'service-family':
-        return <div className="animate-slide-up"><FamilyServiceView onBack={() => handleNavigate('profile')} /></div>;
-      case 'service-mall':
-      case 'payment':
-        return <div className="animate-slide-up"><ServiceMallView onNavigate={handleNavigate} onBack={() => handleNavigate('home')} /></div>;
-      case 'haas-checkout':
-        return <div className="animate-slide-up"><HaaSRentalView onBack={() => handleNavigate('home')} onComplete={handleAssetSync} /></div>;
-      case 'privacy-settings': 
-        return <div className="animate-slide-up"><PrivacyPanel onBack={() => handleNavigate('profile')} /></div>;
-      default:
-        return <HomeView user={state.user} riskScore={state.riskScore} hasDevice={state.user.hasHardware} onNavigate={handleNavigate} primaryCondition={state.primaryCondition} />;
+      case 'home': return <HomeView user={state.user} riskScore={state.riskScore} hasDevice={state.user.hasHardware} onNavigate={handleNavigate} primaryCondition={state.primaryCondition} />;
+      case 'chat': return <ChatView onBack={() => handleNavigate('home')} onPaymentGate={handleTriageComplete} />;
+      case 'profile': return <ProfileView user={state.user} hasDevice={state.user.hasHardware} onNavigate={handleNavigate} onClearCache={() => { dispatch({type: 'CLEAR_CACHE'}); window.location.reload(); }} onToggleElderly={() => dispatch({type: 'TOGGLE_ELDERLY_MODE'})} />;
+      case 'assessment': return <div className="animate-slide-up"><AssessmentView type={state.primaryCondition} onComplete={handleScoreUpdate} onBack={() => handleNavigate('home')} /></div>;
+      case 'report': return <div className="animate-slide-up"><ReportView score={state.riskScore} diseaseType={state.primaryCondition} onBackToHome={() => handleNavigate('home')} onIntervention={handleIntervention} /></div>;
+      case 'service-headache': return <div className="animate-slide-up"><HeadacheServiceView onBack={() => handleNavigate('home')} /></div>;
+      case 'service-cognitive': return <div className="animate-slide-up"><CognitiveServiceView onBack={() => handleNavigate('home')} /></div>;
+      case 'service-epilepsy': return <div className="animate-slide-up"><EpilepsyServiceView onBack={() => handleNavigate('home')} /></div>;
+      case 'service-family': return <div className="animate-slide-up"><FamilyServiceView onBack={() => handleNavigate('profile')} /></div>;
+      case 'service-mall': case 'payment': return <div className="animate-slide-up"><ServiceMallView onNavigate={handleNavigate} onBack={() => handleNavigate('home')} /></div>;
+      case 'haas-checkout': return <div className="animate-slide-up"><HaaSRentalView onBack={() => handleNavigate('home')} onComplete={handleAssetSync} /></div>;
+      case 'privacy-settings': return <div className="animate-slide-up"><PrivacyPanel onBack={() => handleNavigate('profile')} /></div>;
+      default: return <HomeView user={state.user} riskScore={state.riskScore} hasDevice={state.user.hasHardware} onNavigate={handleNavigate} primaryCondition={state.primaryCondition} />;
     }
   };
 
@@ -160,6 +177,23 @@ const AppContent: React.FC = () => {
        )}
        
        <GlobalSOS />
+
+       {/* [NEW] Cognitive Task Force Overlay */}
+       {pendingCognitiveTask && (
+           <div className="fixed inset-0 z-[100] bg-slate-900/95 backdrop-blur-md flex flex-col items-center justify-center p-8 animate-fade-in text-center">
+               <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center text-5xl mb-6 shadow-2xl animate-bounce">
+                   ⏰
+               </div>
+               <h2 className="text-2xl font-black text-white mb-2">记忆回忆测试已就绪</h2>
+               <p className="text-sm text-slate-300 mb-10 leading-relaxed">
+                   距离您上次学习已过去 {pendingCognitiveTask === 'N4' ? '5' : '20'} 分钟。<br/>
+                   为了保证评估准确性，请立即进行 <span className="text-white font-bold">{pendingCognitiveTask === 'N4' ? '短延迟' : '长延迟'}回忆</span>。
+               </p>
+               <Button fullWidth onClick={resumeAssessment} className="bg-[#1677FF] shadow-lg shadow-blue-500/40 py-4 h-14 text-lg">
+                   立即开始 (N{pendingCognitiveTask === 'N4' ? '4' : '5'})
+               </Button>
+           </div>
+       )}
 
        {renderContent()}
        
