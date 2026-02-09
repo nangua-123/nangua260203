@@ -29,16 +29,16 @@ export const HardwareStatus: React.FC<HardwareStatusProps> = ({ info, onRenew })
                         <div>
                             <h3 className="text-sm font-black text-slate-800">{info.modelName}</h3>
                             <div className="flex items-center gap-2 mt-1">
-                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold flex items-center gap-1 ${info.status === 'ONLINE' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                                <span className={`text-[0.6rem] px-1.5 py-0.5 rounded font-bold flex items-center gap-1 ${info.status === 'ONLINE' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
                                     <span className={`w-1.5 h-1.5 rounded-full ${info.status === 'ONLINE' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
                                     {info.status === 'ONLINE' ? '监测中' : '离线'}
                                 </span>
-                                <span className="text-[9px] text-slate-400 font-mono">ID: {info.deviceId}</span>
+                                <span className="text-[0.6rem] text-slate-400 font-mono">ID: {info.deviceId}</span>
                             </div>
                         </div>
                     </div>
                     {isExpiring && (
-                        <span className="bg-red-50 text-red-600 text-[9px] px-2 py-1 rounded font-bold border border-red-100 animate-pulse">
+                        <span className="bg-red-50 text-red-600 text-[0.6rem] px-2 py-1 rounded font-bold border border-red-100 animate-pulse">
                             即将到期
                         </span>
                     )}
@@ -46,7 +46,7 @@ export const HardwareStatus: React.FC<HardwareStatusProps> = ({ info, onRenew })
 
                 {/* Battery Bar */}
                 <div className="mb-4">
-                    <div className="flex justify-between text-[10px] mb-1 font-bold">
+                    <div className="flex justify-between text-[0.65rem] mb-1 font-bold">
                         <span className="text-slate-400">剩余电量</span>
                         <span className={isBatteryLow ? 'text-red-500' : 'text-emerald-500'}>{info.batteryLevel}%</span>
                     </div>
@@ -56,18 +56,18 @@ export const HardwareStatus: React.FC<HardwareStatusProps> = ({ info, onRenew })
                             style={{ width: `${info.batteryLevel}%` }}
                         ></div>
                     </div>
-                    {isBatteryLow && <p className="text-[9px] text-red-400 mt-1">请尽快充电，以免监测中断</p>}
+                    {isBatteryLow && <p className="text-[0.6rem] text-red-400 mt-1">请尽快充电，以免监测中断</p>}
                 </div>
 
                 {/* Subscription Info */}
                 <div className="bg-slate-50 rounded-xl p-3 flex justify-between items-center border border-slate-100">
                     <div>
-                        <div className="text-[10px] text-slate-400 font-bold mb-0.5">租赁有效期</div>
+                        <div className="text-[0.65rem] text-slate-400 font-bold mb-0.5">租赁有效期</div>
                         <div className={`text-xs font-black font-mono ${isExpiring ? 'text-red-600' : 'text-slate-700'}`}>
                             剩余 {daysLeft > 0 ? daysLeft : 0} 天 ({new Date(info.rentalExpireDate).toLocaleDateString()})
                         </div>
                     </div>
-                    <Button size="sm" onClick={onRenew} className={`${isExpiring ? 'bg-red-500 shadow-red-500/30' : 'bg-blue-600'} h-8 px-4 text-[10px]`}>
+                    <Button size="sm" onClick={onRenew} className={`${isExpiring ? 'bg-red-500 shadow-red-500/30' : 'bg-blue-600'} h-8 px-4 text-[0.65rem]`}>
                         {isExpiring ? '立即续费' : '延长租期'}
                     </Button>
                 </div>
