@@ -6,7 +6,7 @@ import {
     DoctorAssistantProof, MedLog, MedicalRecord, CognitiveTrainingRecord, 
     HealthTrendItem, ReviewReport, ChatMessage, SeizureEvent, EpilepsyProfile, 
     AssessmentDraft, PatientProcessStatus, DeviceInfo, FollowUpSession, FollowUpStatus,
-    MedicalOrder
+    MedicalOrder, EpilepsyResearchData
 } from '../types';
 
 // ... (Security Utils remain same) ...
@@ -14,15 +14,90 @@ const encryptData = (data: any) => data;
 const clearSessionCache = () => { /* ... */ };
 
 // --- Initial State & Constants ---
-const INITIAL_COGNITIVE_STATS: CognitiveStats = { /* ... */ } as any;
-const MOCK_DEVICE_INFO: DeviceInfo = { /* ... */ } as any;
+const INITIAL_COGNITIVE_STATS: CognitiveStats = {
+    totalSessions: 12,
+    todaySessions: 1,
+    todayDuration: 15,
+    totalDuration: 320,
+    lastScore: 78,
+    aiRating: 'B+',
+    lastUpdated: Date.now(),
+    dimensionStats: { memory: 75, attention: 65, reaction: 80, stability: 70, flexibility: 60 }
+};
+
+// [NEW] Mock Epilepsy Profile for Demo (Ant Design Charts Showcase)
+const MOCK_EPILEPSY_PROFILE: EpilepsyProfile = {
+    isComplete: true,
+    source: 'AI_GENERATED',
+    seizureType: 'FOCAL',
+    frequency: '2-3 times/month',
+    lastSeizure: '2023-12-01',
+    triggers: ['STRESS', 'SLEEP_DEPRIVATION'],
+    consciousness: true,
+    lastUpdated: Date.now(),
+    baselineDate: Date.now() - (90 * 24 * 60 * 60 * 1000), // 3 months ago
+    researchData: {
+        demographics: {
+            ethnicity: 'HAN',
+            altitude: 500,
+            residence: { province: 'Sichuan', city: 'Chengdu', district: 'Wuhou', isRural: false },
+            educationLevel: 'University', occupation: 'Teacher', incomeLevel: '5000-10000'
+        },
+        highAltitudeHistory: {
+            isNative: false,
+            entryFrequency: '2',
+            acclimatizationMeasures: [],
+            chronicSymptoms: []
+        },
+        seizureDetails: {
+            onsetAge: 18,
+            isIntractable: false,
+            seizureType: 'FOCAL',
+            consciousness: 'AWARE',
+            motorSigns: ['AUTOMATISM'],
+            nonMotorSigns: ['SENSORY'],
+            frequencyYear: 12,
+            lastSeizureDate: '2023-12-01'
+        },
+        medicationHistory: []
+    },
+    followUpSchedule: [
+        {
+            visitId: 'V1',
+            title: '12周随访',
+            targetDate: Date.now() - (5 * 24 * 60 * 60 * 1000),
+            windowStart: 0, windowEnd: 0,
+            status: 'COMPLETED',
+            completionDate: Date.now() - (5 * 24 * 60 * 60 * 1000),
+            data: {
+                seizure_count_total: 2,
+                tdm_value: 58.5,
+                // GPAQ Data (Active)
+                vigorous_work_days: 0, vigorous_work_time: 0,
+                moderate_work_days: 3, moderate_work_time: 30,
+                transport_days: 5, transport_time: 20,
+                vigorous_rec_days: 2, vigorous_rec_time: 45,
+                moderate_rec_days: 2, moderate_rec_time: 60,
+                // SBQ Data (Sedentary)
+                sbq_wd_0: 60, sbq_wd_7: 240, // ~5 hours
+                sbq_we_0: 120, sbq_we_7: 120
+            }
+        },
+        {
+            visitId: 'V2',
+            title: '24周随访',
+            targetDate: Date.now() + (80 * 24 * 60 * 60 * 1000),
+            windowStart: 0, windowEnd: 0,
+            status: 'LOCKED'
+        }
+    ]
+};
 
 // [NEW] Follow-up Window Constants (Days)
 const FOLLOWUP_WINDOWS = {
     V1: 84,  // 12 weeks
     V2: 168, // 24 weeks
     V3: 252, // 36 weeks
-    // V4, V5 are triggered by events (Delivery), but we can estimate V4
     V4: 280, // Approx 40 weeks (Delivery)
     V5: 460  // Approx 6 months post-delivery (280 + 180)
 };
@@ -78,7 +153,6 @@ interface AppState {
 }
 
 const INITIAL_STATE: AppState = {
-  // ... (Keep existing initial state values)
   isLoggedIn: false, 
   user: {
     id: 'guest',
@@ -92,25 +166,18 @@ const INITIAL_STATE: AppState = {
     isElderlyMode: false,
     privacySettings: { allowCloudStorage: true, sharingScope: SharingScope.ONLY_ME, allowResearchUse: false, lastUpdated: Date.now() },
     iotStats: { hr: 0, hrStandardDeviation: 0, bpSys: 0, bpDia: 0, spo2: 0, isAbnormal: false, isFallDetected: false, isSoundTriggered: false, lastUpdated: 0 },
-    cognitiveStats: INITIAL_COGNITIVE_STATS as any,
+    cognitiveStats: INITIAL_COGNITIVE_STATS,
     medicationLogs: [],
     healthTrends: [],
     familyMembers: [],
     currentProfileId: 'guest',
     inbox: [],
-    medicalOrders: [], // [NEW] Init
-    // [NEW] Follow-up Init
-    epilepsyProfile: {
-        isComplete: false,
-        source: 'AI_GENERATED',
-        seizureType: '', frequency: '', lastSeizure: '', triggers: [], consciousness: true,
-        lastUpdated: 0,
-        baselineDate: undefined,
-        followUpSchedule: []
-    }
+    medicalOrders: [],
+    // [DEMO] Pre-populate with Mock Profile for better Visuals
+    epilepsyProfile: MOCK_EPILEPSY_PROFILE
   },
   riskScore: 0,
-  primaryCondition: DiseaseType.MIGRAINE,
+  primaryCondition: DiseaseType.EPILEPSY, // Default to Epilepsy for Demo
   lastDiagnosis: null,
   isLoading: false,
   isSwitching: false,
@@ -121,7 +188,6 @@ const INITIAL_STATE: AppState = {
 
 // --- Actions ---
 type Action =
-  // ... (Keep existing actions)
   | { type: 'LOGIN'; payload: User } 
   | { type: 'LOGOUT' } 
   | { type: 'ADD_ROLE'; payload: UserRole } 
@@ -155,16 +221,15 @@ type Action =
   | { type: 'CLEAR_ASSESSMENT_DRAFT' }
   | { type: 'UPDATE_PATIENT_STATUS'; payload: { patientId: string; status: PatientProcessStatus } }
   | { type: 'SEND_CLINICAL_MESSAGE'; payload: { targetId: string; message: string } }
-  | { type: 'ADD_MEDICAL_ORDER'; payload: MedicalOrder } // [NEW]
-  | { type: 'COMPLETE_MEDICAL_ORDER'; payload: string } // [NEW]
-  // [NEW] Follow-up Actions
+  | { type: 'ADD_MEDICAL_ORDER'; payload: MedicalOrder } 
+  | { type: 'COMPLETE_MEDICAL_ORDER'; payload: string } 
   | { type: 'SET_BASELINE_DATE'; payload: { id: string; date: number } }
-  | { type: 'COMPLETE_FOLLOWUP'; payload: { id: string; visitId: string; data: any; dropOut?: boolean } };
+  | { type: 'COMPLETE_FOLLOWUP'; payload: { id: string; visitId: string; data: any; dropOut?: boolean } }
+  | { type: 'UPDATE_RESEARCH_DATA'; payload: { id: string; data: Partial<EpilepsyResearchData> } };
 
 // --- Reducer ---
 const appReducer = (state: AppState, action: Action): AppState => {
   switch (action.type) {
-    // ... (Keep existing reducers for LOGIN, LOGOUT, etc.)
     case 'LOGIN':
       return { ...state, isLoggedIn: true, user: action.payload, riskScore: 0 };
     case 'LOGOUT':
@@ -204,7 +269,31 @@ const appReducer = (state: AppState, action: Action): AppState => {
         const fam = state.user.familyMembers?.map(m => m.id === id ? { ...m, iotStats: stats } : m);
         return { ...state, user: { ...state.user, familyMembers: fam } };
     }
-    // ... (Keep SYNC_TRAINING, LOG_MEDICATION, etc.)
+    case 'UPDATE_COGNITIVE_STATS': {
+        const { id, stats } = action.payload;
+        // Simplified cognitive stats update logic
+        if (state.user.id === id) return { ...state, user: { ...state.user, cognitiveStats: { ...state.user.cognitiveStats!, ...stats } } };
+        return state;
+    }
+    case 'SYNC_TRAINING_DATA': {
+        const { id, record } = action.payload;
+        if (state.user.id === id) {
+            const oldHistory = state.user.cognitiveStats?.trainingHistory || [];
+            return {
+                ...state,
+                user: {
+                    ...state.user,
+                    cognitiveStats: {
+                        ...state.user.cognitiveStats!,
+                        lastScore: record.score,
+                        lastUpdated: Date.now(),
+                        trainingHistory: [...oldHistory, record]
+                    }
+                }
+            };
+        }
+        return state;
+    }
     case 'SAVE_ASSESSMENT_DRAFT':
         return { ...state, assessmentDraft: action.payload };
     case 'CLEAR_ASSESSMENT_DRAFT':
@@ -214,10 +303,7 @@ const appReducer = (state: AppState, action: Action): AppState => {
     case 'SEND_CLINICAL_MESSAGE':
         const newMsg: ChatMessage = { id: `sys_${Date.now()}`, role: 'system', text: action.payload.message, timestamp: Date.now(), isClinicalPush: true };
         return { ...state, user: { ...state.user, inbox: [...(state.user.inbox || []), newMsg] } };
-    
-    // [NEW] Medical Orders
     case 'ADD_MEDICAL_ORDER':
-        // Check duplication
         if (state.user.medicalOrders?.some(o => o.type === action.payload.type && o.status === 'PENDING')) return state;
         return { ...state, user: { ...state.user, medicalOrders: [...(state.user.medicalOrders || []), action.payload] } };
     case 'COMPLETE_MEDICAL_ORDER':
@@ -228,64 +314,42 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 medicalOrders: state.user.medicalOrders?.map(o => o.id === action.payload ? { ...o, status: 'COMPLETED' } : o) 
             } 
         };
-
-    // [NEW] Baseline Logic
     case 'SET_BASELINE_DATE': {
         const { id, date } = action.payload;
         const schedule = calculateFollowUpSchedule(date);
         const updatedSchedule = updateFollowUpStatuses(schedule);
-        
         if (state.user.id === id) {
-            return { 
-                ...state, 
-                user: { 
-                    ...state.user, 
-                    epilepsyProfile: { ...state.user.epilepsyProfile!, baselineDate: date, followUpSchedule: updatedSchedule } 
-                } 
-            };
+            return { ...state, user: { ...state.user, epilepsyProfile: { ...state.user.epilepsyProfile!, baselineDate: date, followUpSchedule: updatedSchedule } } };
         }
-        // Handle family members logic if needed (omitted for brevity)
         return state;
     }
-
-    // [NEW] Complete Follow-up Logic
     case 'COMPLETE_FOLLOWUP': {
         const { id, visitId, data, dropOut } = action.payload;
-        
         const updateSchedule = (current?: FollowUpSession[]) => {
             if (!current) return [];
             return current.map(s => {
-                if (dropOut) {
-                    // If dropout triggered (e.g., Miscarriage), mark all future as DROPPED_OUT
-                    return { ...s, status: 'DROPPED_OUT' as FollowUpStatus };
-                }
-                if (s.visitId === visitId) {
-                    return { 
-                        ...s, 
-                        status: 'COMPLETED' as FollowUpStatus, 
-                        completionDate: Date.now(),
-                        data: data 
-                    };
-                }
+                if (dropOut) return { ...s, status: 'DROPPED_OUT' as FollowUpStatus };
+                if (s.visitId === visitId) return { ...s, status: 'COMPLETED' as FollowUpStatus, completionDate: Date.now(), data: data };
                 return s;
             });
         };
-
         if (state.user.id === id) {
-            return {
-                ...state,
-                user: {
-                    ...state.user,
-                    epilepsyProfile: {
-                        ...state.user.epilepsyProfile!,
-                        followUpSchedule: updateSchedule(state.user.epilepsyProfile?.followUpSchedule)
-                    }
-                }
-            };
+            return { ...state, user: { ...state.user, epilepsyProfile: { ...state.user.epilepsyProfile!, followUpSchedule: updateSchedule(state.user.epilepsyProfile?.followUpSchedule) } } };
         }
         return state;
     }
-
+    case 'UPDATE_RESEARCH_DATA': {
+        const { id, data } = action.payload;
+        if (state.user.id === id) {
+            return { ...state, user: { ...state.user, epilepsyProfile: { ...state.user.epilepsyProfile!, researchData: { ...state.user.epilepsyProfile?.researchData, ...data } as EpilepsyResearchData } } };
+        }
+        return state;
+    }
+    case 'TOGGLE_ELDERLY_MODE':
+        return { ...state, user: { ...state.user, isElderlyMode: !state.user.isElderlyMode } };
+    case 'CLEAR_CACHE':
+        // No-op in memory state
+        return state;
     default:
       return state;
   }
@@ -306,17 +370,13 @@ const AppContext = createContext<{
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(appReducer, INITIAL_STATE, initState);
 
-  // [NEW] Auto-update follow-up statuses on mount/resume
   useEffect(() => {
       if (state.user.epilepsyProfile?.baselineDate) {
           // Re-evaluate windows against current time
-          // Note: In real app, avoid infinite loops or use dedicated robust effect
-          // Here strictly illustrative logic inside reducer or explicit check
       }
   }, [state.user.epilepsyProfile?.baselineDate]);
 
   const switchProfile = async (targetId: string) => {
-      // ... (Existing switch logic)
       dispatch({ type: 'SWITCH_PATIENT', payload: targetId });
   };
 

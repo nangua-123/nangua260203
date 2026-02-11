@@ -13,7 +13,7 @@ interface ServiceMarketplaceProps {
 
 // --- HaaS 租赁结算流程 (Ant Style Refactor) ---
 export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => void }> = ({ onBack, onComplete }) => {
-  const { state, dispatch } = useApp(); // [FIX] Added dispatch
+  const { state, dispatch } = useApp(); 
   const { user } = state;
   const [step, setStep] = useState<'confirm' | 'form' | 'success' | 'error'>('confirm');
   const [isFamilyPay, setIsFamilyPay] = useState(false);
@@ -25,6 +25,16 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
   const [selectedPlanId, setSelectedPlanId] = useState('30d');
   const [selectedCouponId, setSelectedCouponId] = useState<string | undefined>(undefined);
   const { calculateRentalPrice, hasFeature } = usePayment();
+
+  // [UPDATED] Dynamic Form Data from User State
+  const [formData, setFormData] = useState({
+    name: user.name || '用户',
+    phone: user.phone || '138****0000',
+    address: ''
+  });
+  
+  // State to toggle address editing
+  const [isEditingAddress, setIsEditingAddress] = useState(false);
 
   // [NEW] HaaS Auto-Selection Logic based on Diagnosis
   useEffect(() => {
@@ -40,13 +50,6 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
   // 计算最终价格
   const pricing = calculateRentalPrice(selectedPlanId, selectedCouponId);
 
-  // [UPDATED] Dynamic Form Data from User State
-  const [formData, setFormData] = useState({
-    name: user.name || '用户',
-    phone: user.phone || '138****0000',
-    address: ''
-  });
-
   // Init Address from Residence
   useEffect(() => {
       if (user.residence) {
@@ -54,16 +57,22 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
           const addr = `${province}${city}${district} (默认地址)`;
           setFormData(prev => ({ ...prev, address: addr }));
       } else {
-          setFormData(prev => ({ ...prev, address: '未设置收货地址，请点击编辑' }));
+          setFormData(prev => ({ ...prev, address: '' }));
+          setIsEditingAddress(true); // Force edit if empty
       }
   }, [user.residence]);
 
   const handlePay = () => {
+    if (!formData.address || formData.address.length < 5) {
+        setErrorMsg('请填写有效的收货地址');
+        setStep('error');
+        return;
+    }
+
     setIsProcessing(true);
     setStep('confirm'); // reset if coming from error
     
     setTimeout(() => {
-      // [LOGIC] Payment Success -> Trigger Hardware Binding & Renewal
       setIsProcessing(false);
       setStep('success');
       setIsDataSynced(true); // 模拟数据下发
@@ -75,6 +84,24 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
       const plan = RENTAL_PLANS.find(p => p.id === selectedPlanId);
       const duration = plan ? plan.days : 30;
       dispatch({ type: 'RENEW_DEVICE', payload: duration });
+
+      // [NEW] Sync Address to Profile (Simulated via LOGIN action to update user state)
+      // Note: In a real app, this would be a specific API call.
+      // We parse the address string back to residence structure if it was edited.
+      if (isEditingAddress) {
+          // Naive parsing for demo purposes, assuming simple structure or just updating display logic
+          // Here we just update the user object in state to persist the address change for this session
+          const updatedUser = {
+              ...user,
+              residence: {
+                  province: '中国',
+                  city: '手动录入',
+                  district: formData.address,
+                  isRural: false
+              }
+          };
+          dispatch({ type: 'LOGIN', payload: updatedUser });
+      }
 
     }, 1500);
   };
@@ -108,7 +135,7 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
     );
   }
 
-  // [NEW] 错误状态视图
+  // Error View
   if (step === 'error') {
       return (
         <Layout headerTitle="支付失败" showBack onBack={() => setStep('confirm')}>
@@ -130,19 +157,39 @@ export const HaaSRentalView: React.FC<{ onBack: () => void; onComplete: () => vo
     <Layout headerTitle="确认订单" showBack onBack={onBack}>
       <div className="p-4 pb-safe space-y-3 animate-slide-up pb-32 bg-[#F5F5F5] min-h-screen">
         
-        {/* 1. 地址卡片 (Ant Style) - [UPDATED] Dynamic Data */}
-        <div className="bg-white rounded-xl p-4 flex items-center gap-3 shadow-sm active:opacity-70 transition-opacity">
-           <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-[#1677FF] shrink-0">
-               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 103 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 002.273 1.765 11.842 11.842 0 00.976.544l.062.029.018.008.006.003zM10 11.25a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5z" clipRule="evenodd" /></svg>
-           </div>
-           <div className="flex-1 min-w-0">
-               <div className="text-[13px] font-bold text-slate-800 flex items-center gap-2 flex-wrap">
-                   <span className="whitespace-nowrap">{formData.name}</span>
-                   <span className="text-slate-400 font-normal">{formData.phone}</span>
+        {/* 1. 地址卡片 (Ant Style) - [UPDATED] Dynamic Data & Edit Mode */}
+        <div className="bg-white rounded-xl p-4 shadow-sm active:opacity-100 transition-opacity">
+           <div className="flex items-start gap-3">
+               <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-[#1677FF] shrink-0 mt-1">
+                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 103 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 002.273 1.765 11.842 11.842 0 00.976.544l.062.029.018.008.006.003zM10 11.25a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5z" clipRule="evenodd" /></svg>
                </div>
-               <div className="text-[11px] text-slate-500 mt-0.5 break-words leading-tight">{formData.address}</div>
+               <div className="flex-1 min-w-0">
+                   <div className="text-[13px] font-bold text-slate-800 flex items-center gap-2 flex-wrap mb-1">
+                       <span className="whitespace-nowrap">{formData.name}</span>
+                       <span className="text-slate-400 font-normal">{formData.phone}</span>
+                   </div>
+                   
+                   {isEditingAddress ? (
+                       <textarea
+                           value={formData.address}
+                           onChange={(e) => setFormData({...formData, address: e.target.value})}
+                           placeholder="请输入详细收货地址 (省/市/区/街道/门牌)"
+                           className="w-full text-[11px] text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-2 outline-none focus:border-brand-500 transition-all resize-none h-16"
+                           autoFocus
+                       />
+                   ) : (
+                       <div 
+                           className="text-[11px] text-slate-500 mt-0.5 break-words leading-tight"
+                           onClick={() => setIsEditingAddress(true)}
+                       >
+                           {formData.address || "点击添加收货地址"}
+                       </div>
+                   )}
+               </div>
+               {!isEditingAddress && (
+                   <span onClick={() => setIsEditingAddress(true)} className="text-slate-300 cursor-pointer p-2">›</span>
+               )}
            </div>
-           <span className="text-slate-300">›</span>
         </div>
 
         {/* 2. 商品卡片 */}

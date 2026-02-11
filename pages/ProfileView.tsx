@@ -10,24 +10,40 @@ import { useToast } from '../context/ToastContext';
 import { HardwareStatus } from '../components/business/profile/HardwareStatus';
 import { processMedicalImage } from '../services/geminiService';
 
-// [NEW] Patient Journey Timeline Component
-const PatientJourneyTimeline: React.FC<{ user: User }> = ({ user }) => {
-    // Mock Timeline Nodes (In real app, map from user.epilepsyProfile.followUpSchedule)
-    // Here we define a static structure for demo, but enable interactivity on V2
-    const [timeline, setTimeline] = useState([
-        { id: 'V0', title: 'V0 基线建档', date: '2023-12-01', status: 'COMPLETED' },
-        { id: 'V1', title: 'V1 12周随访', date: '2024-03-01', status: 'COMPLETED', drugLevel: '5.2 ug/ml' },
-        { id: 'V2', title: 'V2 24周随访', date: '2024-06-01', status: 'PENDING', isCurrent: true, drugLevel: '' },
-        { id: 'V3', title: 'V3 36周随访', date: '2024-09-01', status: 'LOCKED' },
-        { id: 'V4', title: 'V4 产后随访', date: '待定', status: 'LOCKED' }
-    ]);
-
+// [NEW] Patient Journey Timeline Component (Connected to Redux State)
+const PatientJourneyTimeline: React.FC<{ user: User; onStartAssessment: (type: DiseaseType) => void }> = ({ user, onStartAssessment }) => {
     const { showToast } = useToast();
     const { dispatch } = useApp();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);
+    const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+
+    // Dynamic Timeline Data from User Profile
+    const timelineData = React.useMemo(() => {
+        const profile = user.epilepsyProfile;
+        if (!profile) return [];
+
+        // If no baseline date, show V0 Pending
+        if (!profile.baselineDate) {
+            return [{ id: 'V0', title: 'V0 基线建档', date: '待开始', status: 'OPEN', isCurrent: true }];
+        }
+
+        // Map follow-up schedule
+        return [
+            { id: 'V0', title: 'V0 基线建档', date: new Date(profile.baselineDate).toLocaleDateString(), status: 'COMPLETED' },
+            ...(profile.followUpSchedule || []).map(session => ({
+                id: session.visitId,
+                title: session.title,
+                date: session.completionDate ? new Date(session.completionDate).toLocaleDateString() : new Date(session.targetDate).toLocaleDateString(),
+                status: session.status,
+                isCurrent: session.status === 'OPEN' || session.status === 'PENDING',
+                data: session.data // Contains TDM value if any
+            }))
+        ];
+    }, [user.epilepsyProfile]);
 
     const handleCameraClick = (nodeId: string) => {
+        setActiveNodeId(nodeId);
         if (fileInputRef.current) {
             fileInputRef.current.click();
         }
@@ -35,53 +51,40 @@ const PatientJourneyTimeline: React.FC<{ user: User }> = ({ user }) => {
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (!file) return;
+        if (!file || !activeNodeId) return;
 
         setIsUploading(true);
         showToast('正在识别化验单 (Gemini Vision AI)...', 'info');
 
         try {
-            // [REAL] Call Gemini Vision Service
             const record = await processMedicalImage(file);
-            
-            // Mock extracting TDM value from the generic result for this specific field
-            // In a real scenario, processMedicalImage would return structured TDM data if prompted
-            // For now, we simulate extraction from the diagnosis text or assume a value if not found
-            let val = "58.5"; // Default mock success
-            
-            // Try to find a number in diagnosis (simulating extraction)
+            let val = "58.5"; // Default mock
             const match = record.diagnosis.match(/(\d+(\.\d+)?)/);
             if (match) val = match[0];
 
-            // Update UI
-            setTimeline(prev => prev.map(node => 
-                node.isCurrent ? { ...node, drugLevel: `${val} ug/ml (AI识别)` } : node
-            ));
-
-            // Update Global State (Add Medical Record Asset)
             dispatch({
                 type: 'ADD_MEDICAL_RECORD',
                 payload: { profileId: user.id, record: record }
             });
 
-            // Dispatch Follow-up update (Simulated)
             dispatch({
                 type: 'COMPLETE_FOLLOWUP',
                 payload: {
                     id: user.id,
-                    visitId: 'V2',
+                    visitId: activeNodeId,
                     data: { tdm_value: val, tdm_file: record.rawImageUrl }
                 }
             });
 
-            showToast('识别成功：丙戊酸钠谷浓度已自动填入 V2 表单', 'success');
+            showToast(`识别成功：TDM值 ${val} 已填入 ${activeNodeId} 表单`, 'success');
 
         } catch (error) {
             console.error(error);
-            showToast('识别失败，请确保图片清晰或手动输入', 'error');
+            showToast('识别失败，请重试', 'error');
         } finally {
             setIsUploading(false);
             if (fileInputRef.current) fileInputRef.current.value = '';
+            setActiveNodeId(null);
         }
     };
 
@@ -92,22 +95,13 @@ const PatientJourneyTimeline: React.FC<{ user: User }> = ({ user }) => {
                 <span className="text-[0.6rem] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded font-bold">华西癫痫队列</span>
             </div>
             
-            <input 
-                type="file" 
-                ref={fileInputRef} 
-                className="hidden" 
-                accept="image/*" 
-                capture="environment"
-                onChange={handleFileChange}
-            />
+            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
             
             <div className="relative pl-2">
-                {/* Vertical Line */}
                 <div className="absolute top-2 bottom-6 left-[9px] w-0.5 bg-slate-100"></div>
 
-                {timeline.map((node, index) => (
+                {timelineData.map((node) => (
                     <div key={node.id} className="flex gap-4 mb-6 relative group">
-                        {/* Dot */}
                         <div className={`w-5 h-5 rounded-full border-4 shrink-0 z-10 ${node.status === 'COMPLETED' ? 'bg-emerald-500 border-emerald-100' : node.isCurrent ? 'bg-white border-brand-500 ring-2 ring-brand-100' : 'bg-slate-200 border-slate-50'}`}></div>
                         
                         <div className="flex-1 -mt-1">
@@ -116,24 +110,40 @@ const PatientJourneyTimeline: React.FC<{ user: User }> = ({ user }) => {
                                     <div className={`text-xs font-bold ${node.isCurrent ? 'text-brand-600' : 'text-slate-800'}`}>{node.title}</div>
                                     <div className="text-[0.6rem] text-slate-400 mt-0.5">{node.date}</div>
                                 </div>
+                                
+                                {/* Status Actions */}
                                 {node.status === 'COMPLETED' ? (
                                     <span className="text-[0.6rem] text-emerald-500 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">已完成</span>
                                 ) : node.isCurrent ? (
-                                    <button 
-                                        onClick={() => !isUploading && handleCameraClick(node.id)}
-                                        disabled={isUploading}
-                                        className="text-[0.6rem] bg-brand-50 text-brand-600 px-2 py-1 rounded-full font-bold flex items-center gap-1 active:scale-95 transition-all hover:bg-brand-100"
-                                    >
-                                        <span>{isUploading ? '⏳' : '📷'}</span> 
-                                        {isUploading ? '分析中...' : '补全TDM'}
-                                    </button>
+                                    <div className="flex gap-2">
+                                        <button 
+                                            onClick={() => onStartAssessment(DiseaseType.EPILEPSY)}
+                                            className="text-[0.6rem] bg-brand-600 text-white px-2 py-1 rounded-full font-bold shadow-sm active:scale-95 transition-all"
+                                        >
+                                            开始评估
+                                        </button>
+                                        {/* Show TDM upload only if not V0 (V0 uses integrated form) */}
+                                        {node.id !== 'V0' && (
+                                            <button 
+                                                onClick={() => !isUploading && handleCameraClick(node.id)}
+                                                disabled={isUploading}
+                                                className="text-[0.6rem] bg-indigo-50 text-indigo-600 px-2 py-1 rounded-full font-bold border border-indigo-100 active:scale-95 transition-all"
+                                            >
+                                                {isUploading && activeNodeId === node.id ? '分析中...' : '补录TDM'}
+                                            </button>
+                                        )}
+                                    </div>
                                 ) : (
-                                    <span className="text-[0.6rem] text-slate-300">未开启</span>
+                                    <span className="text-[0.6rem] text-slate-300">
+                                        {node.status === 'LOCKED' ? '未开放' : '已过期'}
+                                    </span>
                                 )}
                             </div>
-                            {node.drugLevel && (
+                            
+                            {/* Metadata Display (e.g. TDM result) */}
+                            {node.data?.tdm_value && (
                                 <div className="mt-1.5 bg-slate-50 p-1.5 rounded-lg text-[0.6rem] text-slate-500 inline-block border border-slate-100 animate-fade-in">
-                                    💊 {node.drugLevel}
+                                    💊 浓度: {node.data.tdm_value} ug/ml
                                 </div>
                             )}
                         </div>
@@ -159,10 +169,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNav
     const [showQR, setShowQR] = useState(false);
     const [showRoleManager, setShowRoleManager] = useState(false); 
 
-    // AD 患者判定
     const isADPatient = user.isElderlyMode || user.headacheProfile?.diagnosisType?.includes('AD') || false;
-
-    // 当前是否在查看关联患者视角
     const isViewingPatient = user.associatedPatientId && user.currentProfileId === user.associatedPatientId;
 
     const handleLogout = () => {
@@ -173,21 +180,22 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNav
 
     const handleSwitchContext = async () => {
         if (!user.associatedPatientId) return;
-        
         if (isViewingPatient) {
-            // 切回自己
             await switchProfile(user.id);
             showToast('已切回个人视图', 'success');
         } else {
-            // 切到患者 (代管模式)
             await switchProfile(user.associatedPatientId);
             showToast('已切换至患者代管视图', 'success');
         }
     };
 
-    const handleRenewDevice = () => {
-        onNavigate('haas-checkout');
+    const handleStartAssessment = (type: DiseaseType) => {
+        // Pre-set disease type for context
+        dispatch({ type: 'SET_RISK_SCORE', payload: { score: 0, type } });
+        onNavigate('assessment');
     };
+
+    const handleRenewDevice = () => onNavigate('haas-checkout');
 
     const getRoleLabel = (role: UserRole) => {
         switch (role) {
@@ -229,26 +237,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNav
                         </div>
                     </div>
 
-                    {/* 家属代管状态提示 */}
                     {isFamily && user.associatedPatientId && (
-                        <div 
-                            onClick={handleSwitchContext}
-                            className={`mt-6 border rounded-xl p-3 flex items-center gap-3 backdrop-blur-md shadow-inner cursor-pointer active:scale-95 transition-all ${isViewingPatient ? 'bg-emerald-500/30 border-emerald-200/50 ring-2 ring-emerald-400/50' : 'bg-white/10 border-white/20'}`}
-                        >
+                        <div onClick={handleSwitchContext} className={`mt-6 border rounded-xl p-3 flex items-center gap-3 backdrop-blur-md shadow-inner cursor-pointer active:scale-95 transition-all ${isViewingPatient ? 'bg-emerald-500/30 border-emerald-200/50 ring-2 ring-emerald-400/50' : 'bg-white/10 border-white/20'}`}>
                             <span className="text-2xl drop-shadow-sm">{isViewingPatient ? '👀' : '🔗'}</span>
                             <div className="flex-1">
-                                <div className="flex justify-between items-center">
-                                    <div className="text-xs font-bold text-orange-100 opacity-80">
-                                        {isViewingPatient ? '当前正在查看' : '已关联患者'}
-                                    </div>
-                                    <span className="text-[9px] bg-white/20 px-2 py-0.5 rounded text-white font-bold">
-                                        {isViewingPatient ? '点击切回' : '点击切换视角'}
-                                    </span>
-                                </div>
-                                <div className="text-sm font-black text-white flex items-center gap-2">
-                                    陈建国 (ID: {user.associatedPatientId.split('_')[1] || '8829'})
-                                    {isViewingPatient && <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>}
-                                </div>
+                                <div className="flex justify-between items-center"><div className="text-xs font-bold text-orange-100 opacity-80">{isViewingPatient ? '当前正在查看' : '已关联患者'}</div><span className="text-[9px] bg-white/20 px-2 py-0.5 rounded text-white font-bold">{isViewingPatient ? '点击切回' : '点击切换视角'}</span></div>
+                                <div className="text-sm font-black text-white flex items-center gap-2">陈建国 (ID: {user.associatedPatientId.split('_')[1] || '8829'}){isViewingPatient && <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>}</div>
                             </div>
                         </div>
                     )}
@@ -257,88 +251,36 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNav
                 {/* Dashboard Content */}
                 <div className="px-5 -mt-16 relative z-20 space-y-4">
                     
-                    {/* [NEW] Hardware Status Dashboard (HaaS Loop) */}
-                    {user.hasHardware && user.deviceInfo && (
-                        <HardwareStatus info={user.deviceInfo} onRenew={handleRenewDevice} />
-                    )}
+                    {user.hasHardware && user.deviceInfo && (<HardwareStatus info={user.deviceInfo} onRenew={handleRenewDevice} />)}
 
-                    {/* [NEW] Patient Journey Timeline */}
-                    <PatientJourneyTimeline user={user} />
+                    {/* Dynamic Timeline */}
+                    <PatientJourneyTimeline user={user} onStartAssessment={handleStartAssessment} />
 
-                    {/* 角色管理入口 */}
-                    <div 
-                        onClick={() => setShowRoleManager(true)}
-                        className="bg-white rounded-[24px] p-4 shadow-sm border border-slate-100 flex items-center justify-between active:scale-[0.98] transition-transform cursor-pointer"
-                    >
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-brand-50 rounded-full flex items-center justify-center text-brand-600 text-lg border border-brand-100">
-                                🎭
-                            </div>
-                            <div>
-                                <div className="text-sm font-black text-slate-800">我的角色管理</div>
-                                <div className="text-[10px] text-slate-400 mt-0.5">当前已绑定 {user.availableRoles.length} 个身份</div>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <div className="flex -space-x-2">
-                                {user.availableRoles.map(r => (
-                                    <div key={r} className="w-6 h-6 rounded-full border-2 border-white bg-slate-100 flex items-center justify-center text-[10px]">
-                                        {getRoleLabel(r).icon}
-                                    </div>
-                                ))}
-                            </div>
-                            <span className="text-slate-300">›</span>
-                        </div>
+                    <div onClick={() => setShowRoleManager(true)} className="bg-white rounded-[24px] p-4 shadow-sm border border-slate-100 flex items-center justify-between active:scale-[0.98] transition-transform cursor-pointer">
+                        <div className="flex items-center gap-3"><div className="w-10 h-10 bg-brand-50 rounded-full flex items-center justify-center text-brand-600 text-lg border border-brand-100">🎭</div><div><div className="text-sm font-black text-slate-800">我的角色管理</div><div className="text-[10px] text-slate-400 mt-0.5">当前已绑定 {user.availableRoles.length} 个身份</div></div></div>
+                        <div className="flex items-center gap-2"><div className="flex -space-x-2">{user.availableRoles.map(r => (<div key={r} className="w-6 h-6 rounded-full border-2 border-white bg-slate-100 flex items-center justify-center text-[10px]">{getRoleLabel(r).icon}</div>))}</div><span className="text-slate-300">›</span></div>
                     </div>
 
-                    {/* AD 家属代管入口 */}
                     {checkPermission('GENERATE_QR') && isADPatient && (
-                        <div 
-                            onClick={() => setShowQR(true)}
-                            className="bg-gradient-to-r from-orange-400 to-orange-500 rounded-[24px] p-6 shadow-lg shadow-orange-500/20 flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer relative overflow-hidden"
-                        >
+                        <div onClick={() => setShowQR(true)} className="bg-gradient-to-r from-orange-400 to-orange-500 rounded-[24px] p-6 shadow-lg shadow-orange-500/20 flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer relative overflow-hidden">
                             <div className="absolute inset-0 bg-white/10 opacity-0 hover:opacity-100 transition-opacity"></div>
-                            <div className="flex items-center gap-4 relative z-10">
-                                <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-2xl backdrop-blur-sm border border-white/30">👨‍👩‍👧</div>
-                                <div>
-                                    <div className="text-lg font-black text-white">家属代管模式</div>
-                                    <div className="text-xs text-white/90 mt-1 font-medium">生成二维码供家属扫码</div>
-                                </div>
-                            </div>
-                            <span className="text-white/80 text-2xl">›</span>
+                            <div className="flex items-center gap-4 relative z-10"><div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-2xl backdrop-blur-sm border border-white/30">👨‍👩‍👧</div><div><div className="text-lg font-black text-white">家属代管模式</div><div className="text-xs text-white/90 mt-1 font-medium">生成二维码供家属扫码</div></div></div><span className="text-white/80 text-2xl">›</span>
                         </div>
                     )}
 
-                    {/* Menu Items */}
                     <div className="bg-white rounded-[24px] p-2 shadow-sm border border-slate-50">
                         <MenuItem icon="📄" label="健康报告" sub="查看历史评估与记录" onClick={() => onNavigate('report')} />
-                        {checkPermission('MANAGE_FAMILY') && (
-                            <MenuItem icon="👨‍👩‍👧" label="亲情账号管理" sub="添加或移除家庭成员" onClick={() => onNavigate('service-family')} />
-                        )}
-                        {isDoctor && (
-                            <>
-                                <MenuItem icon="🔄" label="患者数据同步" sub="同步院内 HIS 系统" onClick={() => alert('数据同步中...')} />
-                                <MenuItem icon="📝" label="随访记录填写" sub="记录本次随访情况" onClick={() => alert('打开随访表单')} />
-                            </>
-                        )}
+                        {checkPermission('MANAGE_FAMILY') && (<MenuItem icon="👨‍👩‍👧" label="亲情账号管理" sub="添加或移除家庭成员" onClick={() => onNavigate('service-family')} />)}
+                        {isDoctor && (<><MenuItem icon="🔄" label="患者数据同步" sub="同步院内 HIS 系统" onClick={() => alert('数据同步中...')} /><MenuItem icon="📝" label="随访记录填写" sub="记录本次随访情况" onClick={() => alert('打开随访表单')} /></>)}
                         <div className="border-t border-slate-50 mx-4 my-2"></div>
                         <MenuItem icon="🛡️" label="隐私与授权管理" sub="管理敏感医疗数据共享权限" onClick={() => onNavigate('privacy-settings')} />
-                        {isPatient && (
-                            <MenuItem icon="🗑️" label="清除本地缓存" onClick={onClearCache} variant="danger" />
-                        )}
+                        {isPatient && (<MenuItem icon="🗑️" label="清除本地缓存" onClick={onClearCache} variant="danger" />)}
                     </div>
                     
-                    <button onClick={handleLogout} className="w-full py-4 text-slate-400 text-xs font-bold rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
-                        退出当前账号
-                    </button>
-                    
-                    <div className="text-center pb-4">
-                        <p className="text-[9px] text-slate-300 font-mono">Version 2.4.0 (Build 20240522)</p>
-                    </div>
+                    <button onClick={handleLogout} className="w-full py-4 text-slate-400 text-xs font-bold rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">退出当前账号</button>
+                    <div className="text-center pb-4"><p className="text-[9px] text-slate-300 font-mono">Version 2.4.0 (Build 20240522)</p></div>
                 </div>
             </div>
-
-            {/* Modals */}
             {showQR && <FamilyManagedModal onClose={() => setShowQR(false)} />}
             {showRoleManager && <RoleManager onClose={() => setShowRoleManager(false)} />}
         </Layout>
@@ -346,17 +288,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, hasDevice, onNav
 };
 
 const MenuItem: React.FC<{ icon: string; label: string; sub?: string; onClick: () => void; variant?: 'default' | 'danger' }> = ({ icon, label, sub, onClick, variant = 'default' }) => (
-    <button 
-        onClick={onClick} 
-        className={`w-full flex items-center justify-between p-4 hover:bg-slate-50 rounded-2xl transition-colors group ${variant === 'danger' ? 'text-rose-500' : 'text-slate-700'}`}
-    >
-        <div className="flex items-center gap-3">
-            <span className="text-xl group-hover:scale-110 transition-transform duration-300 filter drop-shadow-sm">{icon}</span>
-            <div className="text-left">
-                <div className="text-[13px] font-bold">{label}</div>
-                {sub && <div className={`text-[9px] ${variant === 'danger' ? 'text-rose-300' : 'text-slate-400'}`}>{sub}</div>}
-            </div>
-        </div>
-        <span className="text-slate-300 text-lg">›</span>
+    <button onClick={onClick} className={`w-full flex items-center justify-between p-4 hover:bg-slate-50 rounded-2xl transition-colors group ${variant === 'danger' ? 'text-rose-500' : 'text-slate-700'}`}>
+        <div className="flex items-center gap-3"><span className="text-xl group-hover:scale-110 transition-transform duration-300 filter drop-shadow-sm">{icon}</span><div className="text-left"><div className="text-[13px] font-bold">{label}</div>{sub && <div className={`text-[9px] ${variant === 'danger' ? 'text-rose-300' : 'text-slate-400'}`}>{sub}</div>}</div></div><span className="text-slate-300 text-lg">›</span>
     </button>
 );

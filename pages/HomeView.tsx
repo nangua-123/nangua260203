@@ -14,10 +14,10 @@ import { User, AppView, DiseaseType, IoTStats, CognitiveStats, UserRole, FamilyM
 import Button from '../components/common/Button';
 import { usePayment } from '../hooks/usePayment';
 import { useApp } from '../context/AppContext';
-import { useToast } from '../context/ToastContext'; // [NEW]
+import { useToast } from '../context/ToastContext'; 
 import { NonDrugToolkit } from '../components/business/headache/NonDrugToolkit';
 import { useRole } from '../hooks/useRole';
-import { NotificationInbox } from '../components/NotificationInbox'; // [NEW] Import
+import { NotificationInbox } from '../components/NotificationInbox';
 
 // Declare Chart.js type for TypeScript
 declare const Chart: any;
@@ -32,7 +32,7 @@ interface HomeViewProps {
 
 // [NEW] Medical Task Card (OrderTaskConsumer)
 const MedicalTaskCard: React.FC<{ order: MedicalOrder; onAction: () => void }> = ({ order, onAction }) => (
-    <div className="bg-gradient-to-r from-indigo-50 to-white rounded-xl p-4 shadow-md border-l-4 border-indigo-500 animate-slide-up mb-3 active:scale-[0.99] transition-transform">
+    <div className="bg-gradient-to-r from-indigo-50 to-white rounded-2xl p-4 shadow-sm border-l-4 border-indigo-500 animate-slide-up mb-3 active:scale-[0.99] transition-transform">
         <div className="flex justify-between items-start mb-2">
             <div className="flex items-center gap-2">
                 <span className="text-xl">👨‍⚕️</span>
@@ -145,7 +145,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
   // [UX Polish] Modals State
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [showPairingModal, setShowPairingModal] = useState(false); 
-  const [showInbox, setShowInbox] = useState(false); // [NEW] Inbox visibility
+  const [showInbox, setShowInbox] = useState(false); 
   
   // --- Elderly Mode Config ---
   const isElderly = user.isElderlyMode;
@@ -184,21 +184,13 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
       return `${mins}分钟前`;
   }, [currentIoTStats?.lastUpdated, isOffline]); 
 
-  const currentCognitiveStats = useMemo(() => {
-      if (user.id === activeProfileId) return user.cognitiveStats;
-      return user.familyMembers?.find(m => m.id === activeProfileId)?.cognitiveStats;
-  }, [user, activeProfileId]);
-
   const recommendedPkg = getRecommendedPackage();
   const isPkgUnlocked = hasFeature(recommendedPkg.featureKey);
-  const isAssessmentPaid = hasFeature('ICE_BREAKING_MIGRAINE') || hasFeature('VIP_MIGRAINE') || hasFeature('VIP_EPILEPSY') || hasFeature('VIP_COGNITIVE');
-  const isPredictedScore = riskScore > 0 && !isAssessmentPaid;
-  const displayScore = riskScore > 0 ? riskScore : 95;
   const finalHealthScore = riskScore > 0 ? (100 - riskScore) : 95;
   const isCritical = finalHealthScore < 60; 
   const isEpilepsy = primaryCondition === DiseaseType.EPILEPSY;
   
-  let themeColor = 'bg-[#1677FF]';
+  let themeColor = 'bg-[#1677FF]'; // Ant Blue
   if (isRentalExpiring) {
       themeColor = 'bg-[#FF4D4F]'; // [HaaS] Critical override for expiration
   } else if (isManagedView) {
@@ -321,7 +313,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
 
       {/* 2. King Kong District */}
       <div className="px-3 -mt-10 relative z-20 mb-2">
-          <div className="bg-white rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.05)] p-4 flex justify-between items-center">
+          <div className="bg-white rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.05)] p-4 flex justify-between items-center">
               {kingKongItems.map((item, i) => (
                   <button key={i} onClick={() => onNavigate(item.nav as AppView)} className={`flex flex-col items-center gap-2 active:opacity-70 transition-opacity ${isElderly ? 'flex-1' : ''}`}>
                       <div className={`w-11 h-11 rounded-full ${item.bg} flex items-center justify-center text-xl shadow-sm ${item.color} ${isElderly ? 'w-14 h-14 text-2xl' : ''}`}>
@@ -343,7 +335,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
 
         {/* Existing Alerts & Tools */}
         {mohAlertTriggered && !isManagedView && (
-            <div className={`bg-orange-50 border border-orange-200 rounded-xl p-3 flex items-start gap-3 animate-slide-up shadow-sm ${touchClass}`}>
+            <div className={`bg-orange-50 border border-orange-200 rounded-2xl p-3 flex items-start gap-3 animate-slide-up shadow-sm ${touchClass}`}>
                 <div className="text-xl">⚠️</div>
                 <div>
                     <h4 className={`text-orange-800 ${isElderly ? 'text-lg font-black' : 'text-xs font-black'}`}>警告：检测到用药频繁</h4>
@@ -355,7 +347,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
         )}
 
         <div className="grid grid-cols-2 gap-3">
-            <div onClick={() => onNavigate('service-epilepsy')} className={`bg-white rounded-xl p-4 shadow-sm flex flex-col justify-between border border-slate-50 active:scale-[0.98] transition-transform ${isElderly ? 'min-h-[160px]' : 'min-h-[140px]'}`}>
+            <div onClick={() => onNavigate('service-epilepsy')} className={`bg-white rounded-2xl p-4 shadow-sm flex flex-col justify-between border border-slate-50 active:scale-[0.98] transition-transform ${isElderly ? 'min-h-[160px]' : 'min-h-[140px]'}`}>
                 <div>
                     <div className="flex justify-between items-start mb-2">
                         <span className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-500 text-lg">🧠</span>
@@ -371,14 +363,14 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
             </div>
 
             <div className="flex flex-col gap-3">
-                <div onClick={() => onNavigate('service-headache')} className="bg-white rounded-xl p-3 shadow-sm flex items-center gap-3 border border-slate-50 active:scale-[0.98] transition-transform flex-1">
+                <div onClick={() => onNavigate('service-headache')} className="bg-white rounded-2xl p-3 shadow-sm flex items-center gap-3 border border-slate-50 active:scale-[0.98] transition-transform flex-1">
                     <div className="w-8 h-8 rounded-full bg-sky-50 flex items-center justify-center text-sky-500 text-lg">⚡</div>
                     <div>
                         <h4 className={`text-slate-800 ${isElderly ? 'text-base font-black' : 'text-[12px] font-black'}`}>诱因雷达</h4>
                         <p className="text-[9px] text-slate-400">偏头痛气象预警</p>
                     </div>
                 </div>
-                <div onClick={() => onNavigate('service-cognitive')} className="bg-white rounded-xl p-3 shadow-sm flex items-center gap-3 border border-slate-50 active:scale-[0.98] transition-transform flex-1">
+                <div onClick={() => onNavigate('service-cognitive')} className="bg-white rounded-2xl p-3 shadow-sm flex items-center gap-3 border border-slate-50 active:scale-[0.98] transition-transform flex-1">
                     <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center text-purple-500 text-lg">🧩</div>
                     <div>
                         <h4 className={`text-slate-800 ${isElderly ? 'text-base font-black' : 'text-[12px] font-black'}`}>记忆训练</h4>
@@ -389,7 +381,7 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
         </div>
 
         {/* [Optimization] 设备状态与手动录入降级交互 */}
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-50 flex items-center justify-between">
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-50 flex items-center justify-between">
             <div className="flex items-center gap-3" onClick={() => onNavigate(hasDevice ? 'profile' : 'haas-checkout')}>
                 <div className="w-10 h-10 rounded-lg bg-slate-50 flex items-center justify-center text-2xl">⌚</div>
                 <div>

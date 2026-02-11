@@ -31,6 +31,25 @@ export interface CSIResult {
     flags: string[];
 }
 
+// [NEW] GPAQ Result Interface
+export interface GPAQResult {
+    totalMETs: number; // MET-minutes/week
+    level: 'HIGH' | 'MODERATE' | 'LOW';
+    breakdown: {
+        workMETs: number;
+        transportMETs: number;
+        recMETs: number;
+    };
+}
+
+// [NEW] SBQ Result Interface
+export interface SBQResult {
+    weekdayMinutes: number;
+    weekendMinutes: number;
+    averageDailyMinutes: number;
+    risk: 'SEDENTARY_DANGER' | 'NORMAL';
+}
+
 // --- Helper: CDR Domain Calculation ---
 const getCDRDomainScore = (answers: Record<string, any>, prefix: string): number => {
     let sum = 0;
@@ -53,7 +72,8 @@ export const calculateCSI = (
     diseaseType: DiseaseType,
     medLogs: MedLog[] = [],
     seizureHistory: SeizureEvent[] = [],
-    currentAssessmentScore: number
+    currentAssessmentScore: number,
+    environmentalFactors?: { returnFrequency?: number } // [NEW] High Altitude Research Field
 ): CSIResult => {
     let csi = 100;
     const flags: string[] = [];
@@ -122,6 +142,13 @@ export const calculateCSI = (
             csi -= 10;
             flags.push("SEVERITY: 强直阵挛");
         }
+
+        // [NEW] High Altitude Research Factor
+        // Frequent altitude changes (>= 4 times/3mo) may lower seizure threshold
+        if (environmentalFactors?.returnFrequency && environmentalFactors.returnFrequency >= 3) {
+            csi -= 5;
+            flags.push("ALTITUDE_RISK: 频繁往返高原");
+        }
     }
 
     csi -= (currentAssessmentScore * 0.2); 
@@ -134,61 +161,108 @@ export const calculateCSI = (
     return { score: csi, trend, flags };
 };
 
-// --- TMT-B Scoring (Age Adjusted) ---
-/**
- * Calculates standardized TMT-B score (0-100) based on completion time, age, and education.
- * Reference: Tombaugh (2004) norms simplified.
- * @param seconds Completion time in seconds
- * @param age User's age (defaults to 60 if unknown)
- * @param educationYears Years of education (defaults to 12)
- */
-export const calculateTMTBScore = (seconds: number, age: number = 60, educationYears: number = 12): { score: number; rating: string } => {
-    // 1. Determine Baseline Mean Time (approximate from Tombaugh norms)
-    let baselineMean = 75; // Default for elderly
-    let cutoff = 180; // Clinical cutoff for impairment
+// --- GPAQ Scoring Logic (WHO Standard) ---
+export const calculateGPAQScore = (answers: Record<string, any>): GPAQResult => {
+    // Helper to safely get number
+    const getVal = (key: string) => typeof answers[key] === 'number' ? answers[key] : 0;
 
-    if (age < 35) {
-        baselineMean = 45;
-        cutoff = 90;
-    } else if (age < 55) {
-        baselineMean = 60;
-        cutoff = 120;
-    } else if (age < 70) {
-        baselineMean = 75;
-        cutoff = 180;
-    } else {
-        baselineMean = 95;
-        cutoff = 240;
-    }
-
-    // 2. Education Adjustment
-    // Less education usually correlates with slower TMT speeds.
-    // If education < 12, we allow a slightly longer time (reduce effective seconds).
-    let adjustedSeconds = seconds;
-    if (educationYears < 12) {
-        adjustedSeconds = seconds * 0.9; // Apply 10% handicap/bonus
-    }
-
-    // 3. Score Calculation (Linear mapping)
-    // If time <= baseline, score is 85-100.
-    // If time >= cutoff, score is 0-40.
+    // 1. Calculate METs for each domain
+    // Work
+    const workVigorousMETs = getVal('vigorous_work_days') * getVal('vigorous_work_time') * 8.0;
+    const workModerateMETs = getVal('moderate_work_days') * getVal('moderate_work_time') * 4.0;
     
+    // Transport (Always Moderate)
+    const transportMETs = getVal('transport_days') * getVal('transport_time') * 4.0;
+    
+    // Recreation
+    const recVigorousMETs = getVal('vigorous_rec_days') * getVal('vigorous_rec_time') * 8.0;
+    const recModerateMETs = getVal('moderate_rec_days') * getVal('moderate_rec_time') * 4.0;
+
+    const totalMETs = workVigorousMETs + workModerateMETs + transportMETs + recVigorousMETs + recModerateMETs;
+
+    // 2. Determine Activity Level
+    let level: 'HIGH' | 'MODERATE' | 'LOW' = 'LOW';
+
+    const totalVigorousDays = getVal('vigorous_work_days') + getVal('vigorous_rec_days');
+    const totalVigorousMinutes = (getVal('vigorous_work_days') * getVal('vigorous_work_time')) + (getVal('vigorous_rec_days') * getVal('vigorous_rec_time'));
+    
+    // Criteria for HIGH:
+    // (a) Vigorous-intensity activity on at least 3 days and accumulating at least 1500 MET-minutes/week OR
+    // (b) 7 or more days of any combination of walking, moderate- or vigorous-intensity activities accumulating at least 3000 MET-minutes/week
+    const condHigh1 = totalVigorousDays >= 3 && totalMETs >= 1500;
+    const condHigh2 = totalMETs >= 3000;
+    
+    // Criteria for MODERATE:
+    // (a) 3 days of vigorous activity of at least 20 minutes per day OR
+    // (b) 5 days of moderate-intensity activity or walking of at least 30 minutes per day OR
+    // (c) 5 days of any combination achieving at least 600 MET-minutes/week.
+    // Simplified check for app:
+    const condMod3 = totalMETs >= 600;
+
+    if (condHigh1 || condHigh2) {
+        level = 'HIGH';
+    } else if (condMod3) {
+        level = 'MODERATE';
+    } else {
+        level = 'LOW';
+    }
+
+    return {
+        totalMETs: Math.round(totalMETs),
+        level,
+        breakdown: {
+            workMETs: Math.round(workVigorousMETs + workModerateMETs),
+            transportMETs: Math.round(transportMETs),
+            recMETs: Math.round(recVigorousMETs + recModerateMETs)
+        }
+    };
+};
+
+// --- SBQ Scoring Logic ---
+export const calculateSBQScore = (answers: Record<string, any>): SBQResult => {
+    let wdSum = 0;
+    let weSum = 0;
+
+    // Iterate items 0-8 (9 items)
+    for (let i = 0; i < 9; i++) {
+        wdSum += (answers[`sbq_wd_${i}`] || 0);
+        weSum += (answers[`sbq_we_${i}`] || 0);
+    }
+
+    const avgDaily = Math.round(((wdSum * 5) + (weSum * 2)) / 7);
+    
+    // Risk: > 8 hours (480 mins) on weekdays is high risk
+    return {
+        weekdayMinutes: wdSum,
+        weekendMinutes: weSum,
+        averageDailyMinutes: avgDaily,
+        risk: wdSum > 480 ? 'SEDENTARY_DANGER' : 'NORMAL'
+    };
+};
+
+// ... (Rest of existing functions: TMTB, MMSE, MoCA, CDR, etc. keep as is)
+export const calculateTMTBScore = (seconds: number, age: number = 60, educationYears: number = 12): { score: number; rating: string } => {
+    let baselineMean = 75; 
+    let cutoff = 180;
+
+    if (age < 35) { baselineMean = 45; cutoff = 90; } 
+    else if (age < 55) { baselineMean = 60; cutoff = 120; } 
+    else if (age < 70) { baselineMean = 75; cutoff = 180; } 
+    else { baselineMean = 95; cutoff = 240; }
+
+    let adjustedSeconds = seconds;
+    if (educationYears < 12) { adjustedSeconds = seconds * 0.9; }
+
     let score = 0;
     if (adjustedSeconds <= baselineMean) {
-        // Excellent to Normal: Map [0, baseline] to [100, 85]
         score = 100 - ((adjustedSeconds / baselineMean) * 15);
     } else {
-        // Normal to Impaired: Map [baseline, cutoff] to [85, 40]
-        // Anything beyond cutoff drops below 40 rapidly
         const range = cutoff - baselineMean;
         const over = adjustedSeconds - baselineMean;
         score = 85 - ((over / range) * 45);
     }
-
-    // Clamp score
     score = Math.floor(Math.max(0, Math.min(100, score)));
 
-    // 4. Rating
     let rating = 'NORMAL';
     if (score < 40) rating = 'IMPAIRED (SEVERE)';
     else if (score < 60) rating = 'IMPAIRED (MILD)';
@@ -197,24 +271,16 @@ export const calculateTMTBScore = (seconds: number, age: number = 60, educationY
     return { score, rating };
 };
 
-// ... (Existing scale calculations: MMSE, MoCA, CDR, ADL, EPDS retained) ...
 export const calculateMMSEScore = (answers: Record<string, any>): { score: number; breakdown: any } => {
     let score = 0;
     const breakdown = { orientation: 0, registration: 0, attention: 0, recall: 0, language: 0 };
-    // Orientation (10)
     ['ori_time_year', 'ori_time_season', 'ori_time_month', 'ori_time_date', 'ori_time_day',
      'ori_place_province', 'ori_place_district', 'ori_place_street', 'ori_place_floor', 'ori_place_spot']
      .forEach(k => { if (answers[k] === 1) { score++; breakdown.orientation++; } });
-    // Registration (3)
     ['reg_ball', 'reg_flag', 'reg_tree'].forEach(k => { if (answers[k] === 1) { score++; breakdown.registration++; } });
-    // Attention (5)
     const targets = [93, 86, 79, 72, 65];
-    for (let i = 1; i <= 5; i++) {
-        if (parseFloat(answers[`calc_${i}`]) === targets[i-1]) { score++; breakdown.attention++; }
-    }
-    // Recall (3)
+    for (let i = 1; i <= 5; i++) { if (parseFloat(answers[`calc_${i}`]) === targets[i-1]) { score++; breakdown.attention++; } }
     ['recall_ball', 'recall_flag', 'recall_tree'].forEach(k => { if (answers[k] === 1) { score++; breakdown.recall++; } });
-    // Language (9)
     ['lang_name_watch', 'lang_name_pencil', 'lang_repetition', 'lang_read', 'lang_write', 'lang_draw',
      'lang_command_take', 'lang_command_fold', 'lang_command_put']
      .forEach(k => { if (answers[k] === 1) { score++; breakdown.language++; } });
@@ -241,10 +307,7 @@ export const calculateMoCAScore = (answers: Record<string, any>): { score: numbe
     const eduYears = parseFloat(answers['years_of_education'] || answers['education_years'] || '13');
     let finalScore = rawScore;
     let appliedCorrection = false;
-    if (eduYears <= 12 && rawScore < 30) {
-        finalScore = Math.min(30, rawScore + 1);
-        appliedCorrection = true;
-    }
+    if (eduYears <= 12 && rawScore < 30) { finalScore = Math.min(30, rawScore + 1); appliedCorrection = true; }
     return { score: finalScore, rawScore, appliedCorrection };
 };
 
@@ -268,9 +331,7 @@ export const calculateCDRGlobal = (answers: Record<string, any>): { globalScore:
     else {
         const countEqualM = secondaries.filter(s => s === M).length;
         const countHigher = secondaries.filter(s => s > M).length;
-        if (countEqualM >= 3 || countHigher >= 3) {
-            cdr = M;
-        } else {
+        if (countEqualM >= 3 || countHigher >= 3) { cdr = M; } else {
             const countLower = secondaries.filter(s => s < M).length;
             if (countLower >= 3) cdr = M; 
         }
@@ -281,14 +342,10 @@ export const calculateCDRGlobal = (answers: Record<string, any>): { globalScore:
 export const calculateADLScore = (answers: Record<string, any>): { barthel: number; lawton: number; risk: string } => {
     let barthel = 0;
     ['adl_feeding', 'adl_bathing', 'adl_grooming', 'adl_dressing', 'adl_bowel', 'adl_bladder', 
-     'adl_toilet', 'adl_transfer', 'adl_mobility', 'adl_stairs'].forEach(k => {
-         barthel += (answers[k] || 0);
-     });
+     'adl_toilet', 'adl_transfer', 'adl_mobility', 'adl_stairs'].forEach(k => { barthel += (answers[k] || 0); });
     let lawton = 0;
     ['iadl_phone', 'iadl_shopping', 'iadl_food', 'iadl_housework', 
-     'iadl_laundry', 'iadl_transport', 'iadl_meds', 'iadl_finance'].forEach(k => {
-         lawton += (answers[k] || 0);
-     });
+     'iadl_laundry', 'iadl_transport', 'iadl_meds', 'iadl_finance'].forEach(k => { lawton += (answers[k] || 0); });
     let risk = "INDEPENDENT";
     if (barthel < 40) risk = "SEVERE_DEPENDENCY";
     else if (barthel < 60 || lawton < 5) risk = "MODERATE_DEPENDENCY";
@@ -296,51 +353,17 @@ export const calculateADLScore = (answers: Record<string, any>): { barthel: numb
     return { barthel, lawton, risk };
 };
 
-export const calculateCognitiveDiagnosis = (
-    mmseRaw: number,
-    mocaRaw: number, 
-    cdrGlobal: number,
-    barthel: number
-): DiagnosisOutput => {
+export const calculateCognitiveDiagnosis = (mmseRaw: number, mocaRaw: number, cdrGlobal: number, barthel: number): DiagnosisOutput => {
     const alerts: string[] = [];
     const recommendations: string[] = [];
-    if (barthel < 60) {
-        alerts.push("⚠️ 护理风险警报：中度功能依赖 (MODERATE_DEPENDENCY)");
-        recommendations.push("需家属 24 小时监护");
-    }
+    if (barthel < 60) { alerts.push("⚠️ 护理风险警报：中度功能依赖 (MODERATE_DEPENDENCY)"); recommendations.push("需家属 24 小时监护"); }
     let diagnosis = "认知功能评估完成";
     let riskLevel: 'LOW' | 'MODERATE' | 'HIGH' = 'LOW';
-    if (mocaRaw < 10 || cdrGlobal >= 2) {
-        diagnosis = "重度认知受损 (Severe Dementia)";
-        riskLevel = "HIGH";
-        alerts.push("符合重度痴呆临床指征");
-        recommendations.push("建议立即前往神经内科记忆门诊就医");
-    } 
-    else if (mocaRaw >= 18 && mocaRaw <= 25) {
-        diagnosis = "轻度认知障碍 (MCI)";
-        riskLevel = "MODERATE";
-        recommendations.push("建议每 6 个月随访一次");
-    } 
-    else if (mocaRaw >= 26 && mmseRaw >= 27) {
-        diagnosis = "认知功能正常 (Normal)";
-        riskLevel = "LOW";
-        recommendations.push("保持健康生活方式，定期自测");
-    } 
-    else {
-        diagnosis = "中度认知受损 (Moderate)";
-        riskLevel = "HIGH";
-        recommendations.push("建议完善头颅 MRI 及血液生化检查");
-    }
-    return {
-        diagnosis,
-        riskLevel,
-        cdrScore: cdrGlobal,
-        mocaScore: mocaRaw,
-        mmseScore: mmseRaw,
-        adlIndex: barthel < 60 ? "DEPENDENT" : "INDEPENDENT",
-        alerts,
-        recommendations
-    };
+    if (mocaRaw < 10 || cdrGlobal >= 2) { diagnosis = "重度认知受损 (Severe Dementia)"; riskLevel = "HIGH"; alerts.push("符合重度痴呆临床指征"); recommendations.push("建议立即前往神经内科记忆门诊就医"); } 
+    else if (mocaRaw >= 18 && mocaRaw <= 25) { diagnosis = "轻度认知障碍 (MCI)"; riskLevel = "MODERATE"; recommendations.push("建议每 6 个月随访一次"); } 
+    else if (mocaRaw >= 26 && mmseRaw >= 27) { diagnosis = "认知功能正常 (Normal)"; riskLevel = "LOW"; recommendations.push("保持健康生活方式，定期自测"); } 
+    else { diagnosis = "中度认知受损 (Moderate)"; riskLevel = "HIGH"; recommendations.push("建议完善头颅 MRI 及血液生化检查"); }
+    return { diagnosis, riskLevel, cdrScore: cdrGlobal, mocaScore: mocaRaw, mmseScore: mmseRaw, adlIndex: barthel < 60 ? "DEPENDENT" : "INDEPENDENT", alerts, recommendations };
 };
 
 export const calculateScaleScore = (scaleDef: ScaleDefinition, answers: Record<number, number>): ClinicalResult => {
@@ -361,8 +384,6 @@ export const calculateScaleScore = (scaleDef: ScaleDefinition, answers: Record<n
 
 export const calculateEPDS = (answers: Record<string, number>): { score: number; isRisk: boolean } => {
     let score = 0;
-    for (let i = 1; i <= 10; i++) {
-        if (typeof answers[`epds_q${i}`] === 'number') score += answers[`epds_q${i}`];
-    }
+    for (let i = 1; i <= 10; i++) { if (typeof answers[`epds_q${i}`] === 'number') score += answers[`epds_q${i}`]; }
     return { score, isRisk: score >= 9 };
 };

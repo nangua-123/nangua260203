@@ -1,8 +1,8 @@
 
 export const EPILEPSY_V0_CONFIG = {
-  "scaleId": "epilepsy_v0",
+  "id": "epilepsy_v0",
   "title": "华西癫痫患者基线调查表 (V0)",
-  "version": "2.0-Clinical-Research",
+  "version": "2.1-CRF-HighAltitude",
   "sections": [
     {
       "id": "env_socio",
@@ -19,6 +19,13 @@ export const EPILEPSY_V0_CONFIG = {
         { "id": "barometric_pressure", "type": "number", "label": "当日气压", "suffix": "mmHg" },
         { "id": "temp_c", "type": "number", "label": "当日温度", "suffix": "℃" },
         { "id": "altitude_exposure_type", "type": "choice", "label": "高原暴露类型", "options": [{ "label": "首次进入", "value": "first" }, { "label": "多次往返", "value": "multiple" }, { "label": "世居", "value": "native" }] },
+        { "id": "first_entry_date", "type": "date", "label": "首次进入高原日期", "visibleIf": { "altitude_exposure_type": ["first", "multiple"] } },
+        { "id": "return_frequency", "type": "choice", "label": "近3个月平原往返次数", "options": [
+            { "label": "1次", "value": 1 },
+            { "label": "2-3次", "value": 2 },
+            { "label": "≥4次", "value": 3 },
+            { "label": "无往返", "value": 0 }
+        ]},
         { "id": "altitude_measures", "type": "multiselect", "label": "防治措施 (多选)", "options": [
             { "label": "吸氧", "value": "oxygen" },
             { "label": "乙酰唑胺", "value": "acetazolamide" },
@@ -35,6 +42,36 @@ export const EPILEPSY_V0_CONFIG = {
       "id": "lifestyle",
       "title": "二、精细生活习惯",
       "fields": [
+        { "id": "water_source", "type": "multiselect", "label": "饮水类型 (多选)", "options": [
+            { "label": "自来水", "value": "tap" },
+            { "label": "桶装水", "value": "barrel" },
+            { "label": "井水", "value": "well" },
+            { "label": "净化水", "value": "purified" },
+            { "label": "纯净水", "value": "distilled" },
+            { "label": "瓶装矿泉水", "value": "mineral" }
+        ]},
+        { "id": "cooking_oil_type", "type": "multiselect", "label": "食用油种类 (多选)", "options": [
+            { "label": "菜籽油", "value": "rapeseed" },
+            { "label": "大豆油", "value": "soybean" },
+            { "label": "花生油", "value": "peanut" },
+            { "label": "橄榄油", "value": "olive" },
+            { "label": "玉米油", "value": "corn" },
+            { "label": "芝麻油", "value": "sesame" },
+            { "label": "动物油", "value": "animal" }
+        ]},
+        { "id": "taste_preference", "type": "multiselect", "label": "口味偏好 (多选)", "options": [
+            { "label": "油腻", "value": "oily" },
+            { "label": "辛辣", "value": "spicy" },
+            { "label": "咸味", "value": "salty" },
+            { "label": "清淡", "value": "light" },
+            { "label": "偏甜", "value": "sweet" }
+        ]},
+        { "id": "food_cravings", "type": "multiselect", "label": "食物嗜好 (多选)", "options": [
+            { "label": "甜食 (冰淇淋等)", "value": "sweets" },
+            { "label": "油炸类", "value": "fried" },
+            { "label": "坚果类", "value": "nuts" },
+            { "label": "无特殊嗜好", "value": "none", "exclusion": true }
+        ]},
         { "id": "tea_habit", "type": "choice", "label": "饮用浓茶/奶茶习惯", "options": [{ "label": "无", "value": 0 }, { "label": "有", "value": 1 }] },
         { "id": "tea_frequency", "type": "choice", "label": "饮茶频率", "visibleIf": { "tea_habit": 1 }, "options": [
             { "label": "每天", "value": 4 },
@@ -54,7 +91,8 @@ export const EPILEPSY_V0_CONFIG = {
             { "label": "主食(粉/面/饭)", "value": "staple" },
             { "label": "烧烤/炸串", "value": "bbq" },
             { "label": "零食/甜点", "value": "snack" },
-            { "label": "饮品/酒水", "value": "drink" }
+            { "label": "饮品/酒水", "value": "drink" },
+            { "label": "水果/蔬菜", "value": "fruit_veg" }
         ]}
       ]
     },
