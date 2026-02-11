@@ -18,6 +18,7 @@ import { useToast } from '../context/ToastContext';
 import { NonDrugToolkit } from '../components/business/headache/NonDrugToolkit';
 import { useRole } from '../hooks/useRole';
 import { NotificationInbox } from '../components/NotificationInbox';
+import { DoctorWorkbench } from '../components/business/doctor/DoctorWorkbench'; // [NEW]
 
 // Declare Chart.js type for TypeScript
 declare const Chart: any;
@@ -135,7 +136,7 @@ const BluetoothPairingModal: React.FC<{ onClose: () => void; onConnected: () => 
 const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavigate, primaryCondition }) => {
   const { state, dispatch } = useApp();
   const { showToast } = useToast(); 
-  const { checkPermission } = useRole(); 
+  const { checkPermission, isDoctor } = useRole(); 
   const { mohAlertTriggered, seizureAlertTriggered } = state; 
 
   const [wavePath, setWavePath] = useState('');
@@ -285,6 +286,11 @@ const HomeView: React.FC<HomeViewProps> = ({ user, riskScore, hasDevice, onNavig
       { label: '亲情号', icon: '👨‍👩‍👧', color: 'text-orange-500', bg: 'bg-orange-50', nav: 'service-family' },
       { label: '租设备', icon: '⌚', color: 'text-purple-500', bg: 'bg-purple-50', nav: 'service-mall' },
   ].filter(item => !isElderly || item.nav !== 'service-mall');
+
+  // [NEW] Doctor Role Redirect
+  if (isDoctor) {
+      return <DoctorWorkbench />;
+  }
 
   return (
     <div className="bg-[#F5F5F5] min-h-screen flex flex-col max-w-[430px] mx-auto overflow-x-hidden pb-safe select-none relative">

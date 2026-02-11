@@ -259,6 +259,14 @@ export const EPILEPSY_V5_CONFIG: FormConfig = {
                 { id: "child_age_month", type: "number", label: "小孩月龄", suffix: "月", validation: { required: true } },
                 { id: "current_height", type: "number", label: "当前身高", suffix: "cm" },
                 { id: "current_weight", type: "number", label: "当前体重", suffix: "kg" },
+                // [NEW] Interactive Tool Trigger Field
+                { 
+                    id: "ddst_trigger", 
+                    type: "info", 
+                    label: "DDST 发育筛查", 
+                    hint: "请点击下方按钮启动交互式筛查工具" 
+                },
+                // Hidden fields populated by tool
                 { id: "ddst_completed", type: "choice", label: "是否完成丹佛发展筛查 (DDST)", options: [{ label: "是", value: true }, { label: "否", value: false }] },
                 { id: "ddst_result", type: "choice", label: "DDST 结果", visibleIf: { ddst_completed: true }, options: [{ label: "正常", value: "NORMAL" }, { label: "可疑", value: "SUSPECT" }, { label: "异常", value: "ABNORMAL" }] },
                 { id: "ddst_abnormal_desc", type: "text", label: "异常发育能区描述", visibleIf: { ddst_result: "ABNORMAL" } }

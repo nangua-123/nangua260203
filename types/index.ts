@@ -11,6 +11,17 @@ export enum AuthProvider {
   ALIPAY = 'ALIPAY'
 }
 
+// [NEW] 医生批注/医嘱
+export interface DoctorNote {
+    id: string;
+    doctorId: string;
+    doctorName: string;
+    content: string; // 批注内容
+    timestamp: number;
+    type: 'ADVICE' | 'WARNING' | 'PRESCRIPTION_ADJUSTMENT' | 'REPORT_VERIFICATION';
+    relatedReportId?: string; // 关联的报告ID
+}
+
 // [NEW] 医嘱任务类型
 export interface MedicalOrder {
     id: string;
@@ -22,6 +33,21 @@ export interface MedicalOrder {
     targetView: AppView; // 跳转目标
     issuedAt: number;
     doctorName: string;
+}
+
+// [NEW] 医生工作台任务
+export interface DoctorTask {
+    id: string;
+    type: 'RENTAL_APPROVAL' | 'RISK_ALERT' | 'REFERRAL_AUDIT' | 'PRESCRIPTION_RENEWAL' | 'REPORT_REVIEW'; // [UPDATED] Added REPORT_REVIEW
+    patientId: string;
+    patientName: string;
+    avatar?: string;
+    title: string;
+    description: string;
+    timestamp: number;
+    priority: 'URGENT' | 'HIGH' | 'NORMAL';
+    status: 'PENDING' | 'COMPLETED' | 'REJECTED';
+    meta?: any; // 附加数据 (e.g. 租赁方案ID, 预警数值, AI报告摘要)
 }
 
 // [NEW] 填表人身份 (用于动态文案替换)
@@ -97,13 +123,17 @@ export interface IoTStats {
   lastUpdated: number;
 }
 
-// [NEW] HaaS 设备信息
+// [NEW] HaaS 设备信息 (Enhanced)
 export interface DeviceInfo {
   deviceId: string;
   modelName: string;
   batteryLevel: number;
   rentalExpireDate: number;
-  status: 'ONLINE' | 'OFFLINE' | 'CHARGING';
+  status: 'ONLINE' | 'OFFLINE' | 'CHARGING' | 'UPDATING'; // [UPDATED] Added UPDATING
+  firmwareVersion: string; // [NEW]
+  lowPowerMode: boolean;   // [NEW]
+  pendingDataSize: number; // [NEW] MB
+  lastSyncTime: number;    // [NEW]
 }
 
 // [NEW] 认知训练单次记录 (EMPI 归档结构)
@@ -420,6 +450,9 @@ export interface User {
   
   // [NEW] 医嘱任务列表
   medicalOrders?: MedicalOrder[];
+  
+  // [NEW] 医生批注历史
+  doctorNotes?: DoctorNote[];
 
   // 角色特定字段
   associatedPatientId?: string; // 家属角色：关联的患者ID

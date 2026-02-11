@@ -88,6 +88,14 @@ const PatientJourneyTimeline: React.FC<{ user: User; onStartAssessment: (type: D
         }
     };
 
+    // [NEW] Helper for Node Icon
+    const getNodeIcon = (id: string, isCompleted: boolean) => {
+        if (id === 'V0') return '🏁'; // Flag
+        if (id === 'V4') return '👶'; // Baby
+        if (id === 'V5') return '📏'; // Ruler (Growth)
+        return isCompleted ? '✅' : '🤰'; // Check or Pregnant Woman
+    };
+
     return (
         <div className="bg-white rounded-[24px] p-5 shadow-sm border border-slate-100 mb-4">
             <div className="flex justify-between items-center mb-4">
@@ -102,7 +110,10 @@ const PatientJourneyTimeline: React.FC<{ user: User; onStartAssessment: (type: D
 
                 {timelineData.map((node) => (
                     <div key={node.id} className="flex gap-4 mb-6 relative group">
-                        <div className={`w-5 h-5 rounded-full border-4 shrink-0 z-10 ${node.status === 'COMPLETED' ? 'bg-emerald-500 border-emerald-100' : node.isCurrent ? 'bg-white border-brand-500 ring-2 ring-brand-100' : 'bg-slate-200 border-slate-50'}`}></div>
+                        {/* Node Icon Circle */}
+                        <div className={`w-6 h-6 rounded-full border-2 shrink-0 z-10 flex items-center justify-center text-[10px] bg-white ${node.status === 'COMPLETED' ? 'border-emerald-500' : node.isCurrent ? 'border-brand-500 ring-2 ring-brand-100' : 'border-slate-200 grayscale'}`}>
+                            {getNodeIcon(node.id, node.status === 'COMPLETED')}
+                        </div>
                         
                         <div className="flex-1 -mt-1">
                             <div className="flex justify-between items-start">
@@ -120,9 +131,9 @@ const PatientJourneyTimeline: React.FC<{ user: User; onStartAssessment: (type: D
                                             onClick={() => onStartAssessment(DiseaseType.EPILEPSY)}
                                             className="text-[0.6rem] bg-brand-600 text-white px-2 py-1 rounded-full font-bold shadow-sm active:scale-95 transition-all"
                                         >
-                                            开始评估
+                                            {node.id === 'V0' ? '建立档案' : '开始评估'}
                                         </button>
-                                        {/* Show TDM upload only if not V0 (V0 uses integrated form) */}
+                                        {/* Show TDM upload only if not V0 and not special nodes (V4/V5 have specific forms, but can supplement TDM) */}
                                         {node.id !== 'V0' && (
                                             <button 
                                                 onClick={() => !isUploading && handleCameraClick(node.id)}
@@ -140,10 +151,15 @@ const PatientJourneyTimeline: React.FC<{ user: User; onStartAssessment: (type: D
                                 )}
                             </div>
                             
-                            {/* Metadata Display (e.g. TDM result) */}
+                            {/* Metadata Display (e.g. TDM result or DDST alert) */}
                             {node.data?.tdm_value && (
-                                <div className="mt-1.5 bg-slate-50 p-1.5 rounded-lg text-[0.6rem] text-slate-500 inline-block border border-slate-100 animate-fade-in">
+                                <div className="mt-1.5 bg-slate-50 p-1.5 rounded-lg text-[0.6rem] text-slate-500 inline-block border border-slate-100 animate-fade-in mr-2">
                                     💊 浓度: {node.data.tdm_value} ug/ml
+                                </div>
+                            )}
+                            {node.data?.ddst_result && node.data.ddst_result !== 'NORMAL' && (
+                                <div className="mt-1.5 bg-red-50 p-1.5 rounded-lg text-[0.6rem] text-red-500 inline-block border border-red-100 animate-fade-in font-bold">
+                                    🚨 发育预警 (DDST)
                                 </div>
                             )}
                         </div>

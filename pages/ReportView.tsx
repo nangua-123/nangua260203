@@ -7,6 +7,7 @@ import { useToast } from '../context/ToastContext';
 import { useApp } from '../context/AppContext';
 import { ReferralSystem } from '../components/business/ReferralSystem';
 import { calculateCSI, CSIResult, calculateGPAQScore, calculateSBQScore, GPAQResult, SBQResult } from '../utils/scoringEngine';
+import { HealthSummaryCard } from '../components/business/report/HealthSummaryCard'; // [NEW] Import
 
 // Declare Chart.js type for TypeScript
 declare const Chart: any;
@@ -51,9 +52,9 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
   const [chartMode, setChartMode] = useState<'SHORT_TERM' | 'LONG_TERM'>('SHORT_TERM');
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const radarRef = useRef<HTMLCanvasElement>(null); // [NEW] Ref for Radar Chart
+  const radarRef = useRef<HTMLCanvasElement>(null); 
   const chartInstance = useRef<any>(null);
-  const radarInstance = useRef<any>(null); // [NEW] Instance for Radar
+  const radarInstance = useRef<any>(null); 
 
   // 0分代表未测评/基础模式 -> 低风险处理
   const actualScore = score || 5; 
@@ -96,9 +97,6 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
       if (diseaseType !== DiseaseType.EPILEPSY) return null;
       const schedule = user.epilepsyProfile?.followUpSchedule || [];
       const completed = schedule.filter(s => s.status === 'COMPLETED').sort((a, b) => a.targetDate - b.targetDate);
-      
-      // If mock profile exists, we want to show it even if schedule is sparse, but schedule logic should handle it.
-      // With MOCK_EPILEPSY_PROFILE in AppContext, this should populate.
       
       if (completed.length === 0 && !user.epilepsyProfile?.baselineDate) return null;
       
@@ -162,7 +160,6 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
         const ctx = canvasRef.current.getContext('2d');
         let config: any = {};
         
-        // Ant Design Style Config
         const commonOptions = {
             responsive: true, 
             maintainAspectRatio: false,
@@ -228,7 +225,7 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
     return () => { if (chartInstance.current) chartInstance.current.destroy(); };
   }, [actualScore, diseaseType, shortTermData, longTermData, chartMode]);
 
-  // --- Radar Chart Rendering (Metabolic) ---
+  // --- Radar Chart Rendering ---
   useEffect(() => {
       if (gpaqResult && radarRef.current && typeof Chart !== 'undefined') {
           if (radarInstance.current) radarInstance.current.destroy();
@@ -241,7 +238,7 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
                   datasets: [{
                       label: '代谢当量 (METs)',
                       data: [gpaqResult.breakdown.workMETs, gpaqResult.breakdown.transportMETs, gpaqResult.breakdown.recMETs],
-                      backgroundColor: 'rgba(22, 119, 255, 0.2)', // Ant Blue 6
+                      backgroundColor: 'rgba(22, 119, 255, 0.2)', 
                       borderColor: '#1677FF',
                       pointBackgroundColor: '#1677FF',
                       pointBorderColor: '#fff',
@@ -257,7 +254,7 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
                       r: {
                           angleLines: { display: true, color: 'rgba(0,0,0,0.05)' },
                           grid: { color: 'rgba(0,0,0,0.05)' },
-                          ticks: { display: false, backdropColor: 'transparent' }, // Clean look
+                          ticks: { display: false, backdropColor: 'transparent' }, 
                           pointLabels: { font: { size: 10, weight: 'bold' }, color: '#64748B' },
                           suggestedMin: 0,
                           suggestedMax: 1000 
@@ -313,6 +310,9 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
         <div id="medical-report-container" className="px-4 -mt-20 relative z-10 space-y-4 animate-slide-up">
             <div className="hidden print:block text-center border-b-2 border-slate-800 pb-4 mb-6 pt-4"><h1 className="text-2xl font-serif font-bold tracking-widest">四川大学华西医院</h1><h2 className="text-sm font-bold uppercase mt-1 text-slate-600">神经内科专科电子病历</h2><div className="flex justify-between mt-4 text-xs font-mono text-slate-500"><span>ID: {user.id.split('_')[1]}</span><span>Date: {new Date().toLocaleDateString()}</span></div></div>
 
+            {/* [NEW] AI Health Summary Card */}
+            <HealthSummaryCard user={user} riskScore={actualScore} diseaseType={diseaseType} />
+
             {/* Main Chart Card (Rounded-2xl) */}
             <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 print:shadow-none print:border-2 print:border-slate-800">
                 <div className="flex justify-between items-center mb-4">
@@ -329,6 +329,7 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
                 <div className="mt-2 text-[10px] text-slate-400 text-center italic no-print">{chartMode === 'LONG_TERM' ? '*数据源自您的临床随访记录 (Follow-up)' : `*数据源自您的真实打卡记录 (N=${diseaseType === DiseaseType.MIGRAINE ? (user.medicationLogs?.length||0) : (user.epilepsyProfile?.seizureHistory?.length||0)})`}</div>
             </div>
 
+            {/* CSI Score Cards */}
             <div className="grid grid-cols-2 gap-3 print:grid-cols-2 print:gap-4">
                 <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 print:border-slate-300"><div className="text-[10px] text-slate-400 font-bold uppercase mb-1">CSI 稳定性指数</div><div className={`text-2xl font-black ${csiResult.score < 60 ? 'text-[#FF4D4F]' : 'text-[#52C41A]'}`}>{csiResult.score}<span className="text-[10px] ml-1 text-slate-400 font-normal">/ 100</span></div><div className="text-[10px] text-slate-500 mt-1">{csiResult.trend === 'STABLE' ? '病情稳定' : csiResult.trend === 'FLUCTUATING' ? '存在波动' : '恶化趋势'}</div></div>
                 <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 print:border-slate-300"><div className="text-[10px] text-slate-400 font-bold uppercase mb-1">关键预警指标</div><div className="text-sm font-black text-slate-800">{csiResult.flags.length > 0 ? csiResult.flags[0] : '无异常风险标记'}</div>{csiResult.flags.length > 1 && (<div className="text-[10px] text-[#FF4D4F] mt-1 font-bold">+{csiResult.flags.length - 1} 个其他风险项</div>)}</div>
@@ -347,7 +348,6 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        {/* GPAQ Radar */}
                         <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100 relative overflow-hidden">
                             {gpaqResult && (
                                 <>
@@ -362,7 +362,6 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
                             )}
                         </div>
 
-                        {/* SBQ Sedentary */}
                         <div className="flex flex-col gap-3">
                             {sbqResult && (
                                 <div className={`flex-1 p-3 rounded-xl border flex flex-col justify-center ${sbqResult.risk === 'SEDENTARY_DANGER' ? 'bg-orange-50 border-orange-100' : 'bg-slate-50 border-slate-100'}`}>
@@ -380,40 +379,14 @@ const ReportView: React.FC<ReportViewProps> = ({ score, diseaseType, onBackToHom
                 </div>
             )}
 
-            {diseaseType === DiseaseType.EPILEPSY && researchData && (
-                <div className={`bg-white rounded-2xl p-5 shadow-sm border border-slate-100 print:border-slate-300 relative overflow-hidden ${isHighAltitudeRisk ? 'ring-2 ring-red-100' : ''}`}>
-                    <div className="flex justify-between items-center mb-4 relative z-10"><h4 className="text-[14px] font-black text-slate-800 flex items-center gap-2"><span>🏔️</span> 高原环境因子</h4>{isHighAltitudeRisk && (<span className="text-[10px] bg-red-50 text-[#FF4D4F] px-2 py-0.5 rounded font-bold border border-red-100">环境高危</span>)}</div>
-                    <div className="grid grid-cols-2 gap-4 relative z-10">
-                        <div className="bg-blue-50 p-3 rounded-xl border border-blue-100"><div className="text-[10px] text-blue-400 font-bold mb-1">环境因子</div><div className="text-xs font-black text-blue-900">海拔 {researchData.demographics.altitude}m</div><div className="text-[10px] text-blue-600 mt-1">气压 {researchData.demographics.pressure || 1000}mmHg</div></div>
-                        <div className="bg-orange-50 p-3 rounded-xl border border-orange-100"><div className="text-[10px] text-orange-400 font-bold mb-1">饮食偏好</div><div className="text-[10px] font-bold text-orange-900 leading-tight">{getLabels((state.assessmentDraft?.answers?.taste_preference as string[]) || [])}</div><div className="text-[10px] text-orange-600 mt-1 truncate">{getLabels((state.assessmentDraft?.answers?.cooking_oil_type as string[]) || [])}</div></div>
-                    </div>
-                    {isHighAltitudeRisk && (<div className="mt-3 p-3 bg-red-50 rounded-xl border border-red-100 relative z-10"><div className="text-[10px] font-bold text-[#FF4D4F] flex items-center gap-1 mb-1">⚠️ 检测到频繁往返平原风险</div><p className="text-[10px] text-red-600 leading-relaxed">近3个月往返平原次数 ≥4次。海拔急剧变化可能降低癫痫发作阈值。</p></div>)}
-                    <div className="absolute -right-4 -bottom-4 text-8xl opacity-5 pointer-events-none">🏔️</div>
-                </div>
-            )}
-
-            {risk === RiskLevel.HIGH && (
-                <>
-                    <div onClick={() => setShowPassport(true)} className="bg-white rounded-2xl p-6 shadow-xl border-t-4 border-[#FF4D4F] text-center relative overflow-hidden active:scale-95 transition-transform cursor-pointer group">
-                        <div className="absolute top-2 right-2 text-[10px] bg-red-50 text-[#FF4D4F] px-2 py-0.5 rounded font-bold group-hover:bg-red-100 transition-colors">点击打开通行证</div>
-                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Digital Living Record</div>
-                        <div className="w-48 h-48 bg-slate-900 mx-auto rounded-xl p-3 flex items-center justify-center mb-4 shadow-lg relative"><div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/10 to-transparent w-full h-full animate-[scan_2s_infinite]"></div><div className="w-full h-full bg-slate-800 rounded flex flex-col items-center justify-center text-white gap-2"><span className="text-4xl animate-pulse">🔒</span><span className="text-[10px] font-mono text-slate-400">AES-256 ENCRYPTED</span></div></div>
-                        <div className="text-sm font-black text-slate-800">数字活病历通行证</div>
-                        <p className="text-[10px] text-slate-500 mt-1 mb-4">医师扫码可获取：MRI影像、用药史、认知量表详情</p>
-                    </div>
-                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100"><h4 className="font-black text-slate-800 text-sm mb-3 flex items-center gap-2"><span>🏥</span> 推荐协作医院 (LBS 匹配)</h4><div className="p-3 bg-slate-50 rounded-xl mb-3"><div className="font-bold text-xs text-slate-800">四川大学华西医院 (本部)</div><div className="text-[10px] text-slate-500 mt-1">距离 2.3km · 神经内科 · 专家号源充足</div><div className="mt-2 flex gap-2"><span className="text-[10px] border border-slate-200 px-1 rounded text-slate-400">三甲</span><span className="text-[10px] border border-slate-200 px-1 rounded text-slate-400">医保定点</span></div></div></div>
-                </>
-            )}
-
-            {risk !== RiskLevel.HIGH && (
-                <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col items-center text-center"><div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center text-3xl mb-3">🍃</div><h3 className="font-black text-slate-800 text-sm">享受基础免费管理服务</h3><p className="text-[11px] text-slate-500 mt-1 leading-relaxed px-4 mb-4">您的风险处于可控范围，App 将为您提供全免费的日常健康管理支持。</p><div className="grid grid-cols-2 gap-3 w-full"><Button variant="outline" className="text-xs bg-slate-50 border-slate-200" onClick={onBackToHome}>💊 用药提醒</Button><Button variant="outline" className="text-xs bg-slate-50 border-slate-200" onClick={onBackToHome}>📝 症状打卡</Button></div></div>
-            )}
-
+            {/* Recommendation Footer */}
             <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 print:border-slate-300"><h4 className="text-[14px] font-black text-slate-800 mb-3 flex items-center gap-2"><span>👨‍⚕️</span> 华西专家诊疗建议</h4><div className="text-[11px] leading-relaxed text-slate-600 space-y-2 text-justify"><p><span className="font-bold text-slate-800">1. 诊断印象：</span> {lastDiagnosis?.reason || `CSI指数(${csiResult.score})提示${csiResult.trend === 'STABLE' ? '病情平稳' : '病情波动，需警惕药物依赖或发作频率'}`}</p><p><span className="font-bold text-slate-800">2. 干预建议：</span>{csiResult.score < 60 ? '目前病情控制不佳，系统已自动为您生成“血药浓度监测”医嘱，请尽快执行。' : '病情相对平稳，请继续保持当前生活方式，注意避免已知诱因。'}</p></div></div>
+            
             <div className="hidden print:block mt-8 text-center"><div className="border-t border-slate-300 pt-4 text-[9px] text-slate-500 flex justify-between"><span>医师签名: ________________</span><span>打印日期: {new Date().toLocaleDateString()}</span></div></div>
             <Button fullWidth onClick={onBackToHome} className="bg-slate-800 shadow-xl py-4 no-print">返回首页</Button>
         </div>
 
+        {/* Modals */}
         {showEmergencyModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/95 backdrop-blur-sm animate-fade-in"><div className="bg-white w-full max-w-sm rounded-[32px] p-6 text-center shadow-2xl relative overflow-hidden border-t-8 border-[#FF4D4F]"><div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center text-3xl mx-auto mb-4 animate-pulse">🚨</div><h3 className="text-xl font-black text-slate-900 mb-2">紧急就诊提醒</h3><p className="text-xs text-slate-600 leading-relaxed mb-6 font-medium text-justify px-2">基于您的深度测评及历史数据，系统检测到<span className="text-[#FF4D4F] font-bold">高风险指征</span>。<br/>{csiResult.flags.length > 0 && <span className="block mt-2 bg-red-50 text-[#FF4D4F] p-2 rounded text-[10px] font-bold">原因: {csiResult.flags.join('; ')}</span>}</p><div className="space-y-3"><Button fullWidth onClick={() => setShowEmergencyModal(false)} className="bg-[#FF4D4F] hover:bg-red-700 shadow-red-500/30 border-none text-white">我已知晓，查看就医凭证</Button></div></div></div>
         )}

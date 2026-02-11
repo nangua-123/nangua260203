@@ -4,6 +4,7 @@ import { usePayment } from '../../../hooks/usePayment';
 import { useApp } from '../../../context/AppContext';
 import { useToast } from '../../../context/ToastContext';
 import { PaywallModal } from '../payment/PaywallModal';
+import { PharmacistReviewModal } from '../safety/PharmacistReviewModal';
 
 interface PrescriptionData {
   doctor: string;
@@ -47,6 +48,10 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
   const [showPayModal, setShowPayModal] = useState(false);
   const [showMOHModal, setShowMOHModal] = useState(false); 
   const [dailyMedsTaken, setDailyMedsTaken] = useState(false);
+  
+  // [NEW] Safety Review State
+  const [showPharmacistReview, setShowPharmacistReview] = useState(false);
+  const [pendingDrug, setPendingDrug] = useState<string | null>(null);
 
   // 权益校验：是否已购买“偏头痛1元破冰”或“偏头痛VIP”
   const isUnlocked = hasFeature('ICE_BREAKING_MIGRAINE') || hasFeature('VIP_MIGRAINE');
@@ -101,13 +106,14 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
     }).slice(0, 2); 
   }, [factors]);
 
-  const executeLogMedication = () => {
+  // Actual Commit Action
+  const executeLogMedication = (drugName: string, dosage: string) => {
       // [NEW] Construct Payload with Compliance Fields
       const logPayload = {
           id: Date.now().toString(),
           timestamp: Date.now(),
-          drugName: prescription.preventative.name,
-          dosage: prescription.preventative.dosage,
+          drugName: drugName,
+          dosage: dosage,
           painLevel: 5, // Legacy
           
           // [COMPLIANCE] Mandatory Research Fields (Simulated from sensors/user input)
@@ -119,7 +125,6 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
       // Trigger warning if core research fields are missing
       if (logPayload.painScale === undefined || !logPayload.concomitantSymptoms) {
           showToast("Data_Quality_Warning: Missing core fields (NRS/Symptoms)", 'error');
-          console.error("Data submission blocked: Incomplete dataset", logPayload);
           return;
       }
 
@@ -129,46 +134,66 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
       });
       const newState = !dailyMedsTaken;
       setDailyMedsTaken(newState);
+      setShowPharmacistReview(false);
+      setPendingDrug(null);
       if (newState) {
           showToast('已记录用药 (含NRS评分)，MOH 风险模型更新中...', 'success');
       }
   };
 
-  // Handle meds click with visual feedback & Data Logging
-  const handleTakeMeds = () => {
+  // Handle meds click -> Trigger Safety Check First
+  const handleTakeMeds = (type: 'preventative' | 'acute') => {
       if (!isUnlocked || isInvalid) return;
       
-      // [Mandatory Logic Update] 强制检索 state.user.medicationLogs 进行 24h 频次校验
+      const targetDrug = type === 'preventative' ? prescription.preventative : prescription.acute;
+
+      // 1. MOH Frequency Check
       const logs = state.user.medicationLogs || [];
       const now = Date.now();
       const oneDay = 24 * 60 * 60 * 1000;
-      
-      // Filter logs within last 24 hours
       const count24h = logs.filter(l => l.timestamp > now - oneDay).length;
       
-      // Assertion: If logs >= 3 in 24h, intercept submission
-      if (count24h >= 3) {
-          // Execution: Direct return and trigger view mode switch
-          if (onMOHViolation) {
-              onMOHViolation();
-          } else {
-              // Fallback (Legacy)
-              setShowMOHModal(true);
-          }
-          return; // Stop submission process
+      if (count24h >= 3 && type === 'acute') {
+          if (onMOHViolation) onMOHViolation();
+          else setShowMOHModal(true);
+          return;
       }
 
-      executeLogMedication();
+      // 2. [NEW] Pharmacist Review Trigger (Safety Layer)
+      // Always trigger review for Acute meds if user has hardware connected (to check vitals)
+      // Or simply simulate it for demo impact if it's the acute drug.
+      if (type === 'acute') {
+          setPendingDrug(targetDrug.name);
+          setShowPharmacistReview(true);
+          return;
+      }
+
+      // Safe preventative meds -> log directly
+      executeLogMedication(targetDrug.name, targetDrug.dosage);
   };
 
   const handleForceRecord = () => {
       setShowMOHModal(false);
-      executeLogMedication();
+      // If forced after MOH warning, still log but maybe flag it.
+      executeLogMedication(prescription.acute.name, prescription.acute.dosage);
   };
 
   const handleTryNonDrug = () => {
       setShowMOHModal(false);
       if (onGuideToNonDrug) onGuideToNonDrug();
+  };
+
+  // Get current vitals from global state
+  const activeId = state.user.currentProfileId || state.user.id;
+  const currentStats = state.user.id === activeId 
+      ? state.user.iotStats 
+      : state.user.familyMembers?.find(m => m.id === activeId)?.iotStats;
+  
+  // Default vitals if offline
+  const vitals = {
+      bpSys: currentStats?.bpSys || 120,
+      bpDia: currentStats?.bpDia || 80,
+      hr: currentStats?.hr || 75
   };
 
   return (
@@ -265,7 +290,7 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
                             </div>
                         </div>
                         <button 
-                            onClick={handleTakeMeds}
+                            onClick={() => handleTakeMeds('preventative')}
                             disabled={isInvalid}
                             className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all active:scale-90 ${dailyMedsTaken ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-slate-50 text-slate-300 hover:bg-slate-100'}`}
                         >
@@ -277,12 +302,21 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
                 {/* 2. 急性期治疗 */}
                 <div className="relative pl-4 border-l-2 border-rose-200">
                     <div className="absolute -left-[5px] top-0 w-2.5 h-2.5 bg-rose-500 rounded-full ring-4 ring-white"></div>
-                    <div>
-                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">急性期终止 (SOS)</h4>
-                        <div className="text-sm font-black text-slate-900 mb-1">{prescription.acute.name}</div>
-                        <div className="text-[11px] text-slate-500 font-medium bg-slate-50 inline-block px-2 py-0.5 rounded">
-                            {prescription.acute.dosage}
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">急性期终止 (SOS)</h4>
+                            <div className="text-sm font-black text-slate-900 mb-1">{prescription.acute.name}</div>
+                            <div className="text-[11px] text-slate-500 font-medium bg-slate-50 inline-block px-2 py-0.5 rounded">
+                                {prescription.acute.dosage}
+                            </div>
                         </div>
+                        <button 
+                            onClick={() => handleTakeMeds('acute')}
+                            disabled={isInvalid}
+                            className="w-10 h-10 rounded-xl flex items-center justify-center transition-all active:scale-90 bg-rose-50 text-rose-500 hover:bg-rose-100"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -333,7 +367,21 @@ export const DigitalPrescription: React.FC<DigitalPrescriptionProps> = ({ highli
             )}
         </div>
 
-        {/* [NEW] MOH Interceptor Modal - Keeping for non-blocking scenarios or as fallback, but main logic now triggers view switch */}
+        {/* [NEW] Pharmacist Review Modal (Safety Layer) */}
+        {showPharmacistReview && pendingDrug && (
+            <PharmacistReviewModal 
+                drugName={pendingDrug}
+                patientVitals={vitals}
+                onApproved={() => executeLogMedication(pendingDrug, prescription.acute.dosage)}
+                onRejected={() => {
+                    setShowPharmacistReview(false);
+                    showToast('用药已被拦截', 'info');
+                }}
+                onClose={() => setShowPharmacistReview(false)}
+            />
+        )}
+
+        {/* [NEW] MOH Interceptor Modal */}
         {showMOHModal && (
             <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-md animate-shake">
                 <div className="bg-white w-full max-w-sm rounded-[32px] p-6 text-center shadow-2xl border-4 border-orange-500 relative overflow-hidden">

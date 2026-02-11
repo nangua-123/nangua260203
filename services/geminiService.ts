@@ -7,14 +7,21 @@
  * 包含：
  * 1. 模拟 LLM 问诊交互 (Mock) - [ENHANCED] 支持语义模糊匹配与严格风险评分
  * 2. 真实 Gemini Vision OCR (Real Integration)
+ * 3. [NEW] 多模态问诊支持 (Image/Video Understanding)
+ * 4. [NEW] 综合健康周报生成 (Text Generation)
  */
 
-import { ChatMessage, DiseaseType, MedicalRecord } from "../types/index";
+import { ChatMessage, DiseaseType, MedicalRecord, User } from "../types/index";
 import { GoogleGenAI } from "@google/genai";
 import { DISEASE_CONTEXT_CONFIG } from "../config/DiseaseContextConfig";
 import { TRIAGE_CONFIG, TriageStep, TriageOption } from "../config/triage_config";
 
 // --- Types & Interfaces ---
+
+export interface ChatAttachment {
+    mimeType: string;
+    data: string; // Base64
+}
 
 interface MockChatSession {
   step: number;        // Visual step progress
@@ -43,12 +50,14 @@ const sanitizeTerminology = (text: string) => {
         .replace(/看病/g, "就诊");
 };
 
-const fileToBase64 = (file: File): Promise<string> => {
+export const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
     reader.onload = () => {
         const result = reader.result as string;
+        // Handle potentially missing prefix if needed, but standard readAsDataURL includes it.
+        // We usually need just the base64 part for Gemini API if using inlineData.
         const base64 = result.split(',')[1];
         resolve(base64);
     };
@@ -59,10 +68,6 @@ const fileToBase64 = (file: File): Promise<string> => {
 /**
  * [NEW] Semantic Matcher
  * Maps colloquial patient terms to clinical options using fuzzy logic.
- * 
- * @param input User's text input
- * @param options Available triage options
- * @returns The best matching option or null
  */
 const semanticMatch = (input: string, options: TriageOption[]): TriageOption | null => {
     const text = input.toLowerCase();
@@ -118,47 +123,85 @@ const semanticMatch = (input: string, options: TriageOption[]): TriageOption | n
 
 // --- Core Logic ---
 
-/**
- * Initialize Chat Session
- */
 export const createChatSession = (systemInstruction: string, diseaseType: DiseaseType = DiseaseType.UNKNOWN): any => {
   return {
     step: 0,
-    totalSteps: 8, // Default, updated after intent recognition
+    totalSteps: 8,
     diseaseType: diseaseType,
     history: [],
-    estimatedRisk: 10, // Baseline risk
-    
-    // Config Init
+    estimatedRisk: 10, 
     configSteps: [],
     currentConfigIndex: -1,
     structuredData: {}
   } as MockChatSession;
 };
 
-/**
- * [CLINICAL_CRITICAL] AI Response Core
- * Refactored to use TRIAGE_CONFIG for decision tree logic with semantic matching.
- */
-export const sendMessageToAI = async (session: MockChatSession, message: string, fullContext: ChatMessage[] = []): Promise<string> => {
-  // Simulate network delay
+export const sendMessageToAI = async (
+    session: MockChatSession, 
+    message: string, 
+    fullContext: ChatMessage[] = [],
+    attachment?: ChatAttachment
+): Promise<string> => {
+  
+  if (attachment) {
+      try {
+          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+          const modelName = 'gemini-3-flash-preview'; 
+          
+          let prompt = message;
+          if (!prompt) {
+              if (attachment.mimeType.startsWith('video')) {
+                  prompt = "请分析这段视频中的运动特征。如果是发作视频，请描述发作类型（如强直、阵挛、自动症）以及持续时间。如果是步态视频，请分析是否存在共济失调或偏瘫步态。";
+              } else {
+                  prompt = "请分析这张医学图片。如果是检查报告，请提取结论；如果是体征照片（如舌苔、面部），请描述可见的异常特征。";
+              }
+          }
+
+          const response = await ai.models.generateContent({
+              model: modelName,
+              contents: {
+                  parts: [
+                      { text: prompt },
+                      { 
+                          inlineData: {
+                              mimeType: attachment.mimeType,
+                              data: attachment.data
+                          }
+                      }
+                  ]
+              },
+              config: {
+                  systemInstruction: "你是一位华西医院的神经内科专家 AI。你的任务是分析上传的影像资料，提取具有临床意义的特征。请保持客观、专业，避免给出确诊结论，而是提供‘可能的临床征象’。",
+                  maxOutputTokens: 500,
+              }
+          });
+
+          const analysis = response.text || "无法解析影像内容，请重新上传清晰文件。";
+          session.history.push(`User sent attachment: ${attachment.mimeType}`);
+          session.history.push(`AI Analysis: ${analysis}`);
+          
+          return `【AI 视觉分析】\n${analysis}\n\n(以上分析仅供参考，请以线下医生查体为准)`;
+
+      } catch (error) {
+          console.error("Gemini Multimodal Error:", error);
+          return "抱歉，影像分析服务暂时不可用，请稍后重试或使用文字描述。";
+      }
+  }
+
+  // --- Standard Text Triage Logic (Mock) ---
   await new Promise(resolve => setTimeout(resolve, 800));
 
   const msg = message.trim();
   let response = "";
 
-  // [Phase 0] Greeting & Triage Start
   if (msg === "开始分诊" || session.step === 0) {
       session.step = 1;
       response = `您好，我是您的专病数字医生。请问您目前最主要的困扰是什么？
 <OPTIONS>记忆力明显下降|反复肢体抽搐/意识丧失|剧烈头痛/偏头痛|其他神经系统不适</OPTIONS>`;
   } 
   else {
-      // [Phase 1] Intent Recognition & Config Loading
       if (session.currentConfigIndex === -1) {
-          
-          // Rule Engine: Map keyword to DiseaseType
-          let detectedType = DiseaseType.MIGRAINE; // Default fallback
+          let detectedType = DiseaseType.MIGRAINE; 
 
           if (/头痛|头晕|偏头痛|胀痛/.test(msg)) {
               detectedType = DiseaseType.MIGRAINE;
@@ -168,16 +211,13 @@ export const sendMessageToAI = async (session: MockChatSession, message: string,
               detectedType = DiseaseType.COGNITIVE;
           }
 
-          // Hydrate Session with Config
           session.diseaseType = detectedType;
           session.configSteps = TRIAGE_CONFIG[detectedType] || [];
-          session.totalSteps = session.configSteps.length + 2; // +2 for intro and ending
-          session.currentConfigIndex = 0; // Point to first question
+          session.totalSteps = session.configSteps.length + 2; 
+          session.currentConfigIndex = 0; 
           
-          // Initial Risk Baseline
           session.estimatedRisk = detectedType === DiseaseType.EPILEPSY ? 30 : 10;
 
-          // Generate Response for the *First* Config Step
           const firstStep = session.configSteps[0];
           const config = DISEASE_CONTEXT_CONFIG[detectedType];
           
@@ -190,34 +230,23 @@ ${firstStep.question}
               response = "抱歉，无法匹配到相关病种路径，请联系人工客服。";
           }
           
-          session.step = 2; // Visual progress
+          session.step = 2; 
       } 
-      // [Phase 2] Config-Driven Triage Loop
       else {
-          // 1. Process *Previous* Step Answer (Calculate Risk)
           const prevStepIndex = session.currentConfigIndex;
           const prevStep = session.configSteps[prevStepIndex];
           
           if (prevStep) {
-              // [ENHANCED] Use Semantic Matching instead of direct string match
               const selectedOption = semanticMatch(msg, prevStep.options);
-              
               if (selectedOption) {
-                  // [LOGIC] Accumulate Risk
                   session.estimatedRisk += selectedOption.riskWeight;
                   session.structuredData[prevStep.id] = selectedOption.value;
-                  
-                  // Critical Flag Check - Strict Penalty (e.g., Status Epilepticus > 30min)
                   if (selectedOption.isCritical) {
                       session.estimatedRisk += 30; 
                   }
-              } else {
-                  // Fallback: If no match, assume low risk but log answer
-                  // In production, we would use LLM to interpret "I don't know" or fuzzy answers
               }
           }
 
-          // 2. Advance to Next Step
           session.currentConfigIndex++;
           const nextStep = session.configSteps[session.currentConfigIndex];
 
@@ -227,10 +256,7 @@ ${firstStep.question}
               response = `${nextStep.question}
 <OPTIONS>${optionsStr}</OPTIONS>`;
           } else {
-              // [Phase 3] Completion & Handover
               const config = DISEASE_CONTEXT_CONFIG[session.diseaseType];
-              
-              // Dynamic Tools Recommendation
               let actionButtons = config.recommendedTools.map(toolId => {
                   switch(toolId) {
                       case 'weather_radar': return '诱因分析';
@@ -255,7 +281,6 @@ ${firstStep.question}
       }
   }
 
-  // Risk Score Clamping
   session.estimatedRisk = Math.min(99, Math.max(5, session.estimatedRisk));
 
   session.history.push(`User: ${msg}`);
@@ -263,14 +288,9 @@ ${firstStep.question}
   return sanitizeTerminology(response);
 };
 
-/**
- * Generate Structured Medical Summary (Triage Analysis)
- * Used for ReportView and Referral Logic
- */
 export const getTriageAnalysis = async (conversationHistory: ChatMessage[], diseaseType: DiseaseType = DiseaseType.MIGRAINE): Promise<string> => {
     await new Promise(resolve => setTimeout(resolve, 1500));
 
-    // Construct summary based on DiseaseType and parsed history keywords
     let risk = 50; 
     let summaryText = "";
     const historyStr = conversationHistory.map(m => m.text).join(' ');
@@ -298,9 +318,6 @@ export const getTriageAnalysis = async (conversationHistory: ChatMessage[], dise
     });
 };
 
-/**
- * Cognitive Game Assessment Generator
- */
 export const generateCognitiveAssessment = async (score: number, accuracy: number, gameType: 'memory' | 'attention'): Promise<{rating: string; advice: string}> => {
     await new Promise(resolve => setTimeout(resolve, 1200));
     let rating = 'B';
@@ -316,14 +333,13 @@ export const generateCognitiveAssessment = async (score: number, accuracy: numbe
     return { rating, advice };
 };
 
-/**
- * [REAL] Medical OCR Processing
- */
 export const processMedicalImage = async (file: File): Promise<MedicalRecord> => {
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const base64Data = await fileToBase64(file);
         
+        // Note: gemini-2.5-flash-image DOES NOT support JSON mode via config.responseMimeType.
+        // We must request JSON in the prompt and parse it manually.
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
             contents: {
@@ -348,7 +364,7 @@ export const processMedicalImage = async (file: File): Promise<MedicalRecord> =>
                         - hemorrhage (出血灶)
                         - scar (瘢痕)
                         - none (无异常/未做)
-                        Return valid JSON ONLY:
+                        Return valid JSON ONLY (No Markdown, No Code Blocks). Structure:
                         { 
                           "reportDate": "YYYY-MM-DD", 
                           "diagnosis": "string (brief conclusion)", 
@@ -359,13 +375,14 @@ export const processMedicalImage = async (file: File): Promise<MedicalRecord> =>
                         If not legible, return diagnosis="Error", riskFactor=0.`
                     }
                 ]
-            },
-            config: {
-                responseMimeType: "application/json"
             }
+            // Removed incorrect config: responseMimeType: "application/json"
         });
 
-        const jsonText = response.text || "{}";
+        let jsonText = response.text || "{}";
+        // Clean up markdown code blocks if the model includes them despite instructions
+        jsonText = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
+        
         const result = JSON.parse(jsonText);
         
         if (!result.diagnosis || result.diagnosis === "Error" || typeof result.riskFactor !== 'number') {
@@ -387,5 +404,74 @@ export const processMedicalImage = async (file: File): Promise<MedicalRecord> =>
     } catch (error) {
         console.error("Gemini Vision Error:", error);
         throw new Error("无法识别该检查单，请确保图片清晰且包含关键指标");
+    }
+};
+
+/**
+ * [NEW] Generate Weekly Health Summary using Gemini
+ * Aggregates user IoT data, logs, and profile info to generate a natural language report.
+ */
+export const generateHealthSummary = async (user: User, riskScore: number, diseaseType: DiseaseType): Promise<string> => {
+    try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        // Use gemini-3-flash-preview for fast text generation
+        const modelName = 'gemini-3-flash-preview';
+
+        // 1. Aggregate Data
+        const oneDay = 86400000;
+        const last7DaysStart = Date.now() - (7 * oneDay);
+        
+        // Vitals snapshot
+        const hr = user.iotStats?.hr || '未知';
+        const bp = user.iotStats?.bpSys && user.iotStats?.bpDia ? `${user.iotStats.bpSys}/${user.iotStats.bpDia}` : '未知';
+        const abn = user.iotStats?.isAbnormal ? '存在异常' : '无明显异常';
+        
+        // Logs
+        let recentEventCount = 0;
+        let recentMedCount = 0;
+        
+        if (diseaseType === DiseaseType.EPILEPSY) {
+            recentEventCount = user.epilepsyProfile?.seizureHistory?.filter(s => s.timestamp > last7DaysStart).length || 0;
+        } else if (diseaseType === DiseaseType.MIGRAINE) {
+            // Count pain logs > 5
+            recentEventCount = user.medicationLogs?.filter(l => l.timestamp > last7DaysStart && (l.painScale || 0) > 5).length || 0;
+        }
+        recentMedCount = user.medicationLogs?.filter(l => l.timestamp > last7DaysStart).length || 0;
+
+        // 2. Construct Prompt
+        const prompt = `
+        Role: You are a senior Neurologist at West China Hospital (华西医院).
+        Task: Generate a "Weekly Health Summary" (健康周报) for a patient.
+        
+        Patient Profile:
+        - Disease Type: ${diseaseType}
+        - Current Risk Score: ${riskScore} (High score > 60 indicates high risk)
+        - Recent Vitals (Avg): HR ${hr} bpm, BP ${bp} mmHg. Status: ${abn}.
+        - Recent Clinical Events (Seizures/Severe Pain): ${recentEventCount} times in last 7 days.
+        - Medication Adherence: Logged ${recentMedCount} times in last 7 days.
+        
+        Requirements:
+        1. Language: Simplified Chinese (Professional yet empathetic).
+        2. Format: Use Markdown.
+           - **本周状态评估**: A brief summary of stability.
+           - **关键数据解读**: Explain the HR, Events, and Meds in clinical context.
+           - **华西专家建议**: Actionable advice based on the risk score and adherence.
+        3. Length: Concise, under 250 words.
+        4. Tone: Encouraging but alert if risk is high.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: modelName,
+            contents: { parts: [{ text: prompt }] },
+            config: {
+                temperature: 0.7, // Creativity balance
+            }
+        });
+
+        return response.text || "无法生成报告，请稍后重试。";
+
+    } catch (error) {
+        console.error("Gemini Summary Gen Error:", error);
+        return "AI 服务暂时繁忙，无法生成周报。请根据图表数据自行监测。";
     }
 };

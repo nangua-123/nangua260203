@@ -6,8 +6,9 @@ import {
     DoctorAssistantProof, MedLog, MedicalRecord, CognitiveTrainingRecord, 
     HealthTrendItem, ReviewReport, ChatMessage, SeizureEvent, EpilepsyProfile, 
     AssessmentDraft, PatientProcessStatus, DeviceInfo, FollowUpSession, FollowUpStatus,
-    MedicalOrder, EpilepsyResearchData
+    MedicalOrder, EpilepsyResearchData, DoctorTask, DoctorNote
 } from '../types';
+import { analyzeChildDevelopment } from '../utils/scoringEngine';
 
 // ... (Security Utils remain same) ...
 const encryptData = (data: any) => data; 
@@ -149,7 +150,8 @@ interface AppState {
   mohAlertTriggered: boolean; 
   seizureAlertTriggered: boolean; 
   assessmentDraft?: AssessmentDraft; 
-  patientStatusMap: Record<string, PatientProcessStatus>; 
+  patientStatusMap: Record<string, PatientProcessStatus>;
+  doctorTasks: DoctorTask[]; // [NEW] Task list for doctors
 }
 
 const INITIAL_STATE: AppState = {
@@ -173,6 +175,7 @@ const INITIAL_STATE: AppState = {
     currentProfileId: 'guest',
     inbox: [],
     medicalOrders: [],
+    doctorNotes: [],
     // [DEMO] Pre-populate with Mock Profile for better Visuals
     epilepsyProfile: MOCK_EPILEPSY_PROFILE
   },
@@ -183,7 +186,8 @@ const INITIAL_STATE: AppState = {
   isSwitching: false,
   mohAlertTriggered: false,
   seizureAlertTriggered: false,
-  patientStatusMap: {} 
+  patientStatusMap: {},
+  doctorTasks: [] 
 };
 
 // --- Actions ---
@@ -199,6 +203,7 @@ type Action =
   | { type: 'UNLOCK_FEATURE'; payload: FeatureKey }
   | { type: 'BIND_HARDWARE'; payload: boolean }
   | { type: 'RENEW_DEVICE'; payload: number }
+  | { type: 'UPDATE_DEVICE_CONFIG'; payload: Partial<DeviceInfo> } // [NEW] Action
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_SWITCHING'; payload: boolean }
   | { type: 'RESET_USER' }
@@ -225,7 +230,10 @@ type Action =
   | { type: 'COMPLETE_MEDICAL_ORDER'; payload: string } 
   | { type: 'SET_BASELINE_DATE'; payload: { id: string; date: number } }
   | { type: 'COMPLETE_FOLLOWUP'; payload: { id: string; visitId: string; data: any; dropOut?: boolean } }
-  | { type: 'UPDATE_RESEARCH_DATA'; payload: { id: string; data: Partial<EpilepsyResearchData> } };
+  | { type: 'UPDATE_RESEARCH_DATA'; payload: { id: string; data: Partial<EpilepsyResearchData> } }
+  | { type: 'INIT_DOCTOR_TASKS'; payload: DoctorTask[] }
+  | { type: 'ADD_DOCTOR_NOTE'; payload: DoctorNote } // [NEW] Action definition
+  | { type: 'COMPLETE_DOCTOR_TASK'; payload: { taskId: string, outcome: 'APPROVED' | 'REJECTED', note?: string } };
 
 // --- Reducer ---
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -255,6 +263,8 @@ const appReducer = (state: AppState, action: Action): AppState => {
     case 'RENEW_DEVICE':
         const newExpire = (state.user.deviceInfo?.rentalExpireDate || Date.now()) + (action.payload * 86400000);
         return { ...state, user: { ...state.user, deviceInfo: state.user.deviceInfo ? { ...state.user.deviceInfo, rentalExpireDate: newExpire } : undefined } };
+    case 'UPDATE_DEVICE_CONFIG':
+        return { ...state, user: { ...state.user, deviceInfo: state.user.deviceInfo ? { ...state.user.deviceInfo, ...action.payload } : undefined } };
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload };
     case 'SET_SWITCHING':
@@ -269,9 +279,9 @@ const appReducer = (state: AppState, action: Action): AppState => {
         const fam = state.user.familyMembers?.map(m => m.id === id ? { ...m, iotStats: stats } : m);
         return { ...state, user: { ...state.user, familyMembers: fam } };
     }
+    // ... (Existing cases kept as is) ...
     case 'UPDATE_COGNITIVE_STATS': {
         const { id, stats } = action.payload;
-        // Simplified cognitive stats update logic
         if (state.user.id === id) return { ...state, user: { ...state.user, cognitiveStats: { ...state.user.cognitiveStats!, ...stats } } };
         return state;
     }
@@ -325,16 +335,97 @@ const appReducer = (state: AppState, action: Action): AppState => {
     }
     case 'COMPLETE_FOLLOWUP': {
         const { id, visitId, data, dropOut } = action.payload;
+        
+        let newInbox = [...(state.user.inbox || [])]; // Prepare for clinical alerts
+
+        // Helper to update specific session inside schedule
         const updateSchedule = (current?: FollowUpSession[]) => {
             if (!current) return [];
-            return current.map(s => {
+            let updatedList = [...current];
+
+            // 1. Mark current session as COMPLETED
+            updatedList = updatedList.map(s => {
                 if (dropOut) return { ...s, status: 'DROPPED_OUT' as FollowUpStatus };
                 if (s.visitId === visitId) return { ...s, status: 'COMPLETED' as FollowUpStatus, completionDate: Date.now(), data: data };
                 return s;
             });
+
+            // 2. Logic Block A (V3 -> V4/V5 Transition)
+            // Trigger: V3 Completed + Pregnancy Outcome = DELIVERED
+            if (visitId === 'V3' && data.pregnancy_outcome === 'DELIVERED') {
+                const now = Date.now();
+                updatedList = updatedList.map(s => {
+                    // Unlock V4 (Postpartum) immediately
+                    if (s.visitId === 'V4') {
+                        return { ...s, status: 'OPEN' as FollowUpStatus, targetDate: now, windowStart: now - 86400000, windowEnd: now + (30 * 86400000) };
+                    }
+                    // Schedule V5 (Child Dev) roughly 6 months from now (refined later by actual delivery date)
+                    if (s.visitId === 'V5') {
+                        const estTarget = now + (180 * 86400000);
+                        return { ...s, status: 'PENDING' as FollowUpStatus, targetDate: estTarget, windowStart: estTarget - (14 * 86400000), windowEnd: estTarget + (14 * 86400000) };
+                    }
+                    return s;
+                });
+            }
+
+            // 3. Logic Block B (V4 -> V5 Refinement)
+            // Trigger: V4 Completed with Delivery Date
+            if (visitId === 'V4' && data.delivery_date) {
+                const deliveryTs = new Date(data.delivery_date).getTime();
+                if (!isNaN(deliveryTs)) {
+                    updatedList = updatedList.map(s => {
+                        if (s.visitId === 'V5') {
+                            const exactTarget = deliveryTs + (180 * 86400000); // 6 months post-delivery
+                            // Check if window is open now?
+                            const now = Date.now();
+                            const isOpen = now >= (exactTarget - 14 * 86400000);
+                            return { 
+                                ...s, 
+                                targetDate: exactTarget, 
+                                windowStart: exactTarget - (14 * 86400000), 
+                                windowEnd: exactTarget + (14 * 86400000),
+                                status: (isOpen ? 'OPEN' : 'PENDING') as FollowUpStatus
+                            };
+                        }
+                        return s;
+                    });
+                }
+            }
+
+            return updatedList;
         };
+
+        // 4. Logic Block C (V5 -> DDST Alert) WITH Historical Context (V4)
+        if (visitId === 'V5') {
+            const v4Session = state.user.epilepsyProfile?.followUpSchedule?.find(s => s.visitId === 'V4');
+            const v4Data = v4Session?.data;
+
+            const childCheck = analyzeChildDevelopment(data, v4Data);
+            
+            if (childCheck.isRisk) {
+                const triggerText = childCheck.riskSource === 'HISTORY' ? '基于母体高危病史' : (childCheck.riskSource === 'BOTH' ? '综合发育迟缓与母体病史' : '基于DDST筛查');
+                newInbox.push({
+                    id: `sys_alert_${Date.now()}`,
+                    role: 'system',
+                    text: `【儿保专家复核建议】V5随访提示：${triggerText}，存在以下风险：${childCheck.alerts.join('；')}。建议携带宝宝前往儿童保健科进行详细发育评估。`,
+                    timestamp: Date.now(),
+                    isClinicalPush: true
+                });
+            }
+        }
+
         if (state.user.id === id) {
-            return { ...state, user: { ...state.user, epilepsyProfile: { ...state.user.epilepsyProfile!, followUpSchedule: updateSchedule(state.user.epilepsyProfile?.followUpSchedule) } } };
+            return { 
+                ...state, 
+                user: { 
+                    ...state.user, 
+                    inbox: newInbox,
+                    epilepsyProfile: { 
+                        ...state.user.epilepsyProfile!, 
+                        followUpSchedule: updateSchedule(state.user.epilepsyProfile?.followUpSchedule) 
+                    } 
+                } 
+            };
         }
         return state;
     }
@@ -347,8 +438,81 @@ const appReducer = (state: AppState, action: Action): AppState => {
     }
     case 'TOGGLE_ELDERLY_MODE':
         return { ...state, user: { ...state.user, isElderlyMode: !state.user.isElderlyMode } };
+    case 'INIT_DOCTOR_TASKS':
+        return { ...state, doctorTasks: action.payload };
+    case 'ADD_DOCTOR_NOTE':
+        // [NEW] Logic to handle adding a doctor note and pushing notification
+        return {
+            ...state,
+            user: {
+                ...state.user,
+                doctorNotes: [action.payload, ...(state.user.doctorNotes || [])],
+                inbox: [
+                    ...(state.user.inbox || []),
+                    {
+                        id: `notif_${action.payload.id}`,
+                        role: 'system',
+                        text: `【医嘱更新】${action.payload.doctorName} 更新了您的诊疗建议。`,
+                        timestamp: Date.now(),
+                        isClinicalPush: true // Highlighting important update
+                    }
+                ]
+            }
+        };
+    case 'COMPLETE_DOCTOR_TASK': {
+        const { taskId, outcome, note } = action.payload;
+        const tasks = state.doctorTasks.map(t => t.id === taskId ? { ...t, status: outcome === 'APPROVED' ? 'COMPLETED' : 'REJECTED' as any } : t);
+        
+        const task = state.doctorTasks.find(t => t.id === taskId);
+        let updatedUser = { ...state.user };
+
+        if (task && outcome === 'APPROVED') {
+            if (task.type === 'RENTAL_APPROVAL' && task.patientId === state.user.id) {
+                // Activate Hardware
+                updatedUser = {
+                    ...state.user,
+                    hasHardware: true,
+                    deviceInfo: {
+                        deviceId: 'HaaS-8829-PRO',
+                        modelName: 'Neuro-Link 癫痫监测贴 (医疗版)',
+                        batteryLevel: 100,
+                        rentalExpireDate: Date.now() + (30 * 24 * 60 * 60 * 1000), // +30 days
+                        status: 'ONLINE',
+                        firmwareVersion: 'v1.0.4',
+                        lowPowerMode: false,
+                        pendingDataSize: 24.5,
+                        lastSyncTime: Date.now() - 86400000
+                    },
+                    inbox: [
+                        ...(state.user.inbox || []),
+                        {
+                            id: `sys_rental_ok_${Date.now()}`,
+                            role: 'system',
+                            text: `【设备开通】您的 HaaS 租赁申请已通过审核。设备 ID: HaaS-8829-PRO 已自动绑定，实时监测服务已激活。`,
+                            timestamp: Date.now()
+                        }
+                    ]
+                };
+            } else if (task.type === 'RISK_ALERT' && task.patientId === state.user.id) {
+                updatedUser = {
+                    ...state.user,
+                    inbox: [
+                        ...(state.user.inbox || []),
+                        {
+                            id: `doc_msg_${Date.now()}`,
+                            role: 'model', 
+                            text: `【医生留言】${note || '已收到您的预警信息，请保持冷静，按刚才沟通的方案执行。如有持续不适，请立即就近就医。'}`,
+                            timestamp: Date.now(),
+                            isClinicalPush: true
+                        }
+                    ]
+                };
+            }
+        }
+
+        return { ...state, doctorTasks: tasks, user: updatedUser };
+    }
     case 'CLEAR_CACHE':
-        // No-op in memory state
         return state;
     default:
       return state;

@@ -18,6 +18,7 @@ import {
     calculateCDRGlobal 
 } from '../utils/scoringEngine';
 import { InteractiveMMSE } from '../components/InteractiveMMSE';
+import { InteractiveDDST } from '../components/InteractiveDDST'; // [NEW] Import
 import { processMedicalImage } from '../services/geminiService'; 
 import CryptoJS from 'crypto-js';
 
@@ -37,8 +38,7 @@ interface AssessmentViewProps {
   onBack: () => void;
 }
 
-// --- Logic Helpers --- (Keep existing helpers: playDigitSequence, playAVLTWords, DelayedRecallSuspension, etc.)
-// ... (Logic Helpers omitted for brevity, assume they exist)
+// ... (Existing Logic Helpers: playDigitSequence, playAVLTWords, DelayedRecallSuspension) ...
 const playDigitSequence = (text: string) => {
     const matches = text.match(/\d+/g);
     if (!matches || matches.length === 0) return;
@@ -133,7 +133,7 @@ const DelayedRecallSuspension: React.FC<{
     );
 };
 
-// ... (Form Engine Sub-components like getLabelText, checkVisibility, checkDSTTermination, FormRenderer)
+// ... (Existing helpers: getLabelText, checkVisibility, checkDSTTermination) ...
 const getLabelText = (label: string, fillerType: FillerType = 'SELF'): string => {
     if (fillerType === 'SELF') return label;
     return label
@@ -180,8 +180,9 @@ const FormRenderer: React.FC<{
     currentSectionIndex: number;
     fillerType: FillerType;
     onLeave: () => void;
-    onTermination?: () => void; 
-}> = ({ config, answers, setAnswer, currentSectionIndex, fillerType, onLeave, onTermination }) => {
+    onTermination?: () => void;
+    onLaunchDDST?: () => void; // [NEW] Callback for DDST
+}> = ({ config, answers, setAnswer, currentSectionIndex, fillerType, onLeave, onTermination, onLaunchDDST }) => {
     const section = config.sections[currentSectionIndex];
     const { showToast } = useToast();
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -272,6 +273,31 @@ const FormRenderer: React.FC<{
             {section.fields.map(field => {
                 if (!checkVisibility(field, answers)) return null;
                 const label = getLabelText(field.label, fillerType);
+                
+                // [NEW] DDST Trigger Renderer
+                if (field.id === 'ddst_trigger') {
+                    return (
+                        <div key={field.id} className="bg-indigo-50 rounded-2xl p-5 text-center border border-indigo-100">
+                            <div className="text-4xl mb-3">👶</div>
+                            <h4 className="text-sm font-black text-slate-800 mb-1">{field.label}</h4>
+                            <p className="text-[10px] text-slate-500 mb-4">{field.hint}</p>
+                            
+                            {answers['ddst_completed'] ? (
+                                <div className="bg-white rounded-xl p-3 flex items-center justify-between border border-slate-100">
+                                    <span className="text-xs font-bold text-slate-600">评估结果</span>
+                                    <span className={`text-xs font-black ${answers['ddst_result'] === 'NORMAL' ? 'text-emerald-500' : 'text-orange-500'}`}>
+                                        {answers['ddst_result'] === 'NORMAL' ? '正常' : answers['ddst_result'] === 'SUSPECT' ? '可疑' : '异常'}
+                                    </span>
+                                </div>
+                            ) : (
+                                <Button fullWidth onClick={onLaunchDDST} className="bg-indigo-600 shadow-indigo-500/20 h-12">
+                                    开始交互式筛查
+                                </Button>
+                            )}
+                        </div>
+                    );
+                }
+
                 if (field.type === 'info') return <div key={field.id} className="bg-blue-50 p-3 rounded-xl border border-blue-100 text-blue-700 text-xs font-bold flex flex-col gap-2 leading-relaxed"><div className="flex items-center gap-2"><span className="shrink-0">ℹ️</span> <span>{label}</span></div>{field.hint && <div className="text-[10px] opacity-80 pl-6">{field.hint}</div>}</div>;
                 if (field.type === 'group') return <div key={field.id} className="border-t border-slate-100 pt-4 mt-2"><h4 className="text-sm font-black text-slate-700 mb-2">{label}</h4>{field.children?.map(child => (<div key={child.id} className="mb-3 pl-2 border-l-2 border-slate-100"><label className="block text-xs font-bold text-slate-600 mb-1">{getLabelText(child.label, fillerType)}</label><div className="flex gap-2">{child.type === 'number' && (<input type="number" value={answers[child.id] || ''} onChange={(e) => setAnswer(child.id, parseFloat(e.target.value))} className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none text-xs w-20" placeholder={child.hint || "输入"} />)}{child.options?.map(opt => (<button key={String(opt.value)} onClick={() => setAnswer(child.id, opt.value)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border ${answers[child.id] === opt.value ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-500 border-slate-200'}`}>{opt.label}</button>))}</div></div>))}</div>;
                 const isDSTItem = isDST && field.id.startsWith('dst_') && field.label.includes('.');
@@ -302,6 +328,7 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
   const [legacyStep, setLegacyStep] = useState(0);
   const [inputValue, setInputValue] = useState<string>('');
   const [showCompletionToast, setShowCompletionToast] = useState(false);
+  const [showDDST, setShowDDST] = useState(false); // [NEW] DDST Modal State
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -516,11 +543,35 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
       }
   };
 
+  // [NEW] DDST Handler
+  const handleDDSTComplete = (result: { status: 'NORMAL' | 'SUSPECT' | 'ABNORMAL', desc: string }) => {
+      setAnswers(prev => ({
+          ...prev,
+          'ddst_completed': true,
+          'ddst_result': result.status,
+          'ddst_abnormal_desc': result.desc
+      }));
+      setShowDDST(false);
+      showToast('DDST 筛查数据已回填', 'success');
+  };
+
   if (type === DiseaseType.COGNITIVE && !formConfig) return <InteractiveMMSE onComplete={onComplete} onBack={onBack} />;
 
   if (formConfig) {
       const progress = ((currentSection + 1) / formConfig.sections.length) * 100;
       const fillerType = (state.user.role === 'FAMILY' ? 'FAMILY' : 'SELF') as FillerType;
+      
+      // [NEW] Interactive DDST Overlay
+      if (showDDST) {
+          return (
+              <InteractiveDDST 
+                  initialAgeMonths={answers['child_age_month'] || 9}
+                  onComplete={handleDDSTComplete}
+                  onCancel={() => setShowDDST(false)}
+              />
+          );
+      }
+
       return (
         <Layout headerTitle={formConfig.title} showBack onBack={onBack}>
             <div className="p-6 pb-safe min-h-full flex flex-col">
@@ -528,7 +579,18 @@ const AssessmentView: React.FC<AssessmentViewProps> = ({ type, onComplete, onBac
                     <div className="flex justify-between text-xs text-slate-400 mb-1"><span className="font-bold text-slate-600">进度</span><span className="font-mono">{currentSection + 1}/{formConfig.sections.length}</span></div>
                     <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden"><div className="bg-indigo-600 h-2 rounded-full transition-all duration-500 ease-out" style={{ width: `${progress}%` }}></div></div>
                 </div>
-                <div className="flex-1 pb-16"><FormRenderer config={formConfig} answers={answers} setAnswer={handleEngineAnswer} currentSectionIndex={currentSection} fillerType={fillerType} onLeave={onBack} onTermination={handleFinish} /></div>
+                <div className="flex-1 pb-16">
+                    <FormRenderer 
+                        config={formConfig} 
+                        answers={answers} 
+                        setAnswer={handleEngineAnswer} 
+                        currentSectionIndex={currentSection} 
+                        fillerType={fillerType} 
+                        onLeave={onBack} 
+                        onTermination={handleFinish}
+                        onLaunchDDST={() => setShowDDST(true)} 
+                    />
+                </div>
                 <div className="mt-8 pt-4 border-t border-slate-100 flex gap-3">{currentSection > 0 && (<Button variant="outline" onClick={() => setCurrentSection(p => p - 1)} className="flex-1 bg-white">上一步</Button>)}<Button fullWidth onClick={handleNextSection} className="flex-[2] shadow-xl shadow-indigo-500/20">{currentSection === formConfig.sections.length - 1 ? '加密提交' : '下一步'}</Button></div>
             </div>
         </Layout>
